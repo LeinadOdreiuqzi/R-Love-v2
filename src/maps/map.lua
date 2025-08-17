@@ -31,6 +31,9 @@ Map.ObjectType = MapConfig.ObjectType
 Map.colors = MapConfig.colors
 Map.baseDensity = MapConfig.density
 
+-- Stride unificado para posicionamiento de chunks (tamaño físico + espaciado)
+Map.stride = (MapConfig.chunk.size * MapConfig.chunk.tileSize) + MapConfig.chunk.spacing
+
 -- Configuración de estrellas exportada
 Map.starConfig = MapConfig.stars
 
@@ -194,10 +197,10 @@ function Map.calculateVisibleChunksTraditional(camera)
     local worldLeft, worldTop = camera:screenToWorld(0 - margin, 0 - margin)
     local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
     
-    local chunkStartX = math.floor(worldLeft / (Map.chunkSize * Map.tileSize)) - Map.viewDistance
-    local chunkStartY = math.floor(worldTop / (Map.chunkSize * Map.tileSize)) - Map.viewDistance
-    local chunkEndX = math.ceil(worldRight / (Map.chunkSize * Map.tileSize)) + Map.viewDistance
-    local chunkEndY = math.ceil(worldBottom / (Map.chunkSize * Map.tileSize)) + Map.viewDistance
+    local chunkStartX = math.floor(worldLeft / Map.stride) - Map.viewDistance
+    local chunkStartY = math.floor(worldTop / Map.stride) - Map.viewDistance
+    local chunkEndX = math.ceil(worldRight / Map.stride) + Map.viewDistance
+    local chunkEndY = math.ceil(worldBottom / Map.stride) + Map.viewDistance
     
     return {
         startX = chunkStartX, startY = chunkStartY,
@@ -321,8 +324,8 @@ function Map.getChunk(chunkX, chunkY, playerX, playerY)
 end
 
 function Map.getChunkInfo(worldX, worldY)
-    local chunkX = math.floor(worldX / (Map.chunkSize * Map.tileSize))
-    local chunkY = math.floor(worldY / (Map.chunkSize * Map.tileSize))
+    local chunkX = math.floor(worldX / Map.stride)
+    local chunkY = math.floor(worldY / Map.stride)
     return chunkX, chunkY
 end
 

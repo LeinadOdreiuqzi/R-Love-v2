@@ -286,12 +286,19 @@ function MapGenerator.generateChunk(chunkX, chunkY)
         tiles = {},
         objects = {stars = {}, nebulae = {}},
         specialObjects = {},
-        bounds = {
-            left = chunkX * MapConfig.chunk.size * MapConfig.chunk.tileSize,
-            top = chunkY * MapConfig.chunk.size * MapConfig.chunk.tileSize,
-            right = (chunkX + 1) * MapConfig.chunk.size * MapConfig.chunk.tileSize,
-            bottom = (chunkY + 1) * MapConfig.chunk.size * MapConfig.chunk.tileSize
-        }
+        bounds = (function()
+            local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+            local spacing = MapConfig.chunk.spacing or 0
+            local stride = sizePixels + spacing
+            local left = chunkX * stride
+            local top = chunkY * stride
+            return {
+                left = left,
+                top = top,
+                right = left + stride,
+                bottom = top + stride
+            }
+        end)()
     }
     
     -- Determinar bioma

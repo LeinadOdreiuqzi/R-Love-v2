@@ -8,7 +8,8 @@ MapConfig.chunk = {
     size = 48,
     tileSize = 32,
     worldScale = 0.8,
-    viewDistance = 3
+    viewDistance = 3,
+    spacing = 0 -- Offset adicional entre chunks en píxeles (0 = sin espacio)
 }
 
 -- Configuración de estrellas

@@ -11,6 +11,10 @@ local StarShader = require 'src.shaders.star_shader'
 MapRenderer.sinTable = {}
 MapRenderer.cosTable = {}
 
+-- Stride unificado (tamaño del chunk en píxeles + espaciado)
+local SIZE_PIXELS = MapConfig.chunk.size * MapConfig.chunk.tileSize
+local STRIDE = SIZE_PIXELS + (MapConfig.chunk.spacing or 0)
+
 -- Inicializar tablas de optimización
 function MapRenderer.init()
     for i = 0, 359 do
@@ -97,7 +101,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     local starsRendered = 0
     local maxStarsPerFrame = starConfig.maxStarsPerFrame or 5000
     local cameraX, cameraY = camera.x, camera.y
-    local chunkSizeTiles = MapConfig.chunk.size * MapConfig.chunk.tileSize
+    local chunkSizeTiles = STRIDE
     local parallaxStrength = starConfig.parallaxStrength
     local screenWidth, screenHeight = love.graphics.getDimensions()
     
@@ -109,8 +113,8 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.objects and chunk.objects.stars then
-                local chunkBaseX = chunkX * chunkSizeTiles
-                local chunkBaseY = chunkY * chunkSizeTiles
+                local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
+                local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 
                 for _, star in ipairs(chunk.objects.stars) do
                     totalStars = totalStars + 1
@@ -243,8 +247,8 @@ function MapRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.objects and chunk.objects.nebulae then
-                local chunkBaseX = chunkX * MapConfig.chunk.size * MapConfig.chunk.tileSize
-                local chunkBaseY = chunkY * MapConfig.chunk.size * MapConfig.chunk.tileSize
+                local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
+                local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 
                 for _, nebula in ipairs(chunk.objects.nebulae) do
                     local worldX = chunkBaseX + nebula.x * MapConfig.chunk.worldScale
@@ -289,17 +293,21 @@ function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.tiles then
-                local chunkBaseX = chunkX * MapConfig.chunk.size
-                local chunkBaseY = chunkY * MapConfig.chunk.size
-                
+                -- Base de tiles (sin espaciado) para índices enteros/semillas
+                local chunkBaseTileX = chunkX * MapConfig.chunk.size
+                local chunkBaseTileY = chunkY * MapConfig.chunk.size
+                -- Base de mundo (con espaciado) para posiciones (en unidades de mundo)
+                local chunkBaseWorldX = chunkX * STRIDE * MapConfig.chunk.worldScale
+                local chunkBaseWorldY = chunkY * STRIDE * MapConfig.chunk.worldScale
+
                 for y = 0, MapConfig.chunk.size - 1 do
                     for x = 0, MapConfig.chunk.size - 1 do
                         local tileType = chunk.tiles[y][x]
                         if tileType >= MapConfig.ObjectType.ASTEROID_SMALL and tileType <= MapConfig.ObjectType.ASTEROID_LARGE then
-                            local globalTileX = chunkBaseX + x
-                            local globalTileY = chunkBaseY + y
-                            local worldX = globalTileX * MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
-                            local worldY = globalTileY * MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
+                            local globalTileX = chunkBaseTileX + x
+                            local globalTileY = chunkBaseTileY + y
+                            local worldX = chunkBaseWorldX + x * MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
+                            local worldY = chunkBaseWorldY + y * MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
                             
                             local sizes = {8, 15, 25}
                             local size = sizes[tileType] * MapConfig.chunk.worldScale * 1.5
@@ -386,8 +394,8 @@ function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.specialObjects then
-                local chunkBaseX = chunkX * MapConfig.chunk.size * MapConfig.chunk.tileSize
-                local chunkBaseY = chunkY * MapConfig.chunk.size * MapConfig.chunk.tileSize
+                local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
+                local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 
                 for _, obj in ipairs(chunk.specialObjects) do
                     if obj.type == MapConfig.ObjectType.STATION or obj.type == MapConfig.ObjectType.WORMHOLE then
@@ -477,8 +485,8 @@ function MapRenderer.drawBiomeFeatures(chunkInfo, camera, getChunkFunc)
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.specialObjects then
-                local chunkBaseX = chunkX * MapConfig.chunk.size * MapConfig.chunk.tileSize
-                local chunkBaseY = chunkY * MapConfig.chunk.size * MapConfig.chunk.tileSize
+                local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
+                local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 
                 for _, feature in ipairs(chunk.specialObjects) do
                     if feature.type and type(feature.type) == "string" then

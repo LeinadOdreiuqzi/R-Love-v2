@@ -5,6 +5,7 @@ local OptimizedRenderer = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local StarShader = require 'src.shaders.star_shader'
 local BiomeSystem = require 'src.maps.biome_system'
+local MapConfig = require 'src.maps.config.map_config'
 
 -- Configuración del renderizador
 OptimizedRenderer.config = {
@@ -231,9 +232,10 @@ function OptimizedRenderer.isChunkVisible(chunk, camera)
     local bounds = chunk.bounds
     if not bounds then return true end
     
-    -- Calcular esquinas del chunk en coordenadas relativas
-    local relLeft, relTop = CoordinateSystem.worldToRelative(bounds.left, bounds.top)
-    local relRight, relBottom = CoordinateSystem.worldToRelative(bounds.right, bounds.bottom)
+    -- Calcular esquinas del chunk en coordenadas relativas (escaladas por worldScale)
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    local relLeft, relTop = CoordinateSystem.worldToRelative(bounds.left * ws, bounds.top * ws)
+    local relRight, relBottom = CoordinateSystem.worldToRelative(bounds.right * ws, bounds.bottom * ws)
     local camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
     
     -- Convertir a coordenadas de pantalla
@@ -284,12 +286,18 @@ function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, ch
     local culledCount = 0
     
     for _, obj in ipairs(objects) do
-        -- Calcular posición mundial del objeto
-        local worldX = chunkX * 48 * 32 + (obj.x or 0)  -- Usar configuración del chunk
-        local worldY = chunkY * 48 * 32 + (obj.y or 0)
+        -- Calcular posición mundial del objeto (unidades de mundo escaladas)
+        local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or 48) * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or 32)
+        local spacing = (MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0
+        local stride = sizePixels + spacing
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        local baseX = chunkX * stride * ws
+        local baseY = chunkY * stride * ws
+        local worldX = baseX + (obj.x or 0) * ws
+        local worldY = baseY + (obj.y or 0) * ws
         
-        -- Frustum culling
-        local objSize = obj.size or 10
+        -- Frustum culling (usar tamaño escalado)
+        local objSize = ((obj.size or 10)) * ws
         if OptimizedRenderer.isObjectVisible(worldX, worldY, objSize, camera) then
             -- Calcular LOD
             local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera)
@@ -327,8 +335,9 @@ function OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, l
     local renderX = (relX - camRelX) * camera.zoom + love.graphics.getWidth() / 2
     local renderY = (relY - camRelY) * camera.zoom + love.graphics.getHeight() / 2
     
-    -- Ajustar tamaño según LOD
-    local renderSize = (obj.size or 10) * camera.zoom * detailLevel
+    -- Ajustar tamaño según LOD (escalar por worldScale)
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    local renderSize = (obj.size or 10) * ws * camera.zoom * detailLevel
     
     -- Renderizar según tipo
     if objectType == "stars" then
@@ -656,17 +665,21 @@ end
 
 -- Renderizar asteroides desde tiles
 function OptimizedRenderer.renderAsteroids(chunk, camera)
-    local chunkSize = 48  -- Configuración del chunk
-    local tileSize = 32
+    local chunkSize = (MapConfig and MapConfig.chunk and MapConfig.chunk.size) or 48
+    local tileSize = (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize) or 32
+    local sizePixels = chunkSize * tileSize
+    local spacing = (MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0
+    local stride = sizePixels + spacing
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
     
     for y = 0, chunkSize - 1 do
         for x = 0, chunkSize - 1 do
             local tileType = chunk.tiles[y] and chunk.tiles[y][x]
             if tileType and tileType >= 1 and tileType <= 3 then  -- Tipos de asteroides
-                local worldX = chunk.x * chunkSize * tileSize + x * tileSize
-                local worldY = chunk.y * chunkSize * tileSize + y * tileSize
+                local worldX = chunk.x * stride * ws + x * tileSize * ws
+                local worldY = chunk.y * stride * ws + y * tileSize * ws
                 
-                local asteroidSize = ({8, 15, 25})[tileType] or 8
+                local asteroidSize = (({8, 15, 25})[tileType] or 8) * ws
                 
                 if OptimizedRenderer.isObjectVisible(worldX, worldY, asteroidSize, camera) then
                     local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera)

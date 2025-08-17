@@ -2,6 +2,10 @@
 
 local BiomeSystem = {}
 local PerlinNoise = require 'src.maps.perlin_noise'
+local MapConfig = require 'src.maps.config.map_config'
+
+-- Unified stride for chunk world positioning
+local STRIDE = (MapConfig.chunk.size * MapConfig.chunk.tileSize) + MapConfig.chunk.spacing
 
 -- Límites del mundo (200k x 200k)
 BiomeSystem.WORLD_LIMIT = 200000
@@ -333,8 +337,8 @@ function BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     end
     
     -- Coordenadas del mundo
-    local worldX = chunkX * 48 * 32
-    local worldY = chunkY * 48 * 32
+    local worldX = chunkX * STRIDE
+    local worldY = chunkY * STRIDE
     
     -- Verificar límites
     if not BiomeSystem.isWithinWorldLimits(worldX, worldY) then
@@ -752,12 +756,13 @@ function BiomeSystem.debugDistribution(sampleSize)
         counts[biomeType] = 0
     end
     
-    local maxChunk = math.floor(BiomeSystem.WORLD_LIMIT / (48 * 32))
+    local maxChunk = math.floor(BiomeSystem.WORLD_LIMIT / STRIDE)
     
     for i = 1, sampleSize do
         local x = math.random(-maxChunk, maxChunk)
         local y = math.random(-maxChunk, maxChunk)
         local biome = BiomeSystem.getBiomeForChunk(x, y)
+        
         local params = BiomeSystem.generateSpaceParameters(x, y)
         
         counts[biome] = counts[biome] + 1

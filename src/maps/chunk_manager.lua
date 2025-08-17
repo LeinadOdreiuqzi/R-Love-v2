@@ -4,6 +4,7 @@
 local ChunkManager = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local BiomeSystem = require 'src.maps.biome_system'
+local MapConfig = require 'src.maps.config.map_config'
 
 -- Configuración del gestor de chunks
 ChunkManager.config = {
@@ -238,8 +239,12 @@ function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY)
     end
     
     -- Calcular prioridad
-    local playerChunkX = math.floor(playerX / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
-    local playerChunkY = math.floor(playerY / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
+    local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
+    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    local playerChunkX = math.floor(playerX / (stride * ws))
+    local playerChunkY = math.floor(playerY / (stride * ws))
+    
     local priority = ChunkManager.calculatePriority(chunkX, chunkY, playerChunkX, playerChunkY)
     
     -- Crear solicitud de carga
@@ -322,12 +327,19 @@ function ChunkManager.generateChunk(chunkX, chunkY)
     chunk.generated = false
     
     -- Calcular bounds
-    chunk.bounds = {
-        left = chunkX * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
-        top = chunkY * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
-        right = (chunkX + 1) * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
-        bottom = (chunkY + 1) * ChunkManager.config.chunkSize * ChunkManager.config.tileSize
-    }
+    do
+        local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
+        local spacing = (MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0
+        local stride = sizePixels + spacing
+        local left = chunkX * stride
+        local top = chunkY * stride
+        chunk.bounds = {
+            left = left,
+            top = top,
+            right = left + stride,
+            bottom = top + stride
+        }
+    end
     
     -- Generar contenido del chunk (delegado al sistema existente)
     ChunkManager.generateChunkContent(chunk)
@@ -383,8 +395,11 @@ function ChunkManager.update(dt, playerX, playerY)
     local startTime = love.timer.getTime()
     
     -- Actualizar posición del jugador
-    local playerChunkX = math.floor(playerX / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
-    local playerChunkY = math.floor(playerY / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
+    local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
+    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    local playerChunkX = math.floor(playerX / (stride * ws))
+    local playerChunkY = math.floor(playerY / (stride * ws))
     
     ChunkManager.state.lastPlayerChunkX = playerChunkX
     ChunkManager.state.lastPlayerChunkY = playerChunkY
@@ -486,10 +501,14 @@ function ChunkManager.getVisibleChunks(camera)
     local worldLeft, worldTop = camera:screenToWorld(0 - margin, 0 - margin)
     local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
     
-    local chunkStartX = math.floor(worldLeft / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
-    local chunkStartY = math.floor(worldTop / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
-    local chunkEndX = math.ceil(worldRight / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
-    local chunkEndY = math.ceil(worldBottom / (ChunkManager.config.chunkSize * ChunkManager.config.tileSize))
+    local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
+    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    local strideScaled = stride * ws
+    local chunkStartX = math.floor(worldLeft / strideScaled)
+    local chunkStartY = math.floor(worldTop / strideScaled)
+    local chunkEndX = math.ceil(worldRight / strideScaled)
+    local chunkEndY = math.ceil(worldBottom / strideScaled)
     
     -- Recopilar chunks visibles
     for chunkY = chunkStartY, chunkEndY do
