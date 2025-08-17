@@ -5,6 +5,7 @@ local MapRenderer = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
+local StarShader = require 'src.shaders.star_shader'
 
 -- Variables de estado para optimización
 MapRenderer.sinTable = {}
@@ -17,6 +18,8 @@ function MapRenderer.init()
         MapRenderer.sinTable[i] = math.sin(rad)
         MapRenderer.cosTable[i] = math.cos(rad)
     end
+    -- Inicializar shader de estrellas
+    if StarShader and StarShader.init then StarShader.init() end
 end
 
 -- Verificar si un objeto está visible (frustum culling optimizado)
@@ -178,10 +181,17 @@ function MapRenderer.drawAdvancedStar(star, worldX, worldY, time, starConfig)
     local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
     local angleIndex = math.floor(twinklePhase * 57.29) % 360
     local twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
-    local brightness = (star.brightness or 1) * twinkleIntensity
+    local brightness = (star.brightness or 1)
     
     local color = star.color
     local size = star.size * worldScale
+
+    -- Si hay efectos mejorados y shader disponible, usar GPU shader para estrellas
+    if starConfig.enhancedEffects and StarShader and StarShader.getShader and StarShader.getShader() then
+        StarShader.drawStar(worldX, worldY, size, color, brightness, twinkleIntensity, starType)
+        love.graphics.setColor(r, g, b, a)
+        return
+    end
     
     -- Renderizado por tipo de estrella
     if starType == 1 then
@@ -194,7 +204,7 @@ function MapRenderer.drawAdvancedStar(star, worldX, worldY, time, starConfig)
         
     elseif starType == 4 then
         local pulseIndex = math.floor((time * 6 + (star.pulsePhase or 0)) * 57.29) % 360
-        local superBrightness = brightness * (1.2 + 0.3 * MapRenderer.sinTable[pulseIndex])
+        local superBrightness = (star.brightness or 1) * (1.2 + 0.3 * MapRenderer.sinTable[pulseIndex])
         
         if brightness > 0.6 then
             love.graphics.setColor(color[1] * superBrightness * 0.15, color[2] * superBrightness * 0.15, color[3] * superBrightness * 0.15, 0.5)
