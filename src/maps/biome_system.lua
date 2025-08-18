@@ -86,7 +86,7 @@ BiomeSystem.biomeConfigs = {
         name = "Deep Space",
         rarity = "Very Common",
         color = {0.05, 0.05, 0.15, 1},  -- Azul muy oscuro más visible
-        spawnWeight = 0.40,  -- 40% del mapa - océano espacial
+        spawnWeight = 0.38,  -- 38% del mapa - océano espacial
         
         conditions = {
             continentalness = {"DEEP_OCEAN", "OCEAN"},  -- Principalmente zonas oceánicas
@@ -111,7 +111,7 @@ BiomeSystem.biomeConfigs = {
         name = "Nebula Field",
         rarity = "Common",
         color = {0.3, 0.15, 0.45, 1},  -- Púrpura más brillante
-        spawnWeight = 0.25,  -- 25% del mapa
+        spawnWeight = 0.24,  -- 24% del mapa
         
         conditions = {
             continentalness = {"COAST", "NEAR_INLAND"},
@@ -136,26 +136,23 @@ BiomeSystem.biomeConfigs = {
     [BiomeSystem.BiomeType.ASTEROID_BELT] = {
         name = "Asteroid Belt",
         rarity = "Uncommon",
-        color = {0.35, 0.25, 0.15, 1},  -- Marrón más claro
-        spawnWeight = 0.25,  -- 20% del mapa
+        color = {0.35, 0.25, 0.15, 1},
+        spawnWeight = 0.12,  -- Reduced from 0.20 to make it less common
         
         conditions = {
-            continentalness = {"NEAR_INLAND", "MID_INLAND"},
-            energy = {"COLD", "TEMPERATE"},
-            density = {"NORMAL", "DENSE"},
-            turbulence = {"HIGH", "MEDIUM"},
-            weirdness = nil,
-            depthRange = {0.0, 1.0}  -- TODA altura válida
+            continentalness = {"MID_INLAND", "FAR_INLAND"},  -- More specific continentalness
+            energy = {"COLD", "TEMPERATE"},  -- More specific energy range
+            density = {"DENSE", "ULTRA_DENSE"},  -- Higher density required
+            turbulence = {"LOW", "MEDIUM"},  -- More stable areas
+            weirdness = {"NORMAL", "POSITIVE_WEIRD"},  -- More specific weirdness
+            depthRange = {0.2, 0.8}  -- Avoid extreme depths
         },
         
-        coherenceRadius = 5,
-        biomeScale = 0.03,
+        coherenceRadius = 15,  -- Aumentado significativamente de 8 para cubrir más chunks
+        biomeScale = 0.08,    -- Duplicado de 0.04 para hacer los biomas más grandes
         specialFeatures = {"mega_asteroid", "asteroid_cluster"},
         properties = {
-            visibility = 0.9,
-            mobility = 0.6,
-            radiation = 0.0,
-            gravity = 1.1
+            visibility = 0.85,  -- Ligeramente más bajo para mayor densidad
         }
     },
     
@@ -163,7 +160,7 @@ BiomeSystem.biomeConfigs = {
         name = "Gravity Anomaly",
         rarity = "Rare",
         color = {0.5, 0.15, 0.5, 1},  -- Magenta más brillante
-        spawnWeight = 0.10,  -- 8% del mapa
+        spawnWeight = 0.08,  -- 8% del mapa
         
         conditions = {
             continentalness = {"MID_INLAND", "FAR_INLAND"},
@@ -189,15 +186,16 @@ BiomeSystem.biomeConfigs = {
         name = "Radioactive Zone",
         rarity = "Very Rare",
         color = {0.15, 0.5, 0.15, 1},  -- Verde radiactivo más brillante
-        spawnWeight = 0.10,  -- 5% del mapa
+        spawnWeight = 0.07,  -- 7% del mapa
         
         conditions = {
-            continentalness = {"FAR_INLAND"},
+            -- Relajar ligeramente para que aparezca sin perder tema
+            continentalness = {"MID_INLAND", "FAR_INLAND"},
             energy = {"HOT"},
-            density = {"ULTRA_DENSE"},
-            turbulence = {"EXTREME"},
+            density = {"DENSE", "ULTRA_DENSE"},
+            turbulence = {"EXTREME", "HIGH"},
             weirdness = {"VERY_WEIRD", "ULTRA_POSITIVE_WEIRD"},
-            depthRange = {0.0, 1.0}  -- TODA altura válida (cambiado de 0.0-0.3)
+            depthRange = {0.0, 1.0}
         },
         
         coherenceRadius = 3,
@@ -215,15 +213,16 @@ BiomeSystem.biomeConfigs = {
         name = "Ancient Ruins",
         rarity = "Extremely Rare", 
         color = {0.25, 0.25, 0.3, 1},  -- Gris azulado más visible
-        spawnWeight = 0.10,  -- 2% del mapa
+        spawnWeight = 0.03,  -- 3% del mapa (realmente raro)
         
         conditions = {
+            -- Aumentar chances manteniendo identidad de bioma
             continentalness = {"FAR_INLAND"},
             energy = {"FROZEN", "HOT"},
-            density = {"ULTRA_DENSE"},
+            density = {"DENSE", "ULTRA_DENSE"},
             turbulence = {"STABLE", "MINIMAL"},
-            weirdness = {"ULTRA_POSITIVE_WEIRD"},
-            depthRange = {0.0, 1.0}  -- TODA altura válida (cambiado de 0.7-1.0)
+            weirdness = {"POSITIVE_WEIRD", "ULTRA_POSITIVE_WEIRD"},
+            depthRange = {0.0, 1.0}
         },
         
         coherenceRadius = 2,
@@ -248,6 +247,35 @@ BiomeSystem.debugInfo = {
 BiomeSystem.debugMode = false
 BiomeSystem.seed = 12345
 BiomeSystem.numericSeed = 12345
+
+-- Campo macro para agrupar biomas en regiones de múltiples chunks
+BiomeSystem.macro = {
+    -- Campo macro continuo para sesgar preferencias regionales SIN fijar tamaño de parche
+    scale = 0.05,      -- Menor frecuencia → parches más grandes aún
+    strength = 2.2,    -- Sesgo a favor del preferido
+    offStrength = 0.7  -- Penalización moderada a no preferidos
+}
+
+-- Determina el bioma preferido de la región a escala macro (por chunk)
+function BiomeSystem.getMacroPreferredBiome(chunkX, chunkY)
+    -- Preferencia macro continua: evita tamaños discretos y permite variabilidad orgánica
+    local s = BiomeSystem.macro.scale
+    local n = PerlinNoise.noise(chunkX * s, chunkY * s, 999)
+    -- Mapear bandas del ruido a tipos de bioma (bandas más anchas para comunes)
+    if n <= -0.6 then
+        return BiomeSystem.BiomeType.DEEP_SPACE
+    elseif n <= -0.2 then
+        return BiomeSystem.BiomeType.NEBULA_FIELD
+    elseif n <= 0.2 then
+        return BiomeSystem.BiomeType.ASTEROID_BELT
+    elseif n <= 0.5 then
+        return BiomeSystem.BiomeType.GRAVITY_ANOMALY
+    elseif n <= 0.8 then
+        return BiomeSystem.BiomeType.RADIOACTIVE_ZONE
+    else
+        return BiomeSystem.BiomeType.ANCIENT_RUINS
+    end
+end
 
 -- Función para convertir semilla alfanumérica a numérica
 function BiomeSystem.seedToNumeric(alphaSeed)
@@ -385,10 +413,14 @@ function BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     -- TURBULENCIA ESPACIAL
     local turbulence = PerlinNoise.noise(worldX * turbScale + 2000, worldY * turbScale + 2000, 300)
     turbulence = turbulence + PerlinNoise.noise(worldX * turbScale * 2, worldY * turbScale * 2, 350) * 0.3
+    -- Ligeramente más extremos para favorecer biomas raros
+    turbulence = math.max(-1, math.min(1, turbulence * 1.15))
     
     -- ANOMALÍAS (weirdness)
     local weirdness = PerlinNoise.noise(worldX * weirdScale + 3000, worldY * weirdScale + 3000, 400)
     weirdness = weirdness + PerlinNoise.noise(worldX * weirdScale * 4, worldY * weirdScale * 4, 450) * 0.2
+    -- Ligeramente más extremos para favorecer biomas raros
+    weirdness = math.max(-1, math.min(1, weirdness * 1.15))
     
     -- La altura solo afecta sutilmente otros parámetros (no bloquea biomas)
     energy = energy - (falseHeight - 0.5) * 0.2  -- Efecto más suave
@@ -521,6 +553,16 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
     local chunkHash = BiomeSystem.hashChunk(chunkX, chunkY)
     local randomValue = (chunkHash % 10000) / 10000.0
     
+    -- Aplicar sesgo macro-regional para formar parches grandes (4–15 chunks)
+    local macroPreferred = BiomeSystem.getMacroPreferredBiome(chunkX, chunkY)
+    for i, entry in ipairs(biomeScores) do
+        if entry.type == macroPreferred then
+            entry.score = entry.score * BiomeSystem.macro.strength
+        else
+            entry.score = entry.score * BiomeSystem.macro.offStrength
+        end
+    end
+
     -- Selección por ruleta ponderada
     local totalScore = 0
     for _, entry in ipairs(biomeScores) do
@@ -530,65 +572,70 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
     local targetValue = randomValue * totalScore
     local accumulator = 0
     
+    local selectedType = biomeScores[1].type
     for _, entry in ipairs(biomeScores) do
         accumulator = accumulator + entry.score
         if accumulator >= targetValue then
-            BiomeSystem.biomeCache[key] = entry.type
-            return entry.type
+            selectedType = entry.type
+            break
         end
     end
-    
-    -- Fallback
-    BiomeSystem.biomeCache[key] = biomeScores[1].type
-    return biomeScores[1].type
+
+    -- Aplicar coherencia espacial con vecinos ya generados para unir parches
+    local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
+    local coherentType = BiomeSystem.applyCoherence3D(chunkX, chunkY, selectedType, params)
+
+    BiomeSystem.biomeCache[key] = coherentType
+    return coherentType
 end
 
 -- Sistema de coherencia espacial simplificado
 function BiomeSystem.applyCoherence3D(chunkX, chunkY, proposedBiome, params)
-    -- Reducir agresividad del sistema de coherencia
+    -- Aplicar coherencia para todos los biomas usando un radio configurable
     local proposedConfig = BiomeSystem.biomeConfigs[proposedBiome]
-    local coherenceRadius = proposedConfig.coherenceRadius or 1
-    
-    -- Solo aplicar coherencia para biomas raros
-    if proposedConfig.spawnWeight > 0.1 then
-        return proposedBiome
-    end
-    
-    -- Contar biomas vecinos
+    local coherenceRadius = math.max(1, proposedConfig.coherenceRadius or 1)
+
+    -- Contar biomas vecinos dentro del radio
     local neighborCounts = {}
     local totalNeighbors = 0
-    
-    for dx = -1, 1 do
-        for dy = -1, 1 do
+
+    for dx = -coherenceRadius, coherenceRadius do
+        for dy = -coherenceRadius, coherenceRadius do
             if dx == 0 and dy == 0 then goto continue end
-            
             local neighborKey = (chunkX + dx) .. "," .. (chunkY + dy)
             local neighborBiome = BiomeSystem.biomeCache[neighborKey]
-            
             if neighborBiome then
                 neighborCounts[neighborBiome] = (neighborCounts[neighborBiome] or 0) + 1
                 totalNeighbors = totalNeighbors + 1
             end
-            
             ::continue::
         end
     end
-    
-    -- Si no hay suficientes vecinos, mantener propuesta
-    if totalNeighbors < 4 then
+
+    if totalNeighbors == 0 then
         return proposedBiome
     end
-    
-    -- Solo cambiar si hay un bioma muy dominante alrededor
+
+    -- Encontrar el bioma dominante
+    local dominantBiome = nil
+    local maxCount = 0
     for biome, count in pairs(neighborCounts) do
-        if count >= 6 and biome ~= BiomeSystem.BiomeType.DEEP_SPACE then
-            local dominantConfig = BiomeSystem.biomeConfigs[biome]
-            if BiomeSystem.matchesBiomeConditions(params, dominantConfig.conditions) then
-                return biome
-            end
+        if count > maxCount then
+            maxCount = count
+            dominantBiome = biome
         end
     end
-    
+
+    -- Umbral de dominancia proporcional al vecindario y evitar que Deep Space absorba todo
+    local area = totalNeighbors
+    local threshold = math.ceil(area * 0.55) -- requiere >55% vecinos del mismo tipo
+    if dominantBiome and dominantBiome ~= BiomeSystem.BiomeType.DEEP_SPACE and maxCount >= threshold then
+        local dominantConfig = BiomeSystem.biomeConfigs[dominantBiome]
+        if BiomeSystem.matchesBiomeConditions(params, dominantConfig.conditions) then
+            return dominantBiome
+        end
+    end
+
     return proposedBiome
 end
 

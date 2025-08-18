@@ -100,65 +100,134 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     local time = love.timer.getTime()
     local starsRendered = 0
     local maxStarsPerFrame = starConfig.maxStarsPerFrame or 5000
+    -- Obtener la posición de la cámara en el espacio de juego
     local cameraX, cameraY = camera.x, camera.y
-    local chunkSizeTiles = STRIDE
-    local parallaxStrength = starConfig.parallaxStrength
+    local parallaxStrength = starConfig.parallaxStrength or 0.2
     local screenWidth, screenHeight = love.graphics.getDimensions()
-    
-    -- Recolectar todas las estrellas visibles por capa
+    local margin = 1000 -- Margen más grande para precarga suave
     local visibleStars = {}
     local totalStars = 0
     
-    for chunkY = chunkInfo.startY, chunkInfo.endY do
-        for chunkX = chunkInfo.startX, chunkInfo.endX do
+    -- Asegurar que la cámara tenga dimensiones actualizadas
+    if not camera.screenWidth or not camera.screenHeight then
+        camera:updateScreenDimensions()
+    end
+    
+    -- Obtener la posición del jugador para el efecto de paralaje
+    local playerX, playerY = cameraX, cameraY
+    
+    -- Calcular el área visible en coordenadas del mundo
+    local camLeft, camTop = camera:screenToWorld(0, 0)
+    local camRight, camBottom = camera:screenToWorld(screenWidth, screenHeight)
+    
+    -- Expandir el área visible con el margen
+    local viewportLeft = camLeft - margin / camera.zoom
+    local viewportTop = camTop - margin / camera.zoom
+    local viewportRight = camRight + margin / camera.zoom
+    local viewportBottom = camBottom + margin / camera.zoom
+    
+    -- Calcular chunks visibles basados en la vista
+    local chunkSize = STRIDE * MapConfig.chunk.worldScale
+    local startChunkX = math.floor(viewportLeft / chunkSize)
+    local endChunkX = math.ceil(viewportRight / chunkSize)
+    local startChunkY = math.floor(viewportTop / chunkSize)
+    local endChunkY = math.ceil(viewportBottom / chunkSize)
+    
+    -- Recorrer solo los chunks visibles
+    for chunkY = startChunkY, endChunkY do
+        for chunkX = startChunkX, endChunkX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.objects and chunk.objects.stars then
-                local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
-                local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
+                -- Coordenadas base del chunk en el mundo
+                local chunkBaseX = chunkX * chunkSize
+                local chunkBaseY = chunkY * chunkSize
                 
                 for _, star in ipairs(chunk.objects.stars) do
-                    totalStars = totalStars + 1
+                    -- Calcular posición absoluta de la estrella en el mundo
+                    local worldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
+                    local worldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
                     
-                    local baseWorldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
-                    local baseWorldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
-                    
-                    -- Aplicar efecto parallax
-                    local parallaxX, parallaxY = 0, 0
+                    -- Aplicar efecto de paralaje basado en la profundidad
                     if parallaxStrength > 0 then
-                        local depthFactor = 1.0 - star.depth
-                        parallaxX = cameraX * depthFactor * parallaxStrength
-                        parallaxY = cameraY * depthFactor * parallaxStrength
+                        local depth = star.depth or 0.5
+                        -- Ajustar el factor de profundidad para un efecto más suave
+                        local depthFactor = (1.0 - depth) * 1.5
+                        
+                        -- Calcular la posición relativa al jugador
+                        local relX = worldX - playerX
+                        local relY = worldY - playerY
+                        
+                        -- Aplicar el efecto de paralaje basado en la profundidad
+                        worldX = playerX + relX * (1 + depthFactor * parallaxStrength)
+                        worldY = playerY + relY * (1 + depthFactor * parallaxStrength)
                     end
                     
-                    local worldX = baseWorldX - parallaxX
-                    local worldY = baseWorldY - parallaxY
-                    
-                    -- Verificar visibilidad
-                    if MapRenderer.isObjectVisible(worldX, worldY, star.size * 3, camera) then
-                        visibleStars[star.type] = visibleStars[star.type] or {}
-                        table.insert(visibleStars[star.type], {
-                            star = star,
-                            worldX = worldX,
-                            worldY = worldY
-                        })
+                    -- Verificar si la estrella está dentro del área visible + margen
+                    if worldX >= viewportLeft and worldX <= viewportRight and
+                       worldY >= viewportTop and worldY <= viewportBottom then
+                        
+                        -- Convertir a coordenadas de pantalla
+                        local screenX, screenY = camera:worldToScreen(worldX, worldY)
+                        -- Ajustar el tamaño basado en la profundidad y zoom
+                        local depth = star.depth or 0.5
+                        local baseSize = math.max(0.5, star.size or 1)
+                        -- Ajuste del tamaño según la profundidad (estrellas más lejanas más pequeñas)
+                        local sizeMultiplier = 0.3 + depth * 0.7  -- 0.3 a 1.0 basado en profundidad
+                        local starSize = baseSize * 2.0 * (camera.zoom or 1.0) * sizeMultiplier
+                        
+                        -- Verificar visibilidad en pantalla
+                        if screenX + starSize >= -margin and screenX - starSize <= screenWidth + margin and
+                           screenY + starSize >= -margin and screenY - starSize <= screenHeight + margin then
+                            
+                            -- Clampear dentro del margen extendido (para evitar NaN raros en shaders)
+                            screenX = math.max(-margin, math.min(screenWidth + margin, screenX))
+                            screenY = math.max(-margin, math.min(screenHeight + margin, screenY))
+                            
+                            visibleStars[star.type] = visibleStars[star.type] or {}
+                            table.insert(visibleStars[star.type], {
+                                star = star,
+                                screenX = screenX,
+                                screenY = screenY,
+                                camera = camera
+                            })
+                        end
                     end
                 end
             end
         end
     end
     
-    -- Renderizar estrellas por capa
+    -- Renderizado por capas (de atrás hacia adelante para el orden de dibujado correcto)
     for layer = 1, 6 do
         if visibleStars[layer] then
             local layerStars = visibleStars[layer]
-            local layerCount = math.min(#layerStars, math.ceil(maxStarsPerFrame / 6))
+            local layerCount = #layerStars
+            
+            -- Ordenar estrellas por profundidad (más lejanas primero)
+            table.sort(layerStars, function(a, b) 
+                return (a.star.depth or 0.5) > (b.star.depth or 0.5)
+            end)
             
             for i = 1, layerCount do
-                if starsRendered >= maxStarsPerFrame then break end
+                if starsRendered >= maxStarsPerFrame then 
+                    break 
+                end
                 
                 local starInfo = layerStars[i]
-                MapRenderer.drawAdvancedStar(starInfo.star, starInfo.worldX, starInfo.worldY, time, starConfig)
-                starsRendered = starsRendered + 1
+                if starInfo then
+                    -- Asegurar que las coordenadas sean válidas
+                    if starInfo.screenX and starInfo.screenY then
+                        MapRenderer.drawAdvancedStar(
+                            starInfo.star,
+                            starInfo.screenX,
+                            starInfo.screenY,
+                            time,
+                            starConfig,
+                            starInfo.camera or camera
+                        )
+                        starsRendered = starsRendered + 1
+                    end
+                end
             end
         end
     end
@@ -166,20 +235,21 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     return starsRendered, totalStars
 end
 
+
+
 -- Dibujar estrella individual con efectos avanzados
-function MapRenderer.drawAdvancedStar(star, worldX, worldY, time, starConfig)
+-- Ahora usa screenX y screenY que ya están en coordenadas de pantalla
+function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera)
     local r, g, b, a = love.graphics.getColor()
     
     if not starConfig.enhancedEffects then
         love.graphics.setColor(star.color[1], star.color[2], star.color[3], star.color[4])
-        local size = star.size * MapConfig.chunk.worldScale
-        love.graphics.circle("fill", worldX, worldY, size, 6)
+        love.graphics.circle("fill", screenX, screenY, star.size * (camera and camera.zoom or 1.0), 6)
         love.graphics.setColor(r, g, b, a)
         return
     end
     
     local starType = star.type or 1
-    local worldScale = MapConfig.chunk.worldScale
     
     -- Calcular parpadeo individual
     local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
@@ -188,51 +258,49 @@ function MapRenderer.drawAdvancedStar(star, worldX, worldY, time, starConfig)
     local brightness = (star.brightness or 1)
     
     local color = star.color
-    local size = star.size * worldScale
+    local size = star.size * (camera and camera.zoom or 1.0)  -- Ajustar tamaño según el zoom
 
     -- Si hay efectos mejorados y shader disponible, usar GPU shader para estrellas
     if starConfig.enhancedEffects and StarShader and StarShader.getShader and StarShader.getShader() then
-        StarShader.drawStar(worldX, worldY, size, color, brightness, twinkleIntensity, starType)
+        -- Usar coordenadas de pantalla directamente
+        local adjustedSize = size * 0.8  -- Ajuste de tamaño para el shader
+        
+        -- IMPORTANTE: dibujar en espacio de pantalla (sin la transformación de cámara)
+        love.graphics.push()
+        love.graphics.origin()
+        StarShader.drawStar(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+        love.graphics.pop()
+        
         love.graphics.setColor(r, g, b, a)
         return
     end
     
-    -- Renderizado por tipo de estrella
+    -- Renderizado por tipo de estrella (usando coordenadas de pantalla)
     if starType == 1 then
         if brightness > 0.7 then
             love.graphics.setColor(color[1] * brightness * 0.3, color[2] * brightness * 0.3, color[3] * brightness * 0.3, 0.2)
-            love.graphics.circle("fill", worldX, worldY, size * 2, 8)
+            love.graphics.circle("fill", screenX, screenY, size * 2, 8)
         end
         love.graphics.setColor(color[1] * brightness, color[2] * brightness, color[3] * brightness, color[4])
-        love.graphics.circle("fill", worldX, worldY, size, 6)
+        love.graphics.circle("fill", screenX, screenY, size, 6)
         
     elseif starType == 4 then
         local pulseIndex = math.floor((time * 6 + (star.pulsePhase or 0)) * 57.29) % 360
-        local superBrightness = (star.brightness or 1) * (1.2 + 0.3 * MapRenderer.sinTable[pulseIndex])
+        local pulse = 0.8 + 0.4 * MapRenderer.sinTable[pulseIndex]
         
-        if brightness > 0.6 then
-            love.graphics.setColor(color[1] * superBrightness * 0.15, color[2] * superBrightness * 0.15, color[3] * superBrightness * 0.15, 0.5)
-            love.graphics.circle("fill", worldX, worldY, size * 4, 16)
-            
-            if brightness > 0.8 then
-                love.graphics.setColor(color[1] * superBrightness * 0.6, color[2] * superBrightness * 0.6, color[3] * superBrightness * 0.6, 0.8)
-                love.graphics.rectangle("fill", worldX - size * 3, worldY - size * 0.3, size * 6, size * 0.6)
-                love.graphics.rectangle("fill", worldX - size * 0.3, worldY - size * 3, size * 0.6, size * 6)
-            end
-        end
+        love.graphics.setColor(color[1] * brightness * 0.7, color[2] * brightness * 0.7, color[3] * brightness * 0.7, 0.3)
+        love.graphics.circle("fill", screenX, screenY, size * 3 * pulse, 12)
+        love.graphics.circle("fill", screenX, screenY, size * 0.8, 12)
         
-        love.graphics.setColor(color[1] * superBrightness, color[2] * superBrightness, color[3] * superBrightness, 1)
-        love.graphics.circle("fill", worldX, worldY, size * 0.8, 12)
-        
-        love.graphics.setColor(1, 1, 1, superBrightness * 0.9)
-        love.graphics.circle("fill", worldX, worldY, size * 0.3, 6)
+        love.graphics.setColor(1, 1, 1, brightness * 0.9)
+        love.graphics.circle("fill", screenX, screenY, size * 0.3, 6)
     else
         -- Tipos básicos
         love.graphics.setColor(color[1] * brightness * 0.3, color[2] * brightness * 0.3, color[3] * brightness * 0.3, 0.3)
-        love.graphics.circle("fill", worldX, worldY, size * 2, 12)
+        love.graphics.circle("fill", screenX, screenY, size * 2, 12)
         
         love.graphics.setColor(color[1] * brightness, color[2] * brightness, color[3] * brightness, color[4])
-        love.graphics.circle("fill", worldX, worldY, size, 8)
+        love.graphics.circle("fill", screenX, screenY, size, 8)
     end
     
     love.graphics.setColor(r, g, b, a)

@@ -90,9 +90,11 @@ function Camera:setPosition(x, y)
     self.y = y
 end
 
--- Follow a target with smooth movement
+-- Follow a target with smooth movement and return target position
 function Camera:follow(target, dt)
-    if not target or not target.x or not target.y then return end
+    if not target or not target.x or not target.y then 
+        return self.x, self.y
+    end
     
     dt = dt or 1/60
     
@@ -100,9 +102,11 @@ function Camera:follow(target, dt)
     local lookAheadX = (target.dx or 0) * 0.3
     local lookAheadY = (target.dy or 0) * 0.3
     
-    -- Calculate distance to target
+    -- Calculate target position
     local targetX = target.x + lookAheadX
     local targetY = target.y + lookAheadY
+    
+    -- Calculate distance to target
     local dx = targetX - self.x
     local dy = targetY - self.y
     local distance = math.sqrt(dx*dx + dy*dy)
@@ -120,24 +124,29 @@ function Camera:follow(target, dt)
     local baseZoom = 1.0  -- Normal zoom for 2D view
     local targetZoom = baseZoom * (1 - math.min(0.2, speed * 0.0005))
     self:zoomTo(self.targetZoom + (targetZoom - self.targetZoom) * 0.1)
+    
+    -- Return target position for synchronization
+    return targetX, targetY
 end
 
 -- Convert screen coordinates to world coordinates
 function Camera:screenToWorld(screenX, screenY)
-    -- Ensure we have valid dimensions
+    -- Ensure we have valid dimensions and zoom
     if not self.screenWidth or not self.screenHeight then
         self:updateScreenDimensions()
-        if not self.screenWidth or not self.screenHeight then
-            return screenX, screenY
-        end
+    end
+    
+    -- Fallback if dimensions are still invalid
+    if not self.screenWidth or not self.screenHeight or not self.zoom then
+        return screenX, screenY
     end
     
     -- Calculate relative position from center
-    local relX = (screenX - self.offsetX) / self.zoom
-    local relY = (screenY - self.offsetY) / self.zoom
+    local relX = (screenX - (self.offsetX or 0)) / (self.zoom or 1)
+    local relY = (screenY - (self.offsetY or 0)) / (self.zoom or 1)
     
-    -- Regular 2D conversion
-    return relX + self.x, relY + self.y
+    -- Regular 2D conversion with safety checks
+    return (self.x or 0) + relX, (self.y or 0) + relY
 end
 
 -- Convert world coordinates to screen coordinates

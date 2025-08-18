@@ -24,37 +24,59 @@ end
 -- Se dibuja sobre un quad con coords 0..1; "texcoord" nos da posición local en el quad
 -- El color final se modula por love_Color (setColor desde CPU)
 local shaderCode = [[
-extern float u_haloSize;
-extern float u_coreSize;
-extern float u_flareStrength;
-extern float u_crossSharpness;
-extern float u_corePower;
-extern float u_haloPower;
-vec4 effect(vec4 vcolor, Image tex, vec2 texcoord, vec2 pixcoord)
-{
-    // Centro en 0.5,0.5 en coords del quad
-    vec2 uv = texcoord;
-    vec2 centered = uv - vec2(0.5);
-    float r = length(centered) * 2.0; // 0..~1 al borde del quad
+    extern float u_haloSize;
+    extern float u_coreSize;
+    extern float u_flareStrength;
+    extern float u_crossSharpness;
+    extern float u_corePower;
+    extern float u_haloPower;
+    
+    // High precision para cálculos de posición
+     #ifdef GL_ES
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+    #else
+    #define highp
+    #define mediump
+    #define lowp
+    #endif
+    
+    // Función para convertir coordenadas a alta precisión
+    vec2 toHighPrecision(vec2 pos) {
+        // Ajustar la escala para mantener precisión con coordenadas grandes
+        const float invScale = 0.1; // Ajustar según sea necesario
+        return pos * invScale;
+    }
+    
+    vec4 effect(vec4 vcolor, Image tex, vec2 texcoord, vec2 pixcoord) {
+        // Usar coordenadas locales del quad (0..1) para el renderizado
+        vec2 uv = texcoord;
+        vec2 centered = uv - vec2(0.5);
+        float r = length(centered) * 2.0; // 0..~1 al borde del quad
 
-    // Halo suave
-    float halo = smoothstep(u_haloSize, 0.0, r);
+        // Halo suave
+        float halo = smoothstep(u_haloSize, 0.0, r);
 
-    // Núcleo más concentrado
-    float core = smoothstep(u_coreSize, 0.0, r);
+        // Núcleo más concentrado
+        float core = smoothstep(u_coreSize, 0.0, r);
 
-    // Starflare en cruz (simple)
-    float angX = abs(centered.x);
-    float angY = abs(centered.y);
-    float flare = max(0.0, 1.0 - (angX * u_crossSharpness)) + max(0.0, 1.0 - (angY * u_crossSharpness));
-    flare *= u_flareStrength; // controlable
+        // Starflare en cruz (simple)
+        float angX = abs(centered.x);
+        float angY = abs(centered.y);
+        float flare = max(0.0, 1.0 - (angX * u_crossSharpness)) + 
+                     max(0.0, 1.0 - (angY * u_crossSharpness));
+        flare *= u_flareStrength; // controlable
 
-    float alpha = clamp(core * u_corePower + halo * u_haloPower + flare, 0.0, 1.0);
+        // Calcular alpha final
+        float alpha = clamp(core * u_corePower + halo * u_haloPower + flare, 0.0, 1.0);
 
-    // El sampler sólo aporta un texel blanco (1x1), usamos vcolor como color base
-    vec4 base = vcolor;
-    return vec4(base.rgb, base.a * alpha);
-}
+        // El sampler sólo aporta un texel blanco (1x1), usamos vcolor como color base
+        vec4 base = vcolor;
+        return vec4(base.rgb, base.a * alpha);
+    }
 ]]
 
 function StarShader.init()
@@ -87,12 +109,15 @@ end
 
 -- Dibuja una estrella con el shader. size = radio base en píxeles.
 -- color = {r,g,b,a}, brightness y twinkleIntensity modulan el color final.
+-- Para evitar problemas de precisión con coordenadas grandes, se recomienda usar coordenadas relativas a la cámara
 function StarShader.drawStar(x, y, size, color, brightness, twinkleIntensity, starType)
     if not shader or not whiteImage then return end
 
+    local screenX, screenY = x, y
     -- Ajustes por tipo para replicar estilos previos
     starType = starType or 1
 
+    -- Ajustar parámetros según el tipo de estrella
     local haloSize = 1.2
     local coreSize = 0.6
     local flareStrength = 0.12

@@ -193,14 +193,25 @@ function Map.calculateVisibleChunksTraditional(camera)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    local margin = 100
-    local worldLeft, worldTop = camera:screenToWorld(0 - margin, 0 - margin)
+    -- Add a margin around the screen to ensure objects don't pop in at the edges
+    local margin = 200
+    
+    -- Convert screen corners to world coordinates with margin
+    local worldLeft, worldTop = camera:screenToWorld(-margin, -margin)
     local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
     
-    local chunkStartX = math.floor(worldLeft / Map.stride) - Map.viewDistance
-    local chunkStartY = math.floor(worldTop / Map.stride) - Map.viewDistance
-    local chunkEndX = math.ceil(worldRight / Map.stride) + Map.viewDistance
-    local chunkEndY = math.ceil(worldBottom / Map.stride) + Map.viewDistance
+    -- Calculate chunk coordinates based on visible area
+    local chunkSize = Map.chunkSize * Map.tileSize
+    local chunkStartX = math.floor(worldLeft / chunkSize)
+    local chunkStartY = math.floor(worldTop / chunkSize)
+    local chunkEndX = math.ceil(worldRight / chunkSize)
+    local chunkEndY = math.ceil(worldBottom / chunkSize)
+    
+    -- Add an extra chunk in each direction to ensure smooth transitions
+    chunkStartX = chunkStartX - 1
+    chunkStartY = chunkStartY - 1
+    chunkEndX = chunkEndX + 1
+    chunkEndY = chunkEndY + 1
     
     return {
         startX = chunkStartX, startY = chunkStartY,
