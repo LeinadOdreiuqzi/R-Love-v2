@@ -187,15 +187,15 @@ BiomeSystem.biomeConfigs = {
         name = "Radioactive Zone",
         rarity = "Very Rare",
         color = {0.15, 0.5, 0.15, 1},  -- Verde radiactivo más brillante
-        spawnWeight = 0.07,  -- 7% del mapa
+        spawnWeight = 0.09,  -- antes 0.07
         
         conditions = {
             -- Relajar ligeramente para que aparezca sin perder tema
             continentalness = {"MID_INLAND", "FAR_INLAND"},
-            energy = {"HOT"},
+            energy = {"WARM", "HOT"},
             density = {"DENSE", "ULTRA_DENSE"},
-            turbulence = {"EXTREME", "HIGH"},
-            weirdness = {"VERY_WEIRD", "ULTRA_POSITIVE_WEIRD"},
+            turbulence = {"MEDIUM", "HIGH", "EXTREME"},
+            weirdness = {"WEIRD", "VERY_WEIRD", "POSITIVE_WEIRD", "ULTRA_POSITIVE_WEIRD"},
             depthRange = {0.0, 1.0}
         },
         
@@ -214,14 +214,14 @@ BiomeSystem.biomeConfigs = {
         name = "Ancient Ruins",
         rarity = "Extremely Rare", 
         color = {0.25, 0.25, 0.3, 1},  -- Gris azulado más visible
-        spawnWeight = 0.03,  -- 3% del mapa (realmente raro)
+        spawnWeight = 0.05,  -- antes 0.03
         
         conditions = {
             -- Aumentar chances manteniendo identidad de bioma
-            continentalness = {"FAR_INLAND"},
-            energy = {"FROZEN", "HOT"},
+            continentalness = {"MID_INLAND", "FAR_INLAND"},
+            energy = {"COLD", "TEMPERATE", "HOT"},
             density = {"DENSE", "ULTRA_DENSE"},
-            turbulence = {"STABLE", "MINIMAL"},
+            turbulence = {"LOW", "MINIMAL", "STABLE"},
             weirdness = {"POSITIVE_WEIRD", "ULTRA_POSITIVE_WEIRD"},
             depthRange = {0.0, 1.0}
         },
@@ -253,8 +253,8 @@ BiomeSystem.numericSeed = 12345
 BiomeSystem.macro = {
     -- Campo macro continuo para sesgar preferencias regionales SIN fijar tamaño de parche
     scale = 0.05,      -- Menor frecuencia → parches más grandes aún
-    strength = 2.2,    -- Sesgo a favor del preferido
-    offStrength = 0.7  -- Penalización moderada a no preferidos
+    strength = 2.8,    -- Sesgo a favor del preferido (antes 2.2)
+    offStrength = 0.8  -- Penalización moderada a no preferidos (antes 0.7)
 }
 
 -- Determina el bioma preferido de la región a escala macro (por chunk)
