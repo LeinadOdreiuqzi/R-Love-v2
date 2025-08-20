@@ -5,6 +5,7 @@ local ChunkManager = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
+local MapGenerator = require 'src.maps.systems.map_generator'
 
 -- Configuración del gestor de chunks
 ChunkManager.config = {
@@ -13,27 +14,36 @@ ChunkManager.config = {
     tileSize = 32,
     
     -- Gestión de memoria
-    maxActiveChunks = 100,      -- Máximo de chunks activos
-    maxCachedChunks = 200,      -- Máximo de chunks en cache
-    poolSize = 50,              -- Tamaño del pool de chunks reutilizables
+    maxActiveChunks = 120,      -- Aumentado de 100 a 120
+    maxCachedChunks = 250,      -- Aumentado de 200 a 250
+    poolSize = 60,              -- Aumentado de 50 a 60
     
-    -- Distancias de carga/descarga
-    loadDistance = 3,           -- Distancia para cargar chunks
-    unloadDistance = 6,         -- Distancia para descargar chunks
-    preloadDistance = 2,        -- Distancia para precarga
+    -- Distancias de carga/descarga (aumentadas para mejor precarga)
+    loadDistance = 4,           -- Aumentado de 3 a 4
+    unloadDistance = 8,         -- Aumentado de 6 a 8
+    preloadDistance = 6,        -- Aumentado de 2 a 6 para precarga más agresiva
     
-    -- Prioridades de carga
+    -- Precarga direccional
+    directionalPreload = {
+        enabled = true,
+        lookAheadDistance = 3,  -- Chunks adicionales en dirección de movimiento
+        velocityThreshold = 5,  -- Velocidad mínima para activar precarga direccional
+        biasMultiplier = 1.5    -- Multiplicador de prioridad para dirección de movimiento
+    },
+    
+    -- Prioridades de carga (menores números = mayor prioridad)
     priority = {
         immediate = 1,          -- Chunk donde está el jugador
         adjacent = 2,           -- Chunks adyacentes
-        visible = 3,            -- Chunks visibles en pantalla
-        preload = 4,            -- Chunks de precarga
-        background = 5          -- Chunks de fondo
+        directional = 3,        -- Chunks en dirección de movimiento
+        visible = 4,            -- Chunks visibles en pantalla
+        preload = 5,            -- Chunks de precarga
+        background = 6          -- Chunks de fondo
     },
     
     -- Configuración de generación
-    maxGenerationTime = 0.002,  -- Tiempo máximo por frame para generación (2ms)
-    maxObjectsPerFrame = 100,   -- Objetos máximos a generar por frame
+    maxGenerationTime = 0.003,  -- Aumentado de 0.002 a 0.003 (3ms)
+    maxObjectsPerFrame = 150,   -- Aumentado de 100 a 150
     
     -- Estadísticas
     enableStats = true
@@ -178,7 +188,7 @@ function ChunkManager.calculatePriority(chunkX, chunkY, playerChunkX, playerChun
     local dx = math.abs(chunkX - playerChunkX)
     local dy = math.abs(chunkY - playerChunkY)
     local distance = math.max(dx, dy)  -- Distancia de Chebyshev
-    
+
     if distance == 0 then
         return ChunkManager.config.priority.immediate
     elseif distance == 1 then
@@ -189,6 +199,153 @@ function ChunkManager.calculatePriority(chunkX, chunkY, playerChunkX, playerChun
         return ChunkManager.config.priority.preload
     else
         return ChunkManager.config.priority.background
+    end
+end
+
+-- Calcular prioridad de carga con sesgo direccional (top-level)
+function ChunkManager.calculatePriorityWithDirection(chunkX, chunkY, playerChunkX, playerChunkY, playerVelX, playerVelY)
+    local dx = math.abs(chunkX - playerChunkX)
+    local dy = math.abs(chunkY - playerChunkY)
+    local distance = math.max(dx, dy)  -- Distancia de Chebyshev
+
+    -- Prioridad base según distancia
+    local basePriority
+    if distance == 0 then
+        basePriority = ChunkManager.config.priority.immediate
+    elseif distance == 1 then
+        basePriority = ChunkManager.config.priority.adjacent
+    elseif distance <= ChunkManager.config.loadDistance then
+        basePriority = ChunkManager.config.priority.visible
+    elseif distance <= ChunkManager.config.preloadDistance then
+        basePriority = ChunkManager.config.priority.preload
+    else
+        basePriority = ChunkManager.config.priority.background
+    end
+
+    -- Sesgo direccional
+    if ChunkManager.config.directionalPreload.enabled and playerVelX and playerVelY then
+        local speed = math.sqrt(playerVelX * playerVelX + playerVelY * playerVelY)
+
+        if speed > ChunkManager.config.directionalPreload.velocityThreshold then
+            local directionX = chunkX - playerChunkX
+            local directionY = chunkY - playerChunkY
+
+            local normalizedVelX = playerVelX / speed
+            local normalizedVelY = playerVelY / speed
+
+            local alignment = 0
+            if distance > 0 then
+                local normalizedDirX = directionX / distance
+                local normalizedDirY = directionY / distance
+                alignment = normalizedVelX * normalizedDirX + normalizedVelY * normalizedDirY
+            end
+
+            if alignment > 0.3 then
+                local bias = alignment * ChunkManager.config.directionalPreload.biasMultiplier
+                basePriority = basePriority - bias
+
+                if basePriority < ChunkManager.config.priority.directional then
+                    basePriority = ChunkManager.config.priority.directional
+                end
+            end
+        end
+    end
+
+    return basePriority
+end
+
+-- Insertar en cola de carga ordenada por prioridad (menor número = mayor prioridad)
+function ChunkManager.insertLoadRequest(loadRequest)
+    local queue = ChunkManager.state.loadQueue
+    local inserted = false
+    for i = 1, #queue do
+        local q = queue[i]
+        if loadRequest.priority < q.priority or
+           (loadRequest.priority == q.priority and loadRequest.requestTime < q.requestTime) then
+            table.insert(queue, i, loadRequest)
+            inserted = true
+            break
+        end
+    end
+    if not inserted then
+        table.insert(queue, loadRequest)
+    end
+end
+
+-- Procesar cola de carga con presupuesto de tiempo (segundos)
+function ChunkManager.processLoadQueue(dt, timeBudgetSec)
+    local startTime = love.timer.getTime()
+    local budget = timeBudgetSec or 0.002
+    local queue = ChunkManager.state.loadQueue
+
+    while #queue > 0 and (love.timer.getTime() - startTime) < budget do
+        local req = table.remove(queue, 1)
+        local id = req.id
+
+        -- Si ya está cargado o cacheado, saltar
+        if not ChunkManager.state.activeChunks[id] and not ChunkManager.state.cachedChunks[id] then
+            -- Generar chunk
+            local chunk = MapGenerator.generateChunk(req.chunkX, req.chunkY)
+            -- Normalizar a estructura esperada por ChunkManager
+            chunk.id = id
+            chunk.status = "complete"
+            chunk.priority = req.priority
+            chunk.lastAccess = love.timer.getTime()
+            chunk.generated = true
+            chunk.visible = false
+            chunk.lodLevel = 0
+
+            -- Activar directamente (rápido y simple)
+            ChunkManager.state.activeChunks[id] = chunk
+        end
+    end
+end
+
+-- Descargar a caché los chunks demasiado lejanos
+function ChunkManager.processUnloadQueue(playerChunkX, playerChunkY)
+    local toCache = {}
+    for id, chunk in pairs(ChunkManager.state.activeChunks) do
+        local dx = math.abs(chunk.x - playerChunkX)
+        local dy = math.abs(chunk.y - playerChunkY)
+        local distance = math.max(dx, dy)
+        if distance > ChunkManager.config.unloadDistance then
+            table.insert(toCache, id)
+        end
+    end
+
+    for _, id in ipairs(toCache) do
+        local chunk = ChunkManager.state.activeChunks[id]
+        ChunkManager.state.activeChunks[id] = nil
+        -- Mantener como complete en caché; se promoverá si se vuelve a solicitar
+        chunk.visible = false
+        ChunkManager.state.cachedChunks[id] = chunk
+        ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + 1
+    end
+end
+
+-- Limpiar caché por LRU
+function ChunkManager.cleanupCache()
+    local cachedCount = 0
+    for _ in pairs(ChunkManager.state.cachedChunks) do cachedCount = cachedCount + 1 end
+    if cachedCount <= ChunkManager.config.maxCachedChunks then return end
+
+    -- Construir lista para ordenar por lastAccess asc (menos usados primero)
+    local items = {}
+    for id, chunk in pairs(ChunkManager.state.cachedChunks) do
+        table.insert(items, { id = id, lastAccess = chunk.lastAccess or 0 })
+    end
+    table.sort(items, function(a, b) return a.lastAccess < b.lastAccess end)
+
+    local target = math.floor(ChunkManager.config.maxCachedChunks * 0.8)
+    local toRemove = cachedCount - target
+    for i = 1, toRemove do
+        local id = items[i] and items[i].id
+        if id and ChunkManager.state.cachedChunks[id] then
+            local chunk = ChunkManager.state.cachedChunks[id]
+            ChunkManager.state.cachedChunks[id] = nil
+            -- Devolver al pool si cabe, si no simplemente permitir GC
+            ChunkManager.returnChunkToPool(chunk)
+        end
     end
 end
 
@@ -228,7 +385,7 @@ function ChunkManager.getChunk(chunkX, chunkY, playerX, playerY)
 end
 
 -- Solicitar carga de chunk
-function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY)
+function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY, playerVelX, playerVelY)
     local chunkId = ChunkManager.generateChunkId(chunkX, chunkY)
     
     -- Verificar si ya está en cola de carga
@@ -238,366 +395,255 @@ function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY)
         end
     end
     
-    -- Calcular prioridad
+    -- Determinar chunk del jugador
     local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
     local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
     local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-    local playerChunkX = math.floor(playerX / (stride * ws))
-    local playerChunkY = math.floor(playerY / (stride * ws))
-    
-    local priority = ChunkManager.calculatePriority(chunkX, chunkY, playerChunkX, playerChunkY)
-    
+    local playerChunkX, playerChunkY
+
+    if type(playerX) ~= "number" or type(playerY) ~= "number" then
+        playerChunkX = ChunkManager.state.lastPlayerChunkX or 0
+        playerChunkY = ChunkManager.state.lastPlayerChunkY or 0
+    else
+        local computedX = math.floor(playerX / (stride * ws))
+        local computedY = math.floor(playerY / (stride * ws))
+        if (playerX == 0 and playerY == 0) and
+           ((ChunkManager.state.lastPlayerChunkX or 0) ~= 0 or (ChunkManager.state.lastPlayerChunkY or 0) ~= 0) then
+            playerChunkX = ChunkManager.state.lastPlayerChunkX
+            playerChunkY = ChunkManager.state.lastPlayerChunkY
+        else
+            playerChunkX = computedX
+            playerChunkY = computedY
+        end
+    end
+
+    -- Calcular prioridad con sesgo direccional
+    local priority = ChunkManager.calculatePriorityWithDirection(
+        chunkX, chunkY, playerChunkX, playerChunkY, playerVelX, playerVelY
+    )
+
     -- Crear solicitud de carga
     local loadRequest = {
         id = chunkId,
         chunkX = chunkX,
         chunkY = chunkY,
         priority = priority,
-        requestTime = love.timer.getTime()
+        requestTime = love.timer.getTime(),
+        directional = (playerVelX and playerVelY) and true or false
     }
-    
+
     -- Insertar en cola de carga ordenada por prioridad
     ChunkManager.insertLoadRequest(loadRequest)
     ChunkManager.state.stats.loadRequests = ChunkManager.state.stats.loadRequests + 1
-    
+
     return nil  -- Chunk no disponible inmediatamente
 end
 
--- Insertar solicitud de carga manteniendo orden por prioridad
-function ChunkManager.insertLoadRequest(request)
-    local inserted = false
-    for i, existingRequest in ipairs(ChunkManager.state.loadQueue) do
-        if request.priority < existingRequest.priority then
-            table.insert(ChunkManager.state.loadQueue, i, request)
-            inserted = true
-            break
-        end
-    end
-    
-    if not inserted then
-        table.insert(ChunkManager.state.loadQueue, request)
-    end
-end
-
--- Procesar cola de carga (llamar cada frame)
-function ChunkManager.processLoadQueue(dt, maxTime)
-    maxTime = maxTime or ChunkManager.config.maxGenerationTime
-    local startTime = love.timer.getTime()
-    local processedCount = 0
-    
-    while #ChunkManager.state.loadQueue > 0 and (love.timer.getTime() - startTime) < maxTime do
-        local request = table.remove(ChunkManager.state.loadQueue, 1)
+    -- Actualizar gestión de chunks con velocidad del jugador
+    function ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
+        local startTime = love.timer.getTime()
         
-        -- Verificar si el chunk aún es relevante
-        if ChunkManager.isChunkRelevant(request.chunkX, request.chunkY) then
-            ChunkManager.generateChunk(request.chunkX, request.chunkY)
-            processedCount = processedCount + 1
-        end
-        
-        -- Limitar objetos procesados por frame
-        if processedCount >= ChunkManager.config.maxObjectsPerFrame then
-            break
-        end
-    end
-    
-    ChunkManager.state.stats.lastFrameTime = love.timer.getTime() - startTime
-    return processedCount
-end
-
--- Verificar si un chunk sigue siendo relevante
-function ChunkManager.isChunkRelevant(chunkX, chunkY)
-    local dx = math.abs(chunkX - ChunkManager.state.lastPlayerChunkX)
-    local dy = math.abs(chunkY - ChunkManager.state.lastPlayerChunkY)
-    local distance = math.max(dx, dy)
-    
-    return distance <= ChunkManager.config.unloadDistance
-end
-
--- Generar chunk completamente
-function ChunkManager.generateChunk(chunkX, chunkY)
-    local chunkId = ChunkManager.generateChunkId(chunkX, chunkY)
-    local chunk = ChunkManager.getChunkFromPool()
-    
-    -- Configurar chunk básico
-    chunk.x = chunkX
-    chunk.y = chunkY
-    chunk.id = chunkId
-    chunk.status = "generating"
-    chunk.lastAccess = love.timer.getTime()
-    chunk.generated = false
-    
-    -- Calcular bounds
-    do
+        -- Actualizar posición del jugador
         local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
-        local spacing = (MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0
-        local stride = sizePixels + spacing
-        local left = chunkX * stride
-        local top = chunkY * stride
-        chunk.bounds = {
-            left = left,
-            top = top,
-            right = left + stride,
-            bottom = top + stride
-        }
-    end
-    
-    -- Generar contenido del chunk (delegado al sistema existente)
-    ChunkManager.generateChunkContent(chunk)
-    
-    -- Marcar como completo
-    chunk.status = "complete"
-    chunk.loadProgress = 1.0
-    chunk.generated = true
-    
-    -- Agregar a chunks activos
-    ChunkManager.state.activeChunks[chunkId] = chunk
-    ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount + 1
-    
-    return chunk
-end
-
--- Generar contenido del chunk (integración con sistema existente)
-function ChunkManager.generateChunkContent(chunk)
-    local Map = require 'src.maps.map'
-    
-    -- Determinar bioma para este chunk
-    local biomeInfo = BiomeSystem.getBiomeInfo(chunk.x, chunk.y)
-    chunk.biome = biomeInfo
-    
-    -- Inicializar tiles
-    chunk.tiles = {}
-    for y = 0, ChunkManager.config.chunkSize - 1 do
-        chunk.tiles[y] = {}
-        for x = 0, ChunkManager.config.chunkSize - 1 do
-            chunk.tiles[y][x] = 0  -- Empty by default
-        end
-    end
-    
-    -- Inicializar objetos
-    chunk.objects = {
-        stars = {},
-        nebulae = {}
-    }
-    chunk.specialObjects = {}
-    
-    -- Generar usando el sistema existente del mapa
-    local tempChunk = Map.generateChunk(chunk.x, chunk.y)
-    
-    -- Copiar datos generados
-    chunk.tiles = tempChunk.tiles
-    chunk.objects = tempChunk.objects
-    chunk.specialObjects = tempChunk.specialObjects
-    chunk.biome = tempChunk.biome
-end
-
--- Actualizar gestión de chunks (llamar cada frame)
-function ChunkManager.update(dt, playerX, playerY)
-    local startTime = love.timer.getTime()
-    
-    -- Actualizar posición del jugador
-    local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
-    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
-    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-    local playerChunkX = math.floor(playerX / (stride * ws))
-    local playerChunkY = math.floor(playerY / (stride * ws))
-    
-    ChunkManager.state.lastPlayerChunkX = playerChunkX
-    ChunkManager.state.lastPlayerChunkY = playerChunkY
-    
-    -- Procesar cola de carga
-    ChunkManager.processLoadQueue(dt)
-    
-    -- Procesar descargas si es necesario
-    if #ChunkManager.state.activeChunks > ChunkManager.config.maxActiveChunks * 0.9 then
-        ChunkManager.processUnloadQueue(playerChunkX, playerChunkY)
-    end
-    
-    -- Gestión de memoria si es necesario
-    if #ChunkManager.state.cachedChunks > ChunkManager.config.maxCachedChunks * 0.9 then
-        ChunkManager.cleanupCache()
-    end
-    
-    ChunkManager.state.stats.generationTime = love.timer.getTime() - startTime
-end
-
--- Procesar cola de descarga
-function ChunkManager.processUnloadQueue(playerChunkX, playerChunkY)
-    local toUnload = {}
-    
-    -- Encontrar chunks a descargar
-    for chunkId, chunk in pairs(ChunkManager.state.activeChunks) do
-        local distance = math.max(
-            math.abs(chunk.x - playerChunkX),
-            math.abs(chunk.y - playerChunkY)
-        )
+        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        local playerChunkX = math.floor(playerX / (stride * ws))
+        local playerChunkY = math.floor(playerY / (stride * ws))
         
-        if distance > ChunkManager.config.unloadDistance then
-            table.insert(toUnload, {id = chunkId, chunk = chunk, distance = distance})
-        end
-    end
-    
-    -- Ordenar por distancia (más lejanos primero)
-    table.sort(toUnload, function(a, b) return a.distance > b.distance end)
-    
-    -- Descargar chunks
-    local unloadCount = 0
-    local maxUnloads = 5  -- Limitar descargas por frame
-    
-    for _, unloadData in ipairs(toUnload) do
-        if unloadCount >= maxUnloads then break end
+        ChunkManager.state.lastPlayerChunkX = playerChunkX
+        ChunkManager.state.lastPlayerChunkY = playerChunkY
         
-        ChunkManager.unloadChunk(unloadData.id, unloadData.chunk)
-        unloadCount = unloadCount + 1
+        -- Procesar cola de carga con tiempo extendido
+        ChunkManager.processLoadQueue(dt, ChunkManager.config.maxGenerationTime)
+        
+        -- Precarga direccional automática
+        if ChunkManager.config.directionalPreload.enabled and playerVelX and playerVelY then
+            ChunkManager.performDirectionalPreload(playerChunkX, playerChunkY, playerVelX, playerVelY)
+        end
+        
+        -- Procesar descargas si es necesario
+        if ChunkManager.countActiveChunks() > ChunkManager.config.maxActiveChunks * 0.9 then
+            ChunkManager.processUnloadQueue(playerChunkX, playerChunkY)
+        end
+        
+        -- Gestión de memoria si es necesario
+        if ChunkManager.countCachedChunks() > ChunkManager.config.maxCachedChunks * 0.9 then
+            ChunkManager.cleanupCache()
+        end
+        
+        ChunkManager.state.stats.generationTime = love.timer.getTime() - startTime
     end
     
-    ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + unloadCount
-end
-
--- Descargar chunk específico
-function ChunkManager.unloadChunk(chunkId, chunk)
-    -- Mover de activo a cache
-    ChunkManager.state.activeChunks[chunkId] = nil
-    ChunkManager.state.cachedChunks[chunkId] = chunk
+    -- Realizar precarga direccional
+    function ChunkManager.performDirectionalPreload(playerChunkX, playerChunkY, velX, velY)
+        local speed = math.sqrt(velX * velX + velY * velY)
+        if speed < ChunkManager.config.directionalPreload.velocityThreshold then return end
     
-    -- Reducir nivel de detalle para cache
-    chunk.status = "cached"
+        local lookAhead = ChunkManager.config.directionalPreload.lookAheadDistance
+        local normalizedVelX = velX / speed
+        local normalizedVelY = velY / speed
     
-    -- Actualizar estadísticas
-    ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount - 1
-    ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount + 1
-end
-
--- Limpiar cache antiguo
-function ChunkManager.cleanupCache()
-    local cacheList = {}
+        -- Redondeo seguro (Lua no tiene math.round estándar)
+        local function round(n)
+            if n >= 0 then
+                return math.floor(n + 0.5)
+            else
+                return math.ceil(n - 0.5)
+            end
+        end
     
-    -- Crear lista ordenada por tiempo de acceso
-    for chunkId, chunk in pairs(ChunkManager.state.cachedChunks) do
-        table.insert(cacheList, {id = chunkId, chunk = chunk})
-    end
+        for distance = 1, lookAhead do
+            local futureX = playerChunkX + round(normalizedVelX * distance)
+            local futureY = playerChunkY + round(normalizedVelY * distance)
     
-    table.sort(cacheList, function(a, b) return a.chunk.lastAccess < b.chunk.lastAccess end)
+            local chunkId = ChunkManager.generateChunkId(futureX, futureY)
     
-    -- Remover chunks más antiguos
-    local removeCount = math.max(0, #cacheList - ChunkManager.config.maxCachedChunks)
-    
-    for i = 1, removeCount do
-        local chunkData = cacheList[i]
-        ChunkManager.state.cachedChunks[chunkData.id] = nil
-        ChunkManager.returnChunkToPool(chunkData.chunk)
-        ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount - 1
-    end
-end
-
--- Obtener chunks visibles para renderizado
-function ChunkManager.getVisibleChunks(camera)
-    local visibleChunks = {}
-    
-    -- Calcular área visible
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
-    
-    local margin = 100
-    local worldLeft, worldTop = camera:screenToWorld(0 - margin, 0 - margin)
-    local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
-    
-    local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
-    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
-    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-    local strideScaled = stride * ws
-    local chunkStartX = math.floor(worldLeft / strideScaled)
-    local chunkStartY = math.floor(worldTop / strideScaled)
-    local chunkEndX = math.ceil(worldRight / strideScaled)
-    local chunkEndY = math.ceil(worldBottom / strideScaled)
-    
-    -- Recopilar chunks visibles
-    for chunkY = chunkStartY, chunkEndY do
-        for chunkX = chunkStartX, chunkEndX do
-            local chunkId = ChunkManager.generateChunkId(chunkX, chunkY)
-            local chunk = ChunkManager.state.activeChunks[chunkId]
-            
-            if chunk and chunk.status == "complete" then
-                chunk.visible = true
-                table.insert(visibleChunks, chunk)
+            if not ChunkManager.state.activeChunks[chunkId] and not ChunkManager.isInLoadQueue(chunkId) then
+                ChunkManager.requestChunkLoad(
+                    futureX, futureY,
+                    playerChunkX * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
+                    playerChunkY * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
+                    velX, velY
+                )
             end
         end
     end
     
-    return visibleChunks, {
-        startX = chunkStartX, startY = chunkStartY,
-        endX = chunkEndX, endY = chunkEndY,
-        worldLeft = worldLeft, worldTop = worldTop,
-        worldRight = worldRight, worldBottom = worldBottom
-    }
-end
-
--- Obtener estadísticas del gestor
-function ChunkManager.getStats()
-    -- Actualizar contadores actuales
-    ChunkManager.state.stats.activeCount = 0
-    ChunkManager.state.stats.cachedCount = 0
-    
-    for _ in pairs(ChunkManager.state.activeChunks) do
-        ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount + 1
+    -- Verificar si un chunk está en la cola de carga
+    function ChunkManager.isInLoadQueue(chunkId)
+        for _, request in ipairs(ChunkManager.state.loadQueue) do
+            if request.id == chunkId then return true end
+        end
+        return false
     end
     
-    for _ in pairs(ChunkManager.state.cachedChunks) do
-        ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount + 1
+    -- Contar chunks activos eficientemente
+    function ChunkManager.countActiveChunks()
+        local count = 0
+        for _ in pairs(ChunkManager.state.activeChunks) do
+            count = count + 1
+        end
+        return count
     end
     
-    ChunkManager.state.stats.poolCount = #ChunkManager.state.chunkPool
+    -- Contar chunks en cache eficientemente
+    function ChunkManager.countCachedChunks()
+        local count = 0
+        for _ in pairs(ChunkManager.state.cachedChunks) do
+            count = count + 1
+        end
+        return count
+    end
     
-    return {
-        active = ChunkManager.state.stats.activeCount,
-        cached = ChunkManager.state.stats.cachedCount,
-        pooled = ChunkManager.state.stats.poolCount,
-        loadQueue = #ChunkManager.state.loadQueue,
-        unloadQueue = #ChunkManager.state.unloadQueue,
-        cacheHitRatio = ChunkManager.state.stats.cacheHits / 
-                       math.max(1, ChunkManager.state.stats.cacheHits + ChunkManager.state.stats.cacheMisses),
-        generationTime = ChunkManager.state.stats.generationTime,
-        lastFrameTime = ChunkManager.state.stats.lastFrameTime,
-        playerChunk = {
-            x = ChunkManager.state.lastPlayerChunkX,
-            y = ChunkManager.state.lastPlayerChunkY
+    -- Obtener chunks visibles con margen ampliado
+    function ChunkManager.getVisibleChunks(camera)
+        local visibleChunks = {}
+        
+        -- Calcular área visible con margen aumentado
+        local screenWidth = love.graphics.getWidth()
+        local screenHeight = love.graphics.getHeight()
+        
+        local margin = 300 -- Aumentado de 100 a 300 para mejor precarga
+        local worldLeft, worldTop = camera:screenToWorld(0 - margin, 0 - margin)
+        local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
+        
+        local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
+        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        local strideScaled = stride * ws
+        local chunkStartX = math.floor(worldLeft / strideScaled)
+        local chunkStartY = math.floor(worldTop / strideScaled)
+        local chunkEndX = math.ceil(worldRight / strideScaled)
+        local chunkEndY = math.ceil(worldBottom / strideScaled)
+        
+        -- Recopilar chunks visibles
+        for chunkY = chunkStartY, chunkEndY do
+            for chunkX = chunkStartX, chunkEndX do
+                local chunkId = ChunkManager.generateChunkId(chunkX, chunkY)
+                local chunk = ChunkManager.state.activeChunks[chunkId]
+                
+                if chunk and chunk.status == "complete" then
+                    chunk.visible = true
+                    table.insert(visibleChunks, chunk)
+                end
+            end
+        end
+        
+        return visibleChunks, {
+            startX = chunkStartX, startY = chunkStartY,
+            endX = chunkEndX, endY = chunkEndY,
+            worldLeft = worldLeft, worldTop = worldTop,
+            worldRight = worldRight, worldBottom = worldBottom
         }
-    }
-end
-
--- Reset estadísticas
-function ChunkManager.resetStats()
-    ChunkManager.state.stats = {
-        activeCount = 0,
-        cachedCount = 0,
-        poolCount = 0,
-        loadRequests = 0,
-        unloadRequests = 0,
-        cacheHits = 0,
-        cacheMisses = 0,
-        generationTime = 0,
-        lastFrameTime = 0
-    }
-end
-
--- Función de limpieza completa
-function ChunkManager.cleanup()
-    -- Devolver todos los chunks al pool
-    for chunkId, chunk in pairs(ChunkManager.state.activeChunks) do
-        ChunkManager.returnChunkToPool(chunk)
     end
     
-    for chunkId, chunk in pairs(ChunkManager.state.cachedChunks) do
-        ChunkManager.returnChunkToPool(chunk)
+    -- Obtener estadísticas del gestor
+    function ChunkManager.getStats()
+        -- Actualizar contadores actuales
+        ChunkManager.state.stats.activeCount = 0
+        ChunkManager.state.stats.cachedCount = 0
+        
+        for _ in pairs(ChunkManager.state.activeChunks) do
+            ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount + 1
+        end
+        
+        for _ in pairs(ChunkManager.state.cachedChunks) do
+            ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount + 1
+        end
+        
+        ChunkManager.state.stats.poolCount = #ChunkManager.state.chunkPool
+        
+        return {
+            active = ChunkManager.state.stats.activeCount,
+            cached = ChunkManager.state.stats.cachedCount,
+            pooled = ChunkManager.state.stats.poolCount,
+            loadQueue = #ChunkManager.state.loadQueue,
+            unloadQueue = #ChunkManager.state.unloadQueue,
+            cacheHitRatio = ChunkManager.state.stats.cacheHits / 
+                           math.max(1, ChunkManager.state.stats.cacheHits + ChunkManager.state.stats.cacheMisses),
+            generationTime = ChunkManager.state.stats.generationTime,
+            lastFrameTime = ChunkManager.state.stats.lastFrameTime,
+            playerChunk = {
+                x = ChunkManager.state.lastPlayerChunkX,
+                y = ChunkManager.state.lastPlayerChunkY
+            }
+        }
     end
     
-    -- Limpiar estructuras
-    ChunkManager.state.activeChunks = {}
-    ChunkManager.state.cachedChunks = {}
-    ChunkManager.state.loadQueue = {}
-    ChunkManager.state.unloadQueue = {}
-    ChunkManager.state.generationQueue = {}
+    -- Reset estadísticas
+    function ChunkManager.resetStats()
+        ChunkManager.state.stats = {
+            activeCount = 0,
+            cachedCount = 0,
+            poolCount = 0,
+            loadRequests = 0,
+            unloadRequests = 0,
+            cacheHits = 0,
+            cacheMisses = 0,
+            generationTime = 0,
+            lastFrameTime = 0
+        }
+    end
     
-    print("ChunkManager cleanup completed")
-end
-
-return ChunkManager
+    -- Función de limpieza completa
+    function ChunkManager.cleanup()
+        -- Devolver todos los chunks al pool
+        for chunkId, chunk in pairs(ChunkManager.state.activeChunks) do
+            ChunkManager.returnChunkToPool(chunk)
+        end
+        
+        for chunkId, chunk in pairs(ChunkManager.state.cachedChunks) do
+            ChunkManager.returnChunkToPool(chunk)
+        end
+        
+        -- Limpiar estructuras
+        ChunkManager.state.activeChunks = {}
+        ChunkManager.state.cachedChunks = {}
+        ChunkManager.state.loadQueue = {}
+        ChunkManager.state.unloadQueue = {}
+        ChunkManager.state.generationQueue = {}
+        
+        print("ChunkManager cleanup completed")
+    end
+    
+    return ChunkManager

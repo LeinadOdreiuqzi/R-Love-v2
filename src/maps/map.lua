@@ -98,8 +98,10 @@ function Map.init(seed)
     print("=== MAP SYSTEM READY ===")
 end
 
--- Actualización principal del mapa
-function Map.update(dt, playerX, playerY)
+-- Actualización principal del mapa con velocidad del jugador
+-- src/maps/map.lua (SIMPLIFICADO - COORDINADOR PRINCIPAL)
+
+function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
     if not Map.initialized then return end
     
     local frameStart = love.timer.getTime()
@@ -115,10 +117,10 @@ function Map.update(dt, playerX, playerY)
         end
     end)
     
-    -- Actualizar gestor de chunks
+    -- Actualizar gestor de chunks con velocidad para precarga direccional
     pcall(function()
         if ChunkManager and ChunkManager.update then
-            ChunkManager.update(dt, playerX, playerY)
+            ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
         end
     end)
     
@@ -132,6 +134,14 @@ function Map.update(dt, playerX, playerY)
         end
         Map.lastPlayerPosition = {x = playerX, y = playerY}
     end
+    
+    -- Asegurar actualización por frame del sistema de shaders (u_time, precarga incremental, etc.)
+    pcall(function()
+        if OptimizedRenderer and OptimizedRenderer.update then
+            -- Si tienes _G.camera global (según tu main.lua), lo pasamos para precarga cercana
+            OptimizedRenderer.update(dt, playerX, playerY, _G and _G.camera or nil)
+        end
+    end)
     
     -- Actualizar estadísticas del frame
     MapStats.updateFrameStats(frameStart)
@@ -193,25 +203,27 @@ function Map.calculateVisibleChunksTraditional(camera)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    -- Add a margin around the screen to ensure objects don't pop in at the edges
-    local margin = 200
+    -- Incrementar significativamente el margen para precarga de asteroides
+    local margin = 800 -- Aumentado de 200 a 800
     
-    -- Convert screen corners to world coordinates with margin
+    -- Convertir el viewport (con margen en píxeles) a coordenadas del mundo
     local worldLeft, worldTop = camera:screenToWorld(-margin, -margin)
     local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
     
-    -- Calculate chunk coordinates based on visible area
-    local chunkSize = Map.chunkSize * Map.tileSize
-    local chunkStartX = math.floor(worldLeft / chunkSize)
-    local chunkStartY = math.floor(worldTop / chunkSize)
-    local chunkEndX = math.ceil(worldRight / chunkSize)
-    local chunkEndY = math.ceil(worldBottom / chunkSize)
+    -- USAR STRIDE ESCALADO POR worldScale (alineado con el renderer)
+    local strideScaled = Map.stride * Map.worldScale
+
+    -- Calcular índices de chunk usando stride escalado (como hacen las estrellas)
+    local chunkStartX = math.floor(math.min(worldLeft, worldRight) / strideScaled)
+    local chunkStartY = math.floor(math.min(worldTop, worldBottom) / strideScaled)
+    local chunkEndX   = math.ceil(math.max(worldLeft, worldRight) / strideScaled)
+    local chunkEndY   = math.ceil(math.max(worldTop, worldBottom) / strideScaled)
     
-    -- Add an extra chunk in each direction to ensure smooth transitions
-    chunkStartX = chunkStartX - 1
-    chunkStartY = chunkStartY - 1
-    chunkEndX = chunkEndX + 1
-    chunkEndY = chunkEndY + 1
+    -- Añadir más chunks extra para precarga suave
+    chunkStartX = chunkStartX - 3
+    chunkStartY = chunkStartY - 3
+    chunkEndX   = chunkEndX + 3
+    chunkEndY   = chunkEndY + 3
     
     return {
         startX = chunkStartX, startY = chunkStartY,
@@ -225,7 +237,9 @@ end
 function Map.getChunkTraditional(chunkX, chunkY)
     -- Intentar usar ChunkManager si está disponible
     if ChunkManager and ChunkManager.getChunk then
-        local chunk = ChunkManager.getChunk(chunkX, chunkY, 0, 0)
+        local px = (Map.lastPlayerPosition and Map.lastPlayerPosition.x) or 0
+        local py = (Map.lastPlayerPosition and Map.lastPlayerPosition.y) or 0
+        local chunk = ChunkManager.getChunk(chunkX, chunkY, px, py)
         if chunk then return chunk end
     end
     

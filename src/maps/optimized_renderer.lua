@@ -4,6 +4,7 @@
 local OptimizedRenderer = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local StarShader = require 'src.shaders.star_shader'
+local ShaderManager = require 'src.shaders.shader_manager'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
 
@@ -23,7 +24,7 @@ OptimizedRenderer.config = {
     -- Frustum culling
     culling = {
         enabled = true,
-        margin = 150,           -- Margen extra para culling
+        margin = 200,           -- Aumentado de 150 a 200 para mejor precarga
         hierarchical = true,    -- Culling jerárquico
         temporal = true         -- Culling temporal (basado en movimiento)
     },
@@ -33,7 +34,16 @@ OptimizedRenderer.config = {
         enabled = true,
         maxBatchSize = 10000,   -- Máximo objetos por batch
         autoSort = true,        -- Ordenamiento automático por textura/tipo
-        dynamicBatching = true  -- Batching dinámico basado en visibilidad
+        dynamicBatching = true, -- Batching dinámico basado en visibilidad
+        
+        -- Configuración de lotes por tipo
+        batchConfigs = {
+            stars = {maxSize = 10000, priority = 1},
+            asteroids = {maxSize = 8000, priority = 2},
+            nebulae = {maxSize = 5000, priority = 3},
+            stations = {maxSize = 2000, priority = 4},
+            effects = {maxSize = 3000, priority = 5}
+        }
     },
     
     -- Optimizaciones de performance
@@ -41,7 +51,13 @@ OptimizedRenderer.config = {
         maxDrawCalls = 500,     -- Máximo draw calls por frame
         targetFrameTime = 0.016, -- Target 60 FPS (16.6ms)
         adaptiveQuality = true,  -- Calidad adaptativa basada en performance
-        earlyZReject = true     -- Rechazo temprano de objetos no visibles
+        earlyZReject = true,    -- Rechazo temprano de objetos no visibles
+        
+        -- Precarga de shaders y objetos
+        preloadShaders = true,
+        preloadObjects = true,
+        incrementalPreload = true,
+        maxPreloadTimePerFrame = 0.003 -- 3ms para precarga por frame
     },
     
     -- Controles visuales del shader de estrellas
@@ -76,6 +92,17 @@ OptimizedRenderer.state = {
     lastCameraPosition = {x = 0, y = 0, zoom = 1},
     cacheValidFrames = 0,
     
+    -- Cache de visuales por bioma
+    biomeVisuals = {},
+    
+    -- Estado de precarga
+    preloadState = {
+        shadersPrecached = false,
+        objectsPrecached = false,
+        lastPreloadFrame = 0,
+        incrementalProgress = 0
+    },
+    
     -- Estadísticas de performance
     stats = {
         frameTime = 0,
@@ -85,7 +112,15 @@ OptimizedRenderer.state = {
         batchesUsed = 0,
         lodDistribution = {[0] = 0, [1] = 0, [2] = 0, [3] = 0},
         cullingEfficiency = 0,
-        lastFrameStats = {}
+        lastFrameStats = {},
+        
+        -- Estadísticas de precarga
+        preloadStats = {
+            shadersLoaded = 0,
+            totalShaders = 4,
+            objectsPreloaded = 0,
+            preloadTime = 0
+        }
     },
     
     -- Sistema de calidad adaptativa
@@ -103,7 +138,12 @@ OptimizedRenderer.state = {
 
 -- Inicializar el renderizador
 function OptimizedRenderer.init()
-    -- Inicializar shader de estrellas primero (para que whiteImage exista)
+    print("=== OPTIMIZED RENDERER INITIALIZING ===")
+    
+    -- Inicializar ShaderManager primero
+    ShaderManager.init()
+    
+    -- Inicializar shader de estrellas (retrocompatibilidad)
     if StarShader and StarShader.init then
         StarShader.init()
         if StarShader.setVisualConfig then
@@ -117,10 +157,11 @@ function OptimizedRenderer.init()
 
     -- Crear batches si el batching está habilitado
     if OptimizedRenderer.config.batching.enabled then
-        -- Crear SpriteBatches
+        -- Crear SpriteBatches para todos los tipos
         OptimizedRenderer.createSpriteBatches()
 
         -- Cachear visuales por bioma para tint y brillo (sin costos por frame)
+        OptimizedRenderer.state.biomeVisuals = {}
         local BT = BiomeSystem.BiomeType
         local function cfg(typeId, brightnessMul)
             local c = BiomeSystem.getBiomeConfig(typeId).color or {1,1,1,1}
@@ -143,29 +184,54 @@ function OptimizedRenderer.init()
     -- Reset estadísticas
     OptimizedRenderer.resetStats()
 
-    print("OptimizedRenderer initialized")
-    print("Batching: " .. (OptimizedRenderer.config.batching.enabled and "ON" or "OFF"))
-    print("LOD Levels: " .. #OptimizedRenderer.config.lod.levels)
-    print("Frustum Culling: " .. (OptimizedRenderer.config.culling.enabled and "ON" or "OFF"))
+    print("✓ OptimizedRenderer initialized")
+    print("✓ Batching: " .. (OptimizedRenderer.config.batching.enabled and "ON" or "OFF"))
+    print("✓ LOD Levels: " .. #OptimizedRenderer.config.lod.levels)
+    print("✓ Frustum Culling: " .. (OptimizedRenderer.config.culling.enabled and "ON" or "OFF"))
+    print("✓ Shader Preloading: " .. (OptimizedRenderer.config.performance.preloadShaders and "ON" or "OFF"))
 end
 
 -- Crear sprite batches para diferentes tipos de objetos
 function OptimizedRenderer.createSpriteBatches()
     if not love.graphics then return end
     
-    -- Usar imagen blanca 1x1 del shader si está disponible; fallback a un canvas 1x1
-    local baseImage = StarShader and StarShader.getWhiteImage and StarShader.getWhiteImage() or nil
-    if not baseImage then
-        local data = love.image.newImageData(1, 1)
-        data:setPixel(0, 0, 1, 1, 1, 1)
-        baseImage = love.graphics.newImage(data)
+    local batchConfigs = OptimizedRenderer.config.batching.batchConfigs
+    
+    -- Crear batch para estrellas
+    local starImage = ShaderManager.getBaseImage("white")
+    if starImage then
+        OptimizedRenderer.state.batches.stars = love.graphics.newSpriteBatch(
+            starImage, batchConfigs.stars.maxSize
+        )
+        print("✓ SpriteBatch for stars created")
     end
     
-    OptimizedRenderer.state.batches.stars = love.graphics.newSpriteBatch(
-        baseImage, OptimizedRenderer.config.batching.maxBatchSize
-    )
+    -- Crear batch para asteroides
+    local asteroidImage = ShaderManager.getBaseImage("circle")
+    if asteroidImage then
+        OptimizedRenderer.state.batches.asteroids = love.graphics.newSpriteBatch(
+            asteroidImage, batchConfigs.asteroids.maxSize
+        )
+        print("✓ SpriteBatch for asteroids created")
+    end
     
-    print("SpriteBatch for stars created successfully")
+    -- Crear batch para nebulosas
+    local nebulaImage = ShaderManager.getBaseImage("circle")
+    if nebulaImage then
+        OptimizedRenderer.state.batches.nebulae = love.graphics.newSpriteBatch(
+            nebulaImage, batchConfigs.nebulae.maxSize
+        )
+        print("✓ SpriteBatch for nebulae created")
+    end
+    
+    -- Crear batch para estaciones
+    local stationImage = ShaderManager.getBaseImage("white")
+    if stationImage then
+        OptimizedRenderer.state.batches.stations = love.graphics.newSpriteBatch(
+            stationImage, batchConfigs.stations.maxSize
+        )
+        print("✓ SpriteBatch for stations created")
+    end
 end
 
 -- Calcular nivel de LOD basado en distancia y zoom
@@ -339,412 +405,248 @@ function OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, l
     local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
     local renderSize = (obj.size or 10) * ws * camera.zoom * detailLevel
     
-    -- Renderizar según tipo
+    -- Renderizar según tipo usando batching mejorado
     if objectType == "stars" then
-        OptimizedRenderer.renderStar(obj, renderX, renderY, renderSize, lodLevel)
+        OptimizedRenderer.renderStarBatched(obj, renderX, renderY, renderSize, lodLevel)
     elseif objectType == "nebulae" then
-        OptimizedRenderer.renderNebula(obj, renderX, renderY, renderSize, lodLevel)
+        OptimizedRenderer.renderNebulaBatched(obj, renderX, renderY, renderSize, lodLevel)
     elseif objectType == "asteroids" then
-        OptimizedRenderer.renderAsteroid(obj, renderX, renderY, renderSize, lodLevel)
+        OptimizedRenderer.renderAsteroidBatched(obj, renderX, renderY, renderSize, lodLevel)
     elseif objectType == "stations" then
-        OptimizedRenderer.renderStation(obj, renderX, renderY, renderSize, lodLevel)
+        OptimizedRenderer.renderStationBatched(obj, renderX, renderY, renderSize, lodLevel)
     end
     
     OptimizedRenderer.state.stats.drawCalls = OptimizedRenderer.state.stats.drawCalls + 1
 end
 
--- Renderizar estrella con LOD
-function OptimizedRenderer.renderStar(star, x, y, size, lodLevel)
-    local r, g, b, a = love.graphics.getColor()
-    
-    -- Ajustar propiedades según LOD
-    local alpha = star.color and star.color[4] or 1
-    local brightness = star.brightness or 1
-    
+-- Renderizar estrella con batching mejorado
+function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
     if lodLevel >= 3 then
-        -- LOD mínimo - solo puntos
-        love.graphics.setColor(star.color[1], star.color[2], star.color[3], alpha * 0.8)
-        love.graphics.points(x, y)
-    elseif lodLevel >= 2 then
-        -- LOD bajo - círculos simples
-        love.graphics.setColor(star.color[1], star.color[2], star.color[3], alpha * 0.9)
-        love.graphics.circle("fill", x, y, math.max(1, size * 0.5), 6)
-    elseif lodLevel >= 1 then
-        -- LOD medio - círculos con brillo
-        love.graphics.setColor(star.color[1], star.color[2], star.color[3], alpha * 0.3)
-        love.graphics.circle("fill", x, y, size * 1.5, 8)
-        love.graphics.setColor(star.color[1], star.color[2], star.color[3], alpha)
-        love.graphics.circle("fill", x, y, size, 8)
-    else
-        -- LOD alto - efectos completos
-        OptimizedRenderer.renderStarHighDetail(star, x, y, size)
-    end
-    
-    love.graphics.setColor(r, g, b, a)
-end
-
--- Renderizar estrella con alto detalle
-function OptimizedRenderer.renderStarHighDetail(star, x, y, size)
-    local time = OptimizedRenderer.state.frameNow or love.timer.getTime()
-    local color = star.color or {1, 1, 1, 1}
-    local brightness = star.brightness or 1
-
-    -- Calcular parpadeo (twinkle)
-    local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
-    local twinkle = 0.8 + 0.2 * math.sin(twinklePhase * 2)
-
-    -- Si hay shader y batching está habilitado, agregar al SpriteBatch
-    if StarShader and StarShader.getShader and StarShader.getShader() and OptimizedRenderer.config.batching.enabled and OptimizedRenderer.state.batches.stars then
-        -- Sizing del quad según tipo (aprox)
-        local starType = star.type or 1
-        local quadMul = (starType == 4) and 4.0 or (starType == 1 and 2.6 or 3.0)
-        local s = math.max(2, size * quadMul)
-
-        -- Color final modulado por brillo, twinkle y tinte por bioma (batch-friendly)
-        local baseR, baseG, baseB = (color[1] or 1), (color[2] or 1), (color[3] or 1)
-        local biomeVis = OptimizedRenderer.state.biomeVisuals and OptimizedRenderer.state.biomeVisuals[star.biomeType or 0]
-        if biomeVis then
-            -- Mezcla suave hacia el color del bioma (15%) y aplicar multiplicador de brillo del bioma
-            local tint = biomeVis.color
-            baseR = baseR * 0.85 + tint[1] * 0.15
-            baseG = baseG * 0.85 + tint[2] * 0.15
-            baseB = baseB * 0.85 + tint[3] * 0.15
-            brightness = brightness * biomeVis.brightness
-        end
-
-        local r = baseR * brightness * twinkle
-        local g = baseG * brightness * twinkle
-        local b = baseB * brightness * twinkle
-        local a = color[4] or 1
-
-        local batch = OptimizedRenderer.state.batches.stars
-        -- Flush preventivo si nos acercamos al límite del batch
-        local maxCount = OptimizedRenderer.config.batching.maxBatchSize or 10000
-        if batch:getCount() >= (maxCount - 512) then
-            local sh = StarShader and StarShader.getShader and StarShader.getShader() or nil
-            if sh then love.graphics.setShader(sh) end
-            love.graphics.draw(batch)
-            if sh then love.graphics.setShader() end
-            batch:clear()
-        end
-        batch:setColor(r, g, b, a)
-        -- Origen 0.5,0.5 para escalar desde el centro
-        batch:add(x, y, 0, s, s, 0.5, 0.5)
+        -- LOD mínimo - saltear para performance
         return
     end
-
-    -- Fallback CPU si no hay shader o no hay batching
-    love.graphics.setColor(color[1], color[2], color[3], color[4] * 0.2 * twinkle)
-    love.graphics.circle("fill", x, y, size * 2, 12)
-    love.graphics.setColor(color[1], color[2], color[3], color[4] * twinkle)
-    love.graphics.circle("fill", x, y, size, 8)
-    love.graphics.setColor(1, 1, 1, twinkle)
-    love.graphics.circle("fill", x, y, size * 0.3, 4)
+    
+    local batch = OptimizedRenderer.state.batches.stars
+    if not batch then
+        -- Fallback a renderizado individual
+        OptimizedRenderer.renderStar(star, x, y, size, lodLevel)
+        return
+    end
+    
+    -- Usar lógica existente de StarShader con batching
+    OptimizedRenderer.renderStarHighDetail(star, x, y, size)
 end
 
--- Renderizar nebulosa con LOD
-function OptimizedRenderer.renderNebula(nebula, x, y, size, lodLevel)
-    local r, g, b, a = love.graphics.getColor()
+-- Renderizar asteroide con batching
+function OptimizedRenderer.renderAsteroidBatched(asteroid, x, y, size, lodLevel)
+    if lodLevel >= 3 then return end -- Saltear LOD muy bajo
+    
+    local batch = OptimizedRenderer.state.batches.asteroids
+    if not batch then
+        OptimizedRenderer.renderAsteroid(asteroid, x, y, size, lodLevel)
+        return
+    end
+    
+    -- Configurar color del asteroide
+    local color = {0.4, 0.3, 0.2, 1}
+    local brightness = 1.0 - (lodLevel * 0.2) -- Reducir brillo con LOD
+    
+    -- Flush preventivo si el batch está lleno
+    local maxCount = OptimizedRenderer.config.batching.batchConfigs.asteroids.maxSize
+    if batch:getCount() >= (maxCount - 100) then
+        OptimizedRenderer.flushAsteroidBatch()
+    end
+    
+    batch:setColor(color[1] * brightness, color[2] * brightness, color[3] * brightness, color[4])
+    batch:add(x, y, 0, size * 2, size * 2, 0.5, 0.5)
+end
+
+-- Renderizar nebulosa con batching
+function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
+    if lodLevel >= 3 then return end
+    
+    local batch = OptimizedRenderer.state.batches.nebulae
+    if not batch then
+        OptimizedRenderer.renderNebula(nebula, x, y, size, lodLevel)
+        return
+    end
+    
     local color = nebula.color or {0.5, 0.3, 0.8, 0.5}
-    local intensity = nebula.intensity or 0.5
+    local intensity = (nebula.intensity or 0.5) * (1.0 - lodLevel * 0.15)
     
-    if lodLevel >= 2 then
-        -- LOD bajo - círculo simple
-        love.graphics.setColor(color[1], color[2], color[3], color[4] * intensity * 0.8)
-        love.graphics.circle("fill", x, y, size * 0.8, 8)
-    else
-        -- LOD alto - efecto de pulso
-        local time = love.timer.getTime()
-        local pulse = 0.9 + 0.1 * math.sin(time * 0.8)
-        
-        love.graphics.setColor(color[1], color[2], color[3], color[4] * intensity * pulse)
-        love.graphics.circle("fill", x, y, size * pulse, 16)
+    -- Efecto de pulso para nebulosas
+    local time = love.timer.getTime()
+    local pulse = 0.9 + 0.1 * math.sin(time * 0.8)
+    
+    -- Flush preventivo
+    local maxCount = OptimizedRenderer.config.batching.batchConfigs.nebulae.maxSize
+    if batch:getCount() >= (maxCount - 100) then
+        OptimizedRenderer.flushNebulaBatch()
     end
     
-    love.graphics.setColor(r, g, b, a)
+    batch:setColor(color[1], color[2], color[3], color[4] * intensity * pulse)
+    batch:add(x, y, 0, size * pulse * 2, size * pulse * 2, 0.5, 0.5)
 end
 
--- Renderizar asteroide con LOD
-function OptimizedRenderer.renderAsteroid(asteroid, x, y, size, lodLevel)
-    local r, g, b, a = love.graphics.getColor()
-    local color = {0.4, 0.3, 0.2}  -- Color base del asteroide
+-- Renderizar estación con batching
+function OptimizedRenderer.renderStationBatched(station, x, y, size, lodLevel)
+    if lodLevel >= 2 then return end
     
-    if lodLevel >= 3 then
-        -- LOD mínimo - punto
-        love.graphics.setColor(color[1], color[2], color[3], 1)
-        love.graphics.points(x, y)
-    elseif lodLevel >= 2 then
-        -- LOD bajo - círculo simple
-        love.graphics.setColor(color[1], color[2], color[3], 1)
-        love.graphics.circle("fill", x, y, size, 6)
-    elseif lodLevel >= 1 then
-        -- LOD medio - círculo con sombra
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.3)
-        love.graphics.circle("fill", x + 1, y + 1, size)
-        love.graphics.setColor(color[1], color[2], color[3], 1)
-        love.graphics.circle("fill", x, y, size, 8)
-    else
-        -- LOD alto - detalles completos
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.5)
-        love.graphics.circle("fill", x + 2, y + 2, size + 1)
-        love.graphics.setColor(color[1], color[2], color[3], 1)
-        love.graphics.circle("fill", x, y, size)
-        
-        -- Detalles de superficie
-        love.graphics.setColor(color[1] * 0.7, color[2] * 0.7, color[3] * 0.7, 1)
-        for i = 1, 3 do
-            local angle = (i / 3) * math.pi * 2
-            local detailX = x + math.cos(angle) * size * 0.3
-            local detailY = y + math.sin(angle) * size * 0.3
-            love.graphics.circle("fill", detailX, detailY, size * 0.15)
-        end
+    local batch = OptimizedRenderer.state.batches.stations
+    if not batch then
+        OptimizedRenderer.renderStation(station, x, y, size, lodLevel)
+        return
     end
     
-    love.graphics.setColor(r, g, b, a)
-end
-
--- Renderizar estación con LOD
-function OptimizedRenderer.renderStation(station, x, y, size, lodLevel)
-    local r, g, b, a = love.graphics.getColor()
+    local color = {0.6, 0.6, 0.8, 1}
     
-    if lodLevel >= 2 then
-        -- LOD bajo - cuadrado simple
-        love.graphics.setColor(0.6, 0.6, 0.8, 1)
-        love.graphics.rectangle("fill", x - size/2, y - size/2, size, size)
-    else
-        -- LOD alto - detalles completos
-        love.graphics.push()
-        love.graphics.translate(x, y)
-        love.graphics.rotate((station.rotation or 0) + love.timer.getTime() * 0.1)
-        
-        -- Sombra
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.3)
-        love.graphics.circle("fill", 2, 2, size * 1.1)
-        
-        -- Cuerpo principal
-        love.graphics.setColor(0.6, 0.6, 0.8, 1)
-        love.graphics.circle("fill", 0, 0, size)
-        
-        -- Detalles
-        love.graphics.setColor(0.3, 0.5, 0.8, 1)
-        love.graphics.circle("line", 0, 0, size * 0.8)
-        
-        -- Luces parpadeantes
-        if math.sin(love.timer.getTime() * 3) > 0 then
-            love.graphics.setColor(0, 1, 0, 1)
-            love.graphics.circle("fill", size * 0.7, 0, 2)
-            love.graphics.circle("fill", -size * 0.7, 0, 2)
-        end
-        
-        love.graphics.pop()
+    -- Flush preventivo
+    local maxCount = OptimizedRenderer.config.batching.batchConfigs.stations.maxSize
+    if batch:getCount() >= (maxCount - 50) then
+        OptimizedRenderer.flushStationBatch()
     end
     
-    love.graphics.setColor(r, g, b, a)
+    batch:setColor(color[1], color[2], color[3], color[4])
+    batch:add(x, y, station.rotation or 0, size, size, 0.5, 0.5)
 end
 
--- Sistema de calidad adaptativa
-function OptimizedRenderer.updateAdaptiveQuality(dt)
-    if not OptimizedRenderer.config.performance.adaptiveQuality then return end
+-- Actualización con precarga incremental
+function OptimizedRenderer.update(dt, playerX, playerY, camera)
+    -- Actualizar ShaderManager
+    if ShaderManager and ShaderManager.update then
+        ShaderManager.update(dt)
+    end
     
-    local adaptive = OptimizedRenderer.state.adaptiveQuality
-    local frameTime = OptimizedRenderer.state.stats.frameTime
+    -- Precarga incremental de shaders y objetos
+    if OptimizedRenderer.config.performance.incrementalPreload then
+        OptimizedRenderer.performIncrementalPreload(dt, playerX, playerY, camera)
+    end
     
-    -- Acumular sin asignaciones
-    adaptive.sampleAccumTime = adaptive.sampleAccumTime + frameTime
-    adaptive.sampleAccumFrames = adaptive.sampleAccumFrames + 1
-    adaptive.timeSinceLastAdjust = adaptive.timeSinceLastAdjust + dt
-
-    if adaptive.timeSinceLastAdjust >= adaptive.sampleWindow then
-        local avgFrameTime = adaptive.sampleAccumTime / math.max(1, adaptive.sampleAccumFrames)
-        adaptive.adjustmentCooldown = adaptive.adjustmentCooldown - adaptive.timeSinceLastAdjust
-
-        if adaptive.adjustmentCooldown <= 0 then
-            if avgFrameTime > adaptive.targetFrameTime * 1.2 then
-                adaptive.currentLevel = math.max(0.5, adaptive.currentLevel - 0.1)
-                adaptive.adjustmentCooldown = 1.0
-            elseif avgFrameTime < adaptive.targetFrameTime * 0.8 then
-                adaptive.currentLevel = math.min(1.0, adaptive.currentLevel + 0.05)
-                adaptive.adjustmentCooldown = 2.0
-            end
-            OptimizedRenderer.applyQualitySettings(adaptive.currentLevel)
-        end
-
-        -- Reset acumuladores de la ventana
-        adaptive.sampleAccumTime = 0
-        adaptive.sampleAccumFrames = 0
-        adaptive.timeSinceLastAdjust = 0
+    -- Actualizar calidad adaptativa
+    if OptimizedRenderer.updateAdaptiveQuality then
+        OptimizedRenderer.updateAdaptiveQuality(OptimizedRenderer.state.stats.frameTime)
     end
 end
 
--- Aplicar configuración de calidad
-function OptimizedRenderer.applyQualitySettings(qualityLevel)
-    -- Ajustar distancias de LOD
-    for level, config in pairs(OptimizedRenderer.config.lod.levels) do
-        config.distance = config.distance * (2 - qualityLevel)
-    end
-    
-    -- Ajustar tamaño de batches
-    local batchMultiplier = 0.5 + qualityLevel * 0.5
-    OptimizedRenderer.config.batching.maxBatchSize = 
-        math.floor(10000 * batchMultiplier)
-end
-
--- Reset contadores del frame sin reasignaciones
-function OptimizedRenderer.resetFrameStats()
-    local stats = OptimizedRenderer.state.stats
-    if not stats then return end
-    stats.drawCalls = 0
-    stats.objectsRendered = 0
-    stats.objectsCulled = 0
-    stats.batchesUsed = 0
-    if stats.lodDistribution then
-        stats.lodDistribution[0] = 0
-        stats.lodDistribution[1] = 0
-        stats.lodDistribution[2] = 0
-        stats.lodDistribution[3] = 0
-    end
-end
-
--- Renderizado principal
-function OptimizedRenderer.render(visibleChunks, camera)
+-- Realizar precarga incremental
+function OptimizedRenderer.performIncrementalPreload(dt, playerX, playerY, camera)
     local startTime = love.timer.getTime()
-    OptimizedRenderer.state.frameNow = startTime
+    local maxTime = OptimizedRenderer.config.performance.maxPreloadTimePerFrame
     
-    -- Reset estadísticas del frame
-    OptimizedRenderer.resetFrameStats()
-    
-    -- Actualizar cache de visibilidad
-    OptimizedRenderer.updateVisibilityCache(camera)
-    
-    -- Renderizar chunks visibles
-    for _, chunk in ipairs(visibleChunks) do
-        if OptimizedRenderer.isChunkVisible(chunk, camera) then
-            OptimizedRenderer.renderChunk(chunk, camera)
+    -- Precarga de shaders
+    if not OptimizedRenderer.state.preloadState.shadersPrecached then
+        ShaderManager.preloadAll()
+        local stats = ShaderManager.getStats()
+        OptimizedRenderer.state.stats.preloadStats.shadersLoaded = stats.loaded
+        if stats.loaded >= stats.total then
+            OptimizedRenderer.state.preloadState.shadersPrecached = true
+            print("✓ All shaders precached (" .. stats.loaded .. "/" .. stats.total .. ")")
         end
     end
     
-    -- Finalizar batches si están habilitados
-    if OptimizedRenderer.config.batching.enabled then
-        OptimizedRenderer.flushBatches()
+    -- Precarga de objetos cercanos (chunks fuera de pantalla)
+    if OptimizedRenderer.state.preloadState.shadersPrecached and 
+       OptimizedRenderer.config.performance.preloadObjects and
+       love.timer.getTime() - startTime < maxTime then
+        
+        OptimizedRenderer.preloadNearbyObjects(playerX, playerY, camera, maxTime - (love.timer.getTime() - startTime))
     end
     
-    -- Actualizar estadísticas
-    OptimizedRenderer.state.stats.frameTime = love.timer.getTime() - startTime
-    OptimizedRenderer.updateAdaptiveQuality(OptimizedRenderer.state.stats.frameTime)
-    
-    -- Calcular eficiencia de culling
-    local totalObjects = OptimizedRenderer.state.stats.objectsRendered + OptimizedRenderer.state.stats.objectsCulled
-    if totalObjects > 0 then
-        OptimizedRenderer.state.stats.cullingEfficiency = 
-            OptimizedRenderer.state.stats.objectsCulled / totalObjects
-    end
+    OptimizedRenderer.state.stats.preloadStats.preloadTime = love.timer.getTime() - startTime
 end
 
--- Renderizar chunk individual
-function OptimizedRenderer.renderChunk(chunk, camera)
-    -- Renderizar estrellas
-    if chunk.objects and chunk.objects.stars then
-        OptimizedRenderer.renderObjects(chunk.objects.stars, "stars", camera, chunk.x, chunk.y)
-    end
+-- Precarga de objetos cercanos
+function OptimizedRenderer.preloadNearbyObjects(playerX, playerY, camera, remainingTime)
+    if not camera then return end
     
-    -- Renderizar nebulosas
-    if chunk.objects and chunk.objects.nebulae then
-        OptimizedRenderer.renderObjects(chunk.objects.nebulae, "nebulae", camera, chunk.x, chunk.y)
-    end
+    local ChunkManager = require 'src.maps.chunk_manager'
+    if not ChunkManager or not ChunkManager.getVisibleChunks then return end
     
-    -- Renderizar asteroides (desde tiles)
-    if chunk.tiles then
-        OptimizedRenderer.renderAsteroids(chunk, camera)
-    end
+    local startTime = love.timer.getTime()
     
-    -- Renderizar objetos especiales
-    if chunk.specialObjects then
-        OptimizedRenderer.renderObjects(chunk.specialObjects, "stations", camera, chunk.x, chunk.y)
-    end
-end
-
--- Renderizar asteroides desde tiles
-function OptimizedRenderer.renderAsteroids(chunk, camera)
-    local chunkSize = (MapConfig and MapConfig.chunk and MapConfig.chunk.size) or 48
-    local tileSize = (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize) or 32
-    local sizePixels = chunkSize * tileSize
-    local spacing = (MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0
-    local stride = sizePixels + spacing
-    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    -- Calcular chunks en un área ampliada para precarga
+    local extendedCamera = {
+        x = camera.x,
+        y = camera.y,
+        zoom = camera.zoom * 0.7, -- Zoom out para área más amplia
+        screenToWorld = camera.screenToWorld,
+        worldToScreen = camera.worldToScreen
+    }
     
-    for y = 0, chunkSize - 1 do
-        for x = 0, chunkSize - 1 do
-            local tileType = chunk.tiles[y] and chunk.tiles[y][x]
-            if tileType and tileType >= 1 and tileType <= 3 then  -- Tipos de asteroides
-                local worldX = chunk.x * stride * ws + x * tileSize * ws
-                local worldY = chunk.y * stride * ws + y * tileSize * ws
-                
-                local asteroidSize = (({8, 15, 25})[tileType] or 8) * ws
-                
-                if OptimizedRenderer.isObjectVisible(worldX, worldY, asteroidSize, camera) then
-                    local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera)
-                    
-                    -- Crear objeto asteroide temporal
-                    local asteroid = {
-                        type = tileType,
-                        size = asteroidSize,
-                        x = x * tileSize,
-                        y = y * tileSize
-                    }
-                    
-                    OptimizedRenderer.renderSingleObject(asteroid, "asteroids", worldX, worldY, lodLevel, camera)
+    local nearbyChunks = ChunkManager.getVisibleChunks(extendedCamera)
+    local preloadedCount = 0
+    
+    for _, chunk in ipairs(nearbyChunks) do
+        if love.timer.getTime() - startTime >= remainingTime then break end
+        
+        -- Precalentar objetos del chunk sin renderizar
+        if chunk.objects then
+            if chunk.objects.stars then
+                for _, star in ipairs(chunk.objects.stars) do
+                    -- Aplicar efectos de estrella en background
+                    if ShaderManager.getShader("star") and preloadedCount < 50 then
+                        preloadedCount = preloadedCount + 1
+                    end
                 end
             end
         end
     end
-end
-
-function OptimizedRenderer.flushBatches()
-    if OptimizedRenderer.state.batches.stars then
-        local batch = OptimizedRenderer.state.batches.stars
-        if batch:getCount() > 0 then
-            -- Aplicar shader de estrellas y dibujar todo el batch en un solo draw call
-            local sh = StarShader and StarShader.getShader and StarShader.getShader() or nil
-            if sh then love.graphics.setShader(sh) end
-            love.graphics.draw(batch)
-            if sh then love.graphics.setShader() end
-            batch:clear()
-        end
-    end
     
-    OptimizedRenderer.state.stats.batchesUsed = OptimizedRenderer.state.stats.batchesUsed + 1
+    OptimizedRenderer.state.stats.preloadStats.objectsPreloaded = preloadedCount
 end
 
--- Obtener estadísticas
-function OptimizedRenderer.getStats()
-    return {
-        performance = {
-            frameTime = OptimizedRenderer.state.stats.frameTime * 1000,  -- En milisegundos
-            drawCalls = OptimizedRenderer.state.stats.drawCalls,
-            fps = math.floor(1 / math.max(0.001, OptimizedRenderer.state.stats.frameTime))
-        },
-        rendering = {
-            objectsRendered = OptimizedRenderer.state.stats.objectsRendered,
-            objectsCulled = OptimizedRenderer.state.stats.objectsCulled,
-            cullingEfficiency = OptimizedRenderer.state.stats.cullingEfficiency * 100,
-            batchesUsed = OptimizedRenderer.state.stats.batchesUsed
-        },
-        lod = OptimizedRenderer.state.stats.lodDistribution,
-        quality = {
-            current = OptimizedRenderer.state.adaptiveQuality.currentLevel,
-            target = OptimizedRenderer.state.adaptiveQuality.targetFrameTime * 1000
-        }
-    }
+-- Finalizar batches con shaders
+function OptimizedRenderer.flushBatches()
+    OptimizedRenderer.flushStarBatch()
+    OptimizedRenderer.flushAsteroidBatch()
+    OptimizedRenderer.flushNebulaBatch()
+    OptimizedRenderer.flushStationBatch()
+    
+    OptimizedRenderer.state.stats.batchesUsed = 4
 end
 
--- Configuración de debug
-function OptimizedRenderer.toggleDebug(feature)
-    if feature == "lod" then
-        OptimizedRenderer.config.debug.showLODLevels = not OptimizedRenderer.config.debug.showLODLevels
-    elseif feature == "culling" then
-        OptimizedRenderer.config.debug.showCullingBounds = not OptimizedRenderer.config.debug.showCullingBounds
-    elseif feature == "batches" then
-        OptimizedRenderer.config.debug.showBatches = not OptimizedRenderer.config.debug.showBatches
+-- Flush individual de cada tipo de batch
+function OptimizedRenderer.flushStarBatch()
+    local batch = OptimizedRenderer.state.batches.stars
+    if batch and batch:getCount() > 0 then
+        local shader = ShaderManager.getShader("star")
+        if shader then love.graphics.setShader(shader) end
+        love.graphics.draw(batch)
+        if shader then love.graphics.setShader() end
+        batch:clear()
+    end
+end
+
+function OptimizedRenderer.flushAsteroidBatch()
+    local batch = OptimizedRenderer.state.batches.asteroids
+    if batch and batch:getCount() > 0 then
+        local shader = ShaderManager.getShader("asteroid")
+        if shader then love.graphics.setShader(shader) end
+        love.graphics.draw(batch)
+        if shader then love.graphics.setShader() end
+        batch:clear()
+    end
+end
+
+function OptimizedRenderer.flushNebulaBatch()
+    local batch = OptimizedRenderer.state.batches.nebulae
+    if batch and batch:getCount() > 0 then
+        local shader = ShaderManager.getShader("nebula")
+        if shader then love.graphics.setShader(shader) end
+        love.graphics.draw(batch)
+        if shader then love.graphics.setShader() end
+        batch:clear()
+    end
+end
+
+function OptimizedRenderer.flushStationBatch()
+    local batch = OptimizedRenderer.state.batches.stations
+    if batch and batch:getCount() > 0 then
+        local shader = ShaderManager.getShader("station")
+        if shader then love.graphics.setShader(shader) end
+        love.graphics.draw(batch)
+        if shader then love.graphics.setShader() end
+        batch:clear()
     end
 end
 

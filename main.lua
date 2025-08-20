@@ -277,14 +277,26 @@ function love.update(dt)
         end
     end
     
-    -- Actualizar sistema de mapas mejorado (coordenadas, chunks, etc.)
+    -- Obtener velocidad del jugador para precarga direccional
+    local playerVelX, playerVelY = 0, 0
+    if player then
+        playerVelX = player.dx or 0
+        playerVelY = player.dy or 0
+    end
+    
+    -- Actualizar sistema de mapas mejorado con velocidad
     if player and player.x and player.y then
-        Map.update(dt, player.x, player.y)
+        Map.update(dt, player.x, player.y, playerVelX, playerVelY)
+    end
+    
+    -- Actualizar OptimizedRenderer con precarga incremental
+    if type(OptimizedRenderer) == "table" and OptimizedRenderer.update then
+        OptimizedRenderer.update(dt, player and player.x or 0, player and player.y or 0, _G.camera)
     end
     
     -- Actualizar cámara para seguir al jugador
-    if _G.camera and player and type(_G.camera.follow) == "function" then
-        local success, err = pcall(function() 
+    if _G.camera and type(_G.camera.follow) == "function" then
+        local success, err = pcall(function()
             _G.camera:follow(player, dt)
         end)
         if not success then

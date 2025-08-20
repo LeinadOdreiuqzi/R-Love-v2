@@ -606,7 +606,14 @@ function MapGenerator.generateChunk(chunkX, chunkY)
     MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, modifiedDensities)
     MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modifiedDensities)
     
+    -- IMPORTANTE: Asegurar que las características especiales de bioma SIEMPRE se generen
     BiomeSystem.generateSpecialFeatures(chunk, chunkX, chunkY, biomeInfo.type)
+    
+    -- Debug para verificar generación
+    if #chunk.specialObjects > 0 then
+        print(string.format("Chunk (%d,%d) - Biome: %s, SpecialObjects: %d", 
+                           chunkX, chunkY, biomeInfo.name or "Unknown", #chunk.specialObjects))
+    end
     
     return chunk
 end

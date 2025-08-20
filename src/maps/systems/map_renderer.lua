@@ -6,6 +6,7 @@ local CoordinateSystem = require 'src.maps.coordinate_system'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
 local StarShader = require 'src.shaders.star_shader'
+local ShaderManager = require 'src.shaders.shader_manager'
 
 -- Variables de estado para optimización
 MapRenderer.sinTable = {}
@@ -24,22 +25,54 @@ function MapRenderer.init()
     end
     -- Inicializar shader de estrellas
     if StarShader and StarShader.init then StarShader.init() end
+    -- Inicializar ShaderManager para disponer de shaders e imágenes base
+    if ShaderManager and ShaderManager.init then ShaderManager.init() end
+end
+-- Calcular alpha de fade para objetos cerca del borde de pantalla
+function MapRenderer.calculateEdgeFade(screenX, screenY, size, camera)
+    local screenWidth, screenHeight = love.graphics.getDimensions()
+    local fadeMargin = math.max((size or 0) * (camera and camera.zoom or 1) + 60, 100)
+    
+    -- Distancia al borde más cercano
+    local edgeDistX = math.min(screenX + fadeMargin, screenWidth + fadeMargin - screenX)
+    local edgeDistY = math.min(screenY + fadeMargin, screenHeight + fadeMargin - screenY)
+    local edgeDist = math.min(edgeDistX, edgeDistY)
+    
+    -- Fade suave en los últimos píxeles
+    if edgeDist < fadeMargin then
+        return math.max(0.1, edgeDist / fadeMargin)
+    end
+    return 1.0
 end
 
--- Verificar si un objeto está visible (frustum culling optimizado)
+-- Verificar si un objeto está visible (frustum culling en world-space con margen fijo de 700 px)
 function MapRenderer.isObjectVisible(x, y, size, camera)
-    local screenWidth, screenHeight = love.graphics.getDimensions()
-    
-    local relX = x - camera.x
-    local relY = y - camera.y
-    local screenX = relX * camera.zoom + screenWidth / 2
-    local screenY = relY * camera.zoom + screenHeight / 2
-    local screenSize = size * camera.zoom
-    
-    local margin = screenSize + 20
-    
-    return screenX >= -margin and screenX <= screenWidth + margin and
-           screenY >= -margin and screenY <= screenHeight + margin
+    -- Si no hay cámara válida, no cullar (mejor dibujar que desaparecer)
+    if not camera or type(camera.screenToWorld) ~= "function" then
+        return true
+    end
+
+    local screenW, screenH = love.graphics.getDimensions()
+
+    -- Convertir el viewport a coordenadas del mundo
+    local wl, wt = camera:screenToWorld(0, 0)
+    local wr, wb = camera:screenToWorld(screenW, screenH)
+
+    -- Ordenar límites y aplicar margen fijo de 700px en espacio de pantalla
+    local left   = math.min(wl, wr)
+    local right  = math.max(wl, wr)
+    local top    = math.min(wt, wb)
+    local bottom = math.max(wt, wb)
+
+    -- Margen fijo (700 px) convertido a unidades del mundo
+    local marginWorld = 700 / (camera.zoom or 1)
+
+    left   = left   - marginWorld
+    right  = right  + marginWorld
+    top    = top    - marginWorld
+    bottom = bottom + marginWorld
+
+    return x >= left and x <= right and y >= top and y <= bottom
 end
 
 -- Calcular nivel de detalle básico
@@ -86,11 +119,29 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
         end
     end
     
-    -- Dibujar fondo del bioma dominante
-    local backgroundColor = BiomeSystem.getBackgroundColor(dominantBiome)
-    love.graphics.setColor(backgroundColor)
-    love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+    -- Dibujar fondo del bioma dominante - SOLAMENTE SI NO ES DEEP SPACE O ES MUY DOMINANTE
+    love.graphics.push()
+    love.graphics.origin()
     
+    if dominantBiome ~= BiomeSystem.BiomeType.DEEP_SPACE then
+        -- Bioma no-Deep Space: usar color completo pero con alpha reducida
+        local backgroundColor = BiomeSystem.getBackgroundColor(dominantBiome)
+        love.graphics.setColor(backgroundColor[1], backgroundColor[2], backgroundColor[3], 0.15)
+        love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+    else
+        -- Deep Space: usar gradiente muy sutil en lugar de negro sólido
+        local totalChunks = (chunkInfo.endX - chunkInfo.startX + 1) * (chunkInfo.endY - chunkInfo.startY + 1)
+        local deepSpaceRatio = maxCount / totalChunks
+        
+        if deepSpaceRatio > 0.7 then
+            -- Solo si Deep Space es REALMENTE dominante (>70%), dibujar gradiente muy sutil
+            love.graphics.setColor(0.02, 0.02, 0.05, 0.3)
+            love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+        end
+        -- Si Deep Space no es muy dominante, no dibujar fondo (dejar transparente)
+    end
+    
+    love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
     return maxCount
 end
@@ -307,6 +358,7 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
 end
 
 -- Dibujar nebulosas
+-- Dibujar nebulosas
 function MapRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
     local time = love.timer.getTime()
     local rendered = 0
@@ -323,7 +375,7 @@ function MapRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                     local worldY = chunkBaseY + nebula.y * MapConfig.chunk.worldScale
                     
                     if MapRenderer.isObjectVisible(worldX, worldY, nebula.size * 2, camera) then
-                        MapRenderer.drawNebula(nebula, worldX, worldY, time)
+                        MapRenderer.drawNebula(nebula, worldX, worldY, time, camera)
                         rendered = rendered + 1
                     end
                 end
@@ -335,36 +387,51 @@ function MapRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 end
 
 -- Dibujar nebulosa individual
-function MapRenderer.drawNebula(nebula, worldX, worldY, time)
+function MapRenderer.drawNebula(nebula, worldX, worldY, time, camera)
     local r, g, b, a = love.graphics.getColor()
     
     local timeIndex = math.floor((time * 0.8 * 57.3) % 360)
     local pulse = 0.9 + 0.1 * MapRenderer.sinTable[timeIndex]
     local currentSize = nebula.size * pulse
     
-    love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], nebula.color[4] * nebula.intensity)
+    -- Convertir a coordenadas de pantalla y aplicar fade
+    local screenX, screenY = camera:worldToScreen(worldX, worldY)
+    local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, currentSize, camera)
+    love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], (nebula.color[4] or 1) * (nebula.intensity or 1) * alpha)
     
-    if currentSize > 80 then
-        love.graphics.circle("fill", worldX, worldY, currentSize, 16)
+    love.graphics.push()
+    love.graphics.origin()
+    
+    local radiusPx = currentSize * (camera.zoom or 1)
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+    if shader and img then
+        love.graphics.setShader(shader)
+        local iw, ih = img:getWidth(), img:getHeight()
+        local scale = (radiusPx * 2) / math.max(1, iw)
+        love.graphics.draw(img, screenX, screenY, 0, scale, scale, iw * 0.5, ih * 0.5)
+        love.graphics.setShader()
     else
-        love.graphics.circle("fill", worldX, worldY, currentSize, 12)
+        if radiusPx > 80 then
+            love.graphics.circle("fill", screenX, screenY, radiusPx, 16)
+        else
+            love.graphics.circle("fill", screenX, screenY, radiusPx, 12)
+        end
     end
     
+    love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
 end
 
 -- Dibujar asteroides
 function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
     local rendered = 0
-    
     for chunkY = chunkInfo.startY, chunkInfo.endY do
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.tiles then
-                -- Base de tiles (sin espaciado) para índices enteros/semillas
                 local chunkBaseTileX = chunkX * MapConfig.chunk.size
                 local chunkBaseTileY = chunkY * MapConfig.chunk.size
-                -- Base de mundo (con espaciado) para posiciones (en unidades de mundo)
                 local chunkBaseWorldX = chunkX * STRIDE * MapConfig.chunk.worldScale
                 local chunkBaseWorldY = chunkY * STRIDE * MapConfig.chunk.worldScale
 
@@ -382,7 +449,7 @@ function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
                             
                             if MapRenderer.isObjectVisible(worldX, worldY, size, camera) then
                                 local lod = MapRenderer.calculateLOD(worldX, worldY, camera)
-                                MapRenderer.drawAsteroidLOD(tileType, worldX, worldY, globalTileX, globalTileY, lod)
+                                MapRenderer.drawAsteroidLOD(tileType, worldX, worldY, globalTileX, globalTileY, lod, camera)
                                 rendered = rendered + 1
                             end
                         end
@@ -391,90 +458,136 @@ function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
             end
         end
     end
-    
     return rendered
 end
 
 -- Dibujar asteroide con LOD
-function MapRenderer.drawAsteroidLOD(asteroidType, worldX, worldY, globalX, globalY, lod)
-    local seed = globalX * 1000 + globalY
-    math.randomseed(seed)
-    
+function MapRenderer.drawAsteroidLOD(asteroidType, worldX, worldY, globalX, globalY, lod, camera)
+    -- RNG determinista local (LCG)
+    local function lcg(state) return (state * 1664525 + 1013904223) % 4294967296 end
+    local function next01(state)
+        state = lcg(state)
+        return state, (state / 4294967296)
+    end
+    -- Semilla determinista por tile y tipo
+    local state = (globalX * 1103515245 + globalY * 12345 + asteroidType * 2654435761) % 4294967296
+
     local sizes = {8, 15, 25}
     local baseSize = sizes[asteroidType] * MapConfig.chunk.worldScale
     local colorIndex = (globalX + globalY) % #MapConfig.colors.asteroids + 1
     local color = MapConfig.colors.asteroids[colorIndex]
     
-    local sizeVariation = 0.8 + math.random() * 0.4
+    -- Variación de tamaño determinista
+    state, r1 = next01(state)
+    local sizeVariation = 0.8 + r1 * 0.4
     local finalSize = baseSize * sizeVariation
-    
+
+    -- Convertir a pantalla una sola vez y calcular fade
+    local sx, sy = camera:worldToScreen(worldX, worldY)
+    local alpha = MapRenderer.calculateEdgeFade(sx, sy, finalSize, camera)
     local segments = lod >= 2 and 6 or (lod >= 1 and 8 or 12)
+    local pxSize = finalSize * (camera.zoom or 1)
     
-    if lod >= 2 then
-        love.graphics.setColor(color[1], color[2], color[3], 0.8)
-        love.graphics.circle("fill", worldX, worldY, finalSize, segments)
-        return
-    end
-    
-    if lod >= 1 then
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.3)
-        love.graphics.circle("fill", worldX + 2, worldY + 2, finalSize + 1, segments)
+    love.graphics.push()
+    love.graphics.origin()
+
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("asteroid") or nil
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+    if shader and img then
+        love.graphics.setShader(shader)
+        local iw, ih = img:getWidth(), img:getHeight()
+        local scale = (pxSize * 2) / math.max(1, iw)
         
-        love.graphics.setColor(color[1], color[2], color[3], 1)
-        love.graphics.circle("fill", worldX, worldY, finalSize, segments)
-        return
-    end
-    
-    -- LOD 0: Detalle completo
-    love.graphics.setColor(0.1, 0.1, 0.1, 0.5)
-    love.graphics.circle("fill", worldX + 2, worldY + 2, finalSize + 1, segments)
-    
-    love.graphics.setColor(color[1], color[2], color[3], 1)
-    love.graphics.circle("fill", worldX, worldY, finalSize, segments)
-    
-    if asteroidType >= MapConfig.ObjectType.ASTEROID_MEDIUM then
-        love.graphics.setColor(color[1] * 0.7, color[2] * 0.7, color[3] * 0.7, 1)
-        
-        local numDetails = math.min(math.random(2, 4), math.floor(finalSize / 5))
-        
-        for i = 1, numDetails do
-            local angleIndex = math.floor((i / numDetails) * 360 + math.random() * 30) % 360 + 1
-            local detailDistance = finalSize * 0.3 * math.random()
-            local detailX = worldX + MapRenderer.cosTable[angleIndex] * detailDistance
-            local detailY = worldY + MapRenderer.sinTable[angleIndex] * detailDistance
-            local detailSize = finalSize * 0.2 * math.random()
-            
-            love.graphics.circle("fill", detailX, detailY, detailSize, 6)
+        if lod >= 2 then
+            love.graphics.setColor(color[1], color[2], color[3], 0.8 * alpha)
+            love.graphics.draw(img, sx, sy, 0, scale, scale, iw * 0.5, ih * 0.5)
+            love.graphics.setShader()
+            love.graphics.pop()
+            return
         end
+        
+        if lod >= 1 then
+            love.graphics.setColor(0.1, 0.1, 0.1, 0.3 * alpha)
+            love.graphics.draw(img, sx + 2, sy + 2, 0, (pxSize + 1) * 2 / iw, (pxSize + 1) * 2 / ih, iw * 0.5, ih * 0.5)
+            love.graphics.setColor(color[1], color[2], color[3], 1 * alpha)
+            love.graphics.draw(img, sx, sy, 0, scale, scale, iw * 0.5, ih * 0.5)
+            love.graphics.setShader()
+            love.graphics.pop()
+            return
+        end
+        
+        -- LOD 0: detalle + highlights
+        love.graphics.setColor(0.1, 0.1, 0.1, 0.5 * alpha)
+        love.graphics.draw(img, sx + 2, sy + 2, 0, (pxSize + 1) * 2 / iw, (pxSize + 1) * 2 / ih, iw * 0.5, ih * 0.5)
+        love.graphics.setColor(color[1], color[2], color[3], 1 * alpha)
+        love.graphics.draw(img, sx, sy, 0, scale, scale, iw * 0.5, ih * 0.5)
+        
+        if asteroidType >= MapConfig.ObjectType.ASTEROID_MEDIUM then
+            love.graphics.setColor(color[1] * 0.7, color[2] * 0.7, color[3] * 0.7, 1 * alpha)
+            state, r2 = next01(state)
+            local numDetails = math.min(2 + math.floor(r2 * 3), math.floor(pxSize / 5))
+            for i = 1, numDetails do
+                state, rA = next01(state)
+                state, rB = next01(state)
+                state, rC = next01(state)
+                local angle = (i / numDetails) * 2 * math.pi + rA * 0.5
+                local detailDistancePx = (finalSize * 0.3 * rB) * (camera.zoom or 1)
+                local detailX = sx + math.cos(angle) * detailDistancePx
+                local detailY = sy + math.sin(angle) * detailDistancePx
+                local detailSizePx = (finalSize * 0.2 * rC) * (camera.zoom or 1)
+                love.graphics.draw(img, detailX, detailY, 0, (detailSizePx * 2) / iw, (detailSizePx * 2) / ih, iw * 0.5, ih * 0.5)
+            end
+        end
+        
+        if asteroidType == MapConfig.ObjectType.ASTEROID_LARGE then
+            love.graphics.setColor(color[1] * 1.3, color[2] * 1.3, color[3] * 1.3, 0.7 * alpha)
+            love.graphics.draw(img, sx - pxSize * 0.3, sy - pxSize * 0.3, 0, (pxSize * 0.4 * 2) / iw, (pxSize * 0.4 * 2) / ih, iw * 0.5, ih * 0.5)
+        end
+        
+        love.graphics.setShader()
+    else
+        -- Fallback sin shader (círculos como antes)
+        if lod >= 2 then
+            love.graphics.setColor(color[1], color[2], color[3], 0.8 * alpha)
+            love.graphics.circle("fill", sx, sy, pxSize, segments)
+            love.graphics.pop()
+            return
+        end
+        if lod >= 1 then
+            love.graphics.setColor(0.1, 0.1, 0.1, 0.3 * alpha)
+            love.graphics.circle("fill", sx + 2, sy + 2, pxSize + 1, segments)
+            love.graphics.setColor(color[1], color[2], color[3], 1 * alpha)
+            love.graphics.circle("fill", sx, sy, pxSize, segments)
+            love.graphics.pop()
+            return
+        end
+        love.graphics.setColor(0.1, 0.1, 0.1, 0.5 * alpha)
+        love.graphics.circle("fill", sx + 2, sy + 2, pxSize + 1, segments)
+        love.graphics.setColor(color[1], color[2], color[3], 1 * alpha)
+        love.graphics.circle("fill", sx, sy, pxSize, segments)
     end
-    
-    if asteroidType == MapConfig.ObjectType.ASTEROID_LARGE then
-        love.graphics.setColor(color[1] * 1.3, color[2] * 1.3, color[3] * 1.3, 0.7)
-        love.graphics.circle("fill", worldX - finalSize * 0.3, worldY - finalSize * 0.3, finalSize * 0.2, 6)
-    end
+
+    love.graphics.pop()
 end
 
 -- Dibujar objetos especiales
 function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
     local rendered = 0
-    
     for chunkY = chunkInfo.startY, chunkInfo.endY do
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.specialObjects then
                 local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
                 local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
-                
                 for _, obj in ipairs(chunk.specialObjects) do
                     if obj.type == MapConfig.ObjectType.STATION or obj.type == MapConfig.ObjectType.WORMHOLE then
                         local worldX = chunkBaseX + obj.x * MapConfig.chunk.worldScale
                         local worldY = chunkBaseY + obj.y * MapConfig.chunk.worldScale
-                        
                         if MapRenderer.isObjectVisible(worldX, worldY, obj.size * 2, camera) then
                             if obj.type == MapConfig.ObjectType.STATION then
-                                MapRenderer.drawStation(obj, worldX, worldY)
+                                MapRenderer.drawStation(obj, worldX, worldY, camera)
                             elseif obj.type == MapConfig.ObjectType.WORMHOLE then
-                                MapRenderer.drawWormhole(obj, worldX, worldY)
+                                MapRenderer.drawWormhole(obj, worldX, worldY, camera)
                             end
                             rendered = rendered + 1
                         end
@@ -483,66 +596,116 @@ function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
             end
         end
     end
-    
     return rendered
 end
 
--- Dibujar estación
-function MapRenderer.drawStation(station, worldX, worldY)
+-- Dibujar estación (en coordenadas de pantalla con fade)
+function MapRenderer.drawStation(station, worldX, worldY, camera)
+    local r, g, b, a = love.graphics.getColor()
+    local screenX, screenY = camera:worldToScreen(worldX, worldY)
+    local renderSize = station.size * camera.zoom
+    local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, station.size, camera)
+    
     love.graphics.push()
-    love.graphics.translate(worldX, worldY)
+    love.graphics.origin()
+    love.graphics.translate(screenX, screenY)
     
     local rotation = station.rotation + love.timer.getTime() * 0.1
     love.graphics.rotate(rotation)
     
-    local segments = station.size < 20 and 8 or (station.size > 40 and 16 or 12)
-    
-    love.graphics.setColor(0.1, 0.1, 0.1, 0.3)
-    love.graphics.circle("fill", 2, 2, station.size * 1.1, segments)
-    
-    love.graphics.setColor(0.6, 0.6, 0.8, 1)
-    love.graphics.circle("fill", 0, 0, station.size, segments)
-    
-    if station.size > 15 then
-        love.graphics.setColor(0.3, 0.5, 0.8, 1)
-        love.graphics.circle("line", 0, 0, station.size * 0.8, segments)
-        love.graphics.circle("line", 0, 0, station.size * 0.6, segments)
-    end
-    
-    love.graphics.setColor(0.2, 0.3, 0.7, 0.8)
-    love.graphics.rectangle("fill", -station.size * 1.5, -station.size * 0.2, station.size * 0.4, station.size * 0.4)
-    love.graphics.rectangle("fill", station.size * 1.1, -station.size * 0.2, station.size * 0.4, station.size * 0.4)
-    
-    if math.floor(love.timer.getTime()) % 2 == 0 then
-        love.graphics.setColor(0, 1, 0, 1)
-        love.graphics.circle("fill", station.size * 0.7, 0, 2, 4)
-        love.graphics.circle("fill", -station.size * 0.7, 0, 2, 4)
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("white") or nil
+    if shader and img then
+        love.graphics.setShader(shader)
+        love.graphics.setColor(0.6, 0.6, 0.8, 1 * alpha)
+        local iw, ih = img:getWidth(), img:getHeight()
+        local scale = (renderSize * 2) / math.max(1, iw)
+        love.graphics.draw(img, 0, 0, 0, scale, scale, iw * 0.5, ih * 0.5)
+        love.graphics.setShader()
+    else
+        local segments = station.size < 20 and 8 or (station.size > 40 and 16 or 12)
+        love.graphics.setColor(0.1, 0.1, 0.1, 0.3 * alpha)
+        love.graphics.circle("fill", 2, 2, renderSize * 1.1, segments)
+        love.graphics.setColor(0.6, 0.6, 0.8, 1 * alpha)
+        love.graphics.circle("fill", 0, 0, renderSize, segments)
+        if renderSize > 15 then
+            love.graphics.setColor(0.3, 0.5, 0.8, 1 * alpha)
+            love.graphics.circle("line", 0, 0, renderSize * 0.8, segments)
+            love.graphics.circle("line", 0, 0, renderSize * 0.6, segments)
+        end
+        love.graphics.setColor(0.2, 0.3, 0.7, 0.8 * alpha)
+        love.graphics.rectangle("fill", -renderSize * 1.5, -renderSize * 0.2, renderSize * 0.4, renderSize * 0.4)
+        love.graphics.rectangle("fill",  renderSize * 1.1, -renderSize * 0.2, renderSize * 0.4, renderSize * 0.4)
+        if math.floor(love.timer.getTime()) % 2 == 0 then
+            love.graphics.setColor(0, 1, 0, 1 * alpha)
+            love.graphics.circle("fill", renderSize * 0.7, 0, 2, 4)
+            love.graphics.circle("fill", -renderSize * 0.7, 0, 2, 4)
+        end
     end
     
     love.graphics.pop()
+    love.graphics.setColor(r, g, b, a)
 end
 
--- Dibujar wormhole
-function MapRenderer.drawWormhole(wormhole, worldX, worldY)
+-- Dibujar wormhole (en coordenadas de pantalla con fade)
+function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
+    local r, g, b, a = love.graphics.getColor()
     local time = love.timer.getTime()
-    
     local timeIndex = math.floor((time * 2 + wormhole.pulsePhase) * 57.29) % 360
     local pulse = 0.8 + 0.2 * MapRenderer.sinTable[timeIndex]
-    local size = wormhole.size * pulse
+    local sizePx = wormhole.size * pulse * camera.zoom
+
+    local screenX, screenY = camera:worldToScreen(worldX, worldY)
+    local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, wormhole.size * pulse, camera)
+    local segments = sizePx < 20 and 8 or (sizePx > 40 and 16 or 12)
     
-    local segments = size < 20 and 8 or (size > 40 and 16 or 12)
+    love.graphics.push()
+    love.graphics.origin()
     
-    love.graphics.setColor(0.1, 0.1, 0.4, 0.8)
-    love.graphics.circle("fill", worldX, worldY, size * 1.5, segments)
-    
-    love.graphics.setColor(0.3, 0.1, 0.8, 0.9)
-    love.graphics.circle("fill", worldX, worldY, size, segments)
-    
-    love.graphics.setColor(0.6, 0.3, 1, 0.7)
-    love.graphics.circle("fill", worldX, worldY, size * 0.6, segments)
-    
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.circle("fill", worldX, worldY, size * 0.2, 8)
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+    if shader and img then
+        love.graphics.setShader(shader)
+        -- Capa externa (aura)
+        love.graphics.setColor(0.1, 0.1, 0.4, 0.8 * alpha)
+        local iw, ih = img:getWidth(), img:getHeight()
+        local scaleOuter = (sizePx * 1.6 * 2) / math.max(1, iw)
+        love.graphics.draw(img, screenX, screenY, 0, scaleOuter, scaleOuter, iw * 0.5, ih * 0.5)
+
+        -- Anillo principal
+        love.graphics.setColor(0.3, 0.1, 0.8, 0.9 * alpha)
+        local scaleMain = (sizePx * 1.0 * 2) / iw
+        love.graphics.draw(img, screenX, screenY, 0, scaleMain, scaleMain, iw * 0.5, ih * 0.5)
+
+        -- Núcleo
+        love.graphics.setColor(0.6, 0.3, 1.0, 0.7 * alpha)
+        local scaleInner = (sizePx * 0.6 * 2) / iw
+        love.graphics.draw(img, screenX, screenY, 0, scaleInner, scaleInner, iw * 0.5, ih * 0.5)
+
+        -- Centro brillante
+        love.graphics.setColor(1, 1, 1, 0.9 * alpha)
+        local scaleCenter = (sizePx * 0.2 * 2) / iw
+        love.graphics.draw(img, screenX, screenY, 0, scaleCenter, scaleCenter, iw * 0.5, ih * 0.5)
+
+        love.graphics.setShader()
+    else
+        -- Fallback sin shader (círculos)
+        local segments = sizePx < 20 and 8 or (sizePx > 40 and 16 or 12)
+        love.graphics.setColor(0.1, 0.1, 0.4, 0.8 * alpha)
+        love.graphics.circle("fill", screenX, screenY, sizePx * 1.5, segments)
+
+        love.graphics.setColor(0.3, 0.1, 0.8, 0.9 * alpha)
+        love.graphics.circle("fill", screenX, screenY, sizePx, segments)
+
+        love.graphics.setColor(0.6, 0.3, 1, 0.7 * alpha)
+        love.graphics.circle("fill", screenX, screenY, sizePx * 0.6, segments)
+
+        love.graphics.setColor(1, 1, 1, 0.9 * alpha)
+        love.graphics.circle("fill", screenX, screenY, sizePx * 0.2, 8)
+    end
+
+    love.graphics.pop()
+    love.graphics.setColor(r, g, b, a)
 end
 
 -- Dibujar características de biomas
@@ -580,69 +743,123 @@ function MapRenderer.drawBiomeFeature(feature, worldX, worldY, camera)
     
     local screenX, screenY = camera:worldToScreen(worldX, worldY)
     local renderSize = feature.size * camera.zoom
+    local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, feature.size, camera)
     
     local time = love.timer.getTime()
     local timeIndex2 = math.floor((time * 2 * 57.3) % 360) + 1
     local timeIndex3 = math.floor((time * 3 * 57.3) % 360) + 1
     
+    love.graphics.push()
+    love.graphics.origin()
+    
     if feature.type == "dense_nebula" then
-        love.graphics.setColor(feature.color)
-        love.graphics.circle("fill", screenX, screenY, renderSize, 24)
-        
-        local pulse = 0.8 + 0.2 * MapRenderer.sinTable[timeIndex2]
-        love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], 
-                              feature.color[4] * 0.3 * pulse)
-        love.graphics.circle("fill", screenX, screenY, renderSize * 1.3, 16)
-        
+        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
+        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+        if shader and img then
+            love.graphics.setShader(shader)
+            local iw, ih = img:getWidth(), img:getHeight()
+            -- Capa base
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
+            local baseScale = (renderSize * 2) / math.max(1, iw)
+            love.graphics.draw(img, screenX, screenY, 0, baseScale, baseScale, iw * 0.5, ih * 0.5)
+            -- Halo pulsante
+            local pulse = 0.8 + 0.2 * MapRenderer.sinTable[timeIndex2 % 360]
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * 0.35 * pulse * alpha)
+            local haloScale = (renderSize * 1.3 * 2) / iw
+            love.graphics.draw(img, screenX, screenY, 0, haloScale, haloScale, iw * 0.5, ih * 0.5)
+            love.graphics.setShader()
+        else
+            -- Fallback previo
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
+            love.graphics.circle("fill", screenX, screenY, renderSize, 24)
+            local pulse = 0.8 + 0.2 * MapRenderer.sinTable[timeIndex2]
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * 0.3 * pulse * alpha)
+            love.graphics.circle("fill", screenX, screenY, renderSize * 1.3, 16)
+        end
+
     elseif feature.type == "mega_asteroid" then
-        love.graphics.setColor(feature.color)
-        love.graphics.circle("fill", screenX, screenY, renderSize, 16)
-        love.graphics.setColor(0, 0, 0, 0.3)
-        love.graphics.circle("fill", screenX + 3, screenY + 3, renderSize, 16)
-        
+        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("asteroid") or nil
+        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+        if shader and img then
+            love.graphics.setShader(shader)
+            local iw, ih = img:getWidth(), img:getHeight()
+            -- Sombra
+            love.graphics.setColor(0, 0, 0, 0.3 * alpha)
+            love.graphics.draw(img, screenX + 3, screenY + 3, 0, (renderSize * 2) / iw, (renderSize * 2) / ih, iw * 0.5, ih * 0.5)
+            -- Cuerpo
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
+            love.graphics.draw(img, screenX, screenY, 0, (renderSize * 2) / iw, (renderSize * 2) / ih, iw * 0.5, ih * 0.5)
+            love.graphics.setShader()
+        else
+            -- Fallback previo
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
+            love.graphics.circle("fill", screenX, screenY, renderSize, 16)
+            love.graphics.setColor(0, 0, 0, 0.3 * alpha)
+            love.graphics.circle("fill", screenX + 3, screenY + 3, renderSize, 16)
+        end
+
     elseif feature.type == "gravity_well" then
+        -- Mantener primitivas (efecto de anillos)
         if renderSize > 5 then
-            love.graphics.setColor(feature.color)
             for i = 1, 3 do
                 local radius = renderSize * i * 0.8
-                local alpha = feature.color[4] / i
-                love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], alpha)
+                local alphaAdjusted = (feature.color[4] or 1) / i * alpha
+                love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], alphaAdjusted)
                 love.graphics.circle("line", screenX, screenY, radius, 16)
             end
         else
-            love.graphics.setColor(feature.color)
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
             love.graphics.circle("fill", screenX, screenY, renderSize, 12)
         end
-        
+
     elseif feature.type == "dead_star" then
-        love.graphics.setColor(feature.color)
+        -- Mantener implementación previa con primitivas
+        love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
         love.graphics.circle("fill", screenX, screenY, renderSize, 12)
-        
         local pulse = 0.5 + 0.5 * MapRenderer.sinTable[timeIndex3]
-        love.graphics.setColor(1, 0.5, 0, 0.3 * pulse)
+        love.graphics.setColor(1, 0.5, 0, 0.3 * pulse * alpha)
         love.graphics.circle("fill", screenX, screenY, renderSize * 3, 16)
-        
+
     elseif feature.type == "ancient_station" then
-        love.graphics.setColor(feature.color)
-        love.graphics.push()
-        love.graphics.translate(screenX, screenY)
-        love.graphics.rotate(time * 0.2)
-        
-        love.graphics.rectangle("fill", -renderSize/2, -renderSize/2, renderSize, renderSize)
-        
-        if renderSize > 10 then
-            love.graphics.setColor(0.5, 1, 0.8, 0.8)
-            love.graphics.rectangle("line", -renderSize/3, -renderSize/3, renderSize/1.5, renderSize/1.5)
-            
-            if feature.properties and feature.properties.intact and MapRenderer.sinTable[timeIndex3 % 360] > 0 then
-                love.graphics.setColor(0, 1, 0, 1)
-                love.graphics.circle("fill", 0, 0, 3)
+        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
+        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("white") or nil
+        if shader and img then
+            love.graphics.push()
+            love.graphics.translate(screenX, screenY)
+            love.graphics.rotate(time * 0.2)
+            love.graphics.setShader(shader)
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
+            local iw, ih = img:getWidth(), img:getHeight()
+            local scale = (renderSize * 2) / math.max(1, iw)
+            love.graphics.draw(img, 0, 0, 0, scale, scale, iw * 0.5, ih * 0.5)
+            love.graphics.setShader()
+            love.graphics.pop()
+
+            -- Indicador opcional (intacto)
+            if renderSize > 10 and feature.properties and feature.properties.intact and MapRenderer.sinTable[timeIndex3 % 360] > 0 then
+                love.graphics.setColor(0, 1, 0, 1 * alpha)
+                love.graphics.circle("fill", screenX, screenY, 3)
             end
+        else
+            -- Fallback previo
+            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
+            love.graphics.push()
+            love.graphics.translate(screenX, screenY)
+            love.graphics.rotate(time * 0.2)
+            love.graphics.rectangle("fill", -renderSize/2, -renderSize/2, renderSize, renderSize)
+            if renderSize > 10 then
+                love.graphics.setColor(0.5, 1, 0.8, 0.8 * alpha)
+                love.graphics.rectangle("line", -renderSize/3, -renderSize/3, renderSize/1.5, renderSize/1.5)
+                if feature.properties and feature.properties.intact and MapRenderer.sinTable[timeIndex3 % 360] > 0 then
+                    love.graphics.setColor(0, 1, 0, 1 * alpha)
+                    love.graphics.circle("fill", 0, 0, 3)
+                end
+            end
+            love.graphics.pop()
         end
-        
-        love.graphics.pop()
     end
     
+    love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
 end
 

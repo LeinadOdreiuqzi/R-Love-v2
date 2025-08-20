@@ -3,12 +3,13 @@
 local BiomeSystem = {}
 local PerlinNoise = require 'src.maps.perlin_noise'
 local MapConfig = require 'src.maps.config.map_config'
+local CoordinateSystem = require 'src.maps.coordinate_system'
 
 -- Unified stride for chunk world positioning
 local STRIDE = (MapConfig.chunk.size * MapConfig.chunk.tileSize) + MapConfig.chunk.spacing
 
--- Límites del mundo (200k x 200k)
-BiomeSystem.WORLD_LIMIT = 200000
+-- Límites del mundo - usar CoordinateSystem para consistencia
+BiomeSystem.WORLD_LIMIT = CoordinateSystem.config.maxDistanceFromOrigin
 
 -- Tipos de biomas ordenados por rareza
 BiomeSystem.BiomeType = {
@@ -85,7 +86,7 @@ BiomeSystem.biomeConfigs = {
     [BiomeSystem.BiomeType.DEEP_SPACE] = {
         name = "Deep Space",
         rarity = "Very Common",
-        color = {0.05, 0.05, 0.15, 1},  -- Azul muy oscuro más visible
+        color = {0, 0, 0, 0},  -- Azul muy oscuro más visible
         spawnWeight = 0.38,  -- 38% del mapa - océano espacial
         
         conditions = {

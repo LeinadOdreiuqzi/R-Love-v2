@@ -131,11 +131,23 @@ end
 
 -- Convert screen coordinates to world coordinates
 function Camera:screenToWorld(screenX, screenY)
+    -- Ensure metatable and methods are intact
+    if type(self.updateScreenDimensions) ~= "function" then
+        setmetatable(self, Camera)
+        Camera.__index = Camera
+    end
+
     -- Ensure we have valid dimensions and zoom
     if not self.screenWidth or not self.screenHeight then
-        self:updateScreenDimensions()
+        if type(self.updateScreenDimensions) == "function" then
+            self:updateScreenDimensions()
+        else
+            -- Fallback safe defaults
+            self.screenWidth, self.screenHeight = 800, 600
+            self.offsetX, self.offsetY = 400, 300
+        end
     end
-    
+
     -- Fallback if dimensions are still invalid
     if not self.screenWidth or not self.screenHeight or not self.zoom then
         return screenX, screenY
@@ -151,12 +163,22 @@ end
 
 -- Convert world coordinates to screen coordinates
 function Camera:worldToScreen(worldX, worldY)
+    -- Ensure metatable and methods are intact
+    if type(self.updateScreenDimensions) ~= "function" then
+        setmetatable(self, Camera)
+        Camera.__index = Camera
+    end
+
     -- Ensure we have valid dimensions
     if not self.screenWidth or not self.screenHeight then
-        self:updateScreenDimensions()
+        if type(self.updateScreenDimensions) == "function" then
+            self:updateScreenDimensions()
+        else
+            self.screenWidth, self.screenHeight = 800, 600
+            self.offsetX, self.offsetY = 400, 300
+        end
     end
-    
-    -- Regular 2D conversion
+
     return (worldX - self.x) * self.zoom + self.offsetX,
            (worldY - self.y) * self.zoom + self.offsetY
 end
