@@ -975,15 +975,32 @@ function BiomeSystem.findNearbyBiomes(x, y, radius)
             local chunkX = startChunkX + dx
             local chunkY = startChunkY + dy
             
-            local worldX = (chunkX + 0.5) * chunkSize
-            local worldY = (chunkY + 0.5) * chunkSize
-            local distance = math.sqrt((worldX - x)^2 + (worldY - y)^2)
-            
+            local chunkLeft = chunkX * chunkSize
+            local chunkTop = chunkY * chunkSize
+            local chunkRight = chunkLeft + chunkSize
+            local chunkBottom = chunkTop + chunkSize
+
+            local dxMin = 0
+            if x < chunkLeft then
+                dxMin = chunkLeft - x
+            elseif x > chunkRight then
+                dxMin = x - chunkRight
+            end
+
+            local dyMin = 0
+            if y < chunkTop then
+                dyMin = chunkTop - y
+            elseif y > chunkBottom then
+                dyMin = y - chunkBottom
+            end
+
+            local distance = math.sqrt(dxMin * dxMin + dyMin * dyMin)
+
             if distance <= radius then
                 local biomeInfo = BiomeSystem.getBiomeInfo(chunkX, chunkY)
                 if biomeInfo and biomeInfo.type then
                     local biomeType = biomeInfo.type
-                    
+
                     if not minDistances[biomeType] or distance < minDistances[biomeType] then
                         minDistances[biomeType] = distance
                         foundBiomes[biomeType] = {

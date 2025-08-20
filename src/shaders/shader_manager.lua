@@ -205,12 +205,35 @@ end
 -- Obtener imagen base para batching
 function ShaderManager.getBaseImage(imageType)
     if imageType == "white" then
+        -- Garantizar que 'white' exista siempre
+        if not ShaderManager.state.baseImages.white and love.graphics and love.image then
+            local whiteData = love.image.newImageData(1, 1)
+            whiteData:setPixel(0, 0, 1, 1, 1, 1)
+            ShaderManager.state.baseImages.white = love.graphics.newImage(whiteData)
+        end
         return ShaderManager.state.baseImages.white or (StarShader and StarShader.getWhiteImage and StarShader.getWhiteImage())
     elseif imageType == "circle" then
-        return ShaderManager.state.baseImages.circle
+        -- Crear 'circle' bajo demanda si falta
+        if not ShaderManager.state.baseImages.circle and love.graphics and love.image then
+            local circleSize = 32
+            local circleData = love.image.newImageData(circleSize, circleSize)
+            local center = circleSize / 2
+            for y = 0, circleSize - 1 do
+                for x = 0, circleSize - 1 do
+                    local dx = x - center + 0.5
+                    local dy = y - center + 0.5
+                    local distance = math.sqrt(dx * dx + dy * dy)
+                    local alpha = math.max(0, 1 - distance / center)
+                    circleData:setPixel(x, y, 1, 1, 1, alpha)
+                end
+            end
+            ShaderManager.state.baseImages.circle = love.graphics.newImage(circleData)
+        end
+        -- Si aún no existe, hacer fallback a 'white' para no perder la ruta con shader
+        return ShaderManager.state.baseImages.circle or ShaderManager.getBaseImage("white")
     end
-    
-    return ShaderManager.state.baseImages.white
+
+    return ShaderManager.state.baseImages.white or (StarShader and StarShader.getWhiteImage and StarShader.getWhiteImage())
 end
 
 -- Precalentar todos los shaders

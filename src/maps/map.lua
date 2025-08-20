@@ -198,13 +198,49 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     MapStats.addObjects(featuresRendered, featuresRendered, 0)
 end
 
+-- Utilidad unificada: calcular bounds de chunks visibles con margen de pantalla (px)
+function Map.getVisibleChunkBounds(camera, marginPx)
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+
+    local margin = marginPx or 800
+
+    -- Convertir viewport con margen a coordenadas del mundo
+    local worldLeft, worldTop = camera:screenToWorld(-margin, -margin)
+    local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
+
+    -- Usar stride escalado (alineado con renderers)
+    local strideScaled = Map.stride * Map.worldScale
+
+    -- Calcular índices visibles
+    local chunkStartX = math.floor(math.min(worldLeft, worldRight) / strideScaled)
+    local chunkStartY = math.floor(math.min(worldTop, worldBottom) / strideScaled)
+    local chunkEndX   = math.ceil(math.max(worldLeft, worldRight) / strideScaled)
+    local chunkEndY   = math.ceil(math.max(worldTop, worldBottom) / strideScaled)
+
+    -- Precarga suave (+/-3)
+    chunkStartX = chunkStartX - 3
+    chunkStartY = chunkStartY - 3
+    chunkEndX   = chunkEndX + 3
+    chunkEndY   = chunkEndY + 3
+
+    return {
+        startX = chunkStartX, startY = chunkStartY,
+        endX = chunkEndX, endY = chunkEndY,
+        worldLeft = worldLeft, worldTop = worldTop,
+        worldRight = worldRight, worldBottom = worldBottom,
+        marginPx = margin,
+        strideScaled = strideScaled
+    }
+end
+
 -- Calcular chunks visibles (compatible)
 function Map.calculateVisibleChunksTraditional(camera)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    -- Incrementar significativamente el margen para precarga de asteroides
-    local margin = 800 -- Aumentado de 200 a 800
+    -- Margen más moderado para render
+    local margin = 300
     
     -- Convertir el viewport (con margen en píxeles) a coordenadas del mundo
     local worldLeft, worldTop = camera:screenToWorld(-margin, -margin)
@@ -219,12 +255,7 @@ function Map.calculateVisibleChunksTraditional(camera)
     local chunkEndX   = math.ceil(math.max(worldLeft, worldRight) / strideScaled)
     local chunkEndY   = math.ceil(math.max(worldTop, worldBottom) / strideScaled)
     
-    -- Añadir más chunks extra para precarga suave
-    chunkStartX = chunkStartX - 3
-    chunkStartY = chunkStartY - 3
-    chunkEndX   = chunkEndX + 3
-    chunkEndY   = chunkEndY + 3
-    
+    -- Importante: no añadimos ring de precarga aquí (eso lo maneja el ChunkManager)
     return {
         startX = chunkStartX, startY = chunkStartY,
         endX = chunkEndX, endY = chunkEndY,

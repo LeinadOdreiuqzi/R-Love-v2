@@ -340,21 +340,21 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities)
     local nebulaDensity = densities.nebulae or MapConfig.density.nebulae
     
     local baseNumNebulae = math.max(1, math.floor(nebulaDensity * 0.8))
-    local maxNebulae = 6
-    
+    local maxNebulae = 10
+
     local numNebulae
     if chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
-        numNebulae = math.min(3, baseNumNebulae)
+        numNebulae = math.min(4, baseNumNebulae * 2)
     elseif chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-        numNebulae = math.min(maxNebulae, baseNumNebulae * 4)
+        numNebulae = math.min(maxNebulae, math.max(baseNumNebulae * 5, 4))
     elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
-        numNebulae = math.min(maxNebulae, baseNumNebulae * 2)
+        numNebulae = math.min(maxNebulae, math.max(baseNumNebulae * 3, 2))
     elseif chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
-        numNebulae = math.min(4, baseNumNebulae * 1.5)
+        numNebulae = math.min(6, math.max(baseNumNebulae * 2, 2))
     else
-        numNebulae = math.min(4, baseNumNebulae)
+        numNebulae = math.min(6, math.max(baseNumNebulae * 2, 1))
     end
-    
+
     for i = 1, numNebulae do
         local x = math.random(0, MapConfig.chunk.size - 1)
         local y = math.random(0, MapConfig.chunk.size - 1)
@@ -362,53 +362,66 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities)
         local globalY = chunkY * MapConfig.chunk.size + y
         
         local nebulaChance = MapGenerator.multiOctaveNoise(globalX, globalY, 3, 0.5, 0.035)
-        local threshold = 0.25
-        
+        local threshold = 0.18
+
         if chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-            threshold = 0.05
+            threshold = 0.0
         elseif chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
-            threshold = 0.35
+            threshold = 0.28
         elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
-            threshold = 0.15
+            threshold = 0.10
         elseif chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
-            threshold = 0.20
+            threshold = 0.15
         end
-        
+
         local shouldGenerate = false
         if chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-            shouldGenerate = (nebulaChance > threshold) or (math.random() < 0.4)
+            shouldGenerate = (nebulaChance > threshold) or (math.random() < 0.55)
         elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
-            shouldGenerate = (nebulaChance > threshold) or (math.random() < 0.25)
+            shouldGenerate = (nebulaChance > threshold) or (math.random() < 0.35)
         else
             shouldGenerate = nebulaChance > threshold
         end
-        
+
         if shouldGenerate then
             local nebula = {
                 type = MapConfig.ObjectType.NEBULA,
                 x = x * MapConfig.chunk.tileSize,
                 y = y * MapConfig.chunk.tileSize,
-                size = math.random(60, 160) * MapConfig.chunk.worldScale,
+                size = math.random(80, 220) * MapConfig.chunk.worldScale,
                 color = MapConfig.colors.nebulae[math.random(1, #MapConfig.colors.nebulae)],
-                intensity = math.random(25, 60) / 100,
+                intensity = math.random(30, 70) / 100,
                 biomeType = chunk.biome.type,
                 globalX = globalX,
                 globalY = globalY
             }
-            
             if chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-                nebula.size = nebula.size * math.random(120, 180) / 100
-                nebula.intensity = nebula.intensity * math.random(110, 150) / 100
+                nebula.size = nebula.size * math.random(130, 190) / 100
+                nebula.intensity = nebula.intensity * math.random(120, 170) / 100
             elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
                 nebula.size = nebula.size * math.random(80, 130) / 100
                 nebula.intensity = nebula.intensity * math.random(120, 160) / 100
                 nebula.color = {0.8, 0.6, 0.2, 0.5}
             end
-            
             table.insert(nebulaObjects, nebula)
         end
     end
-    
+
+    if (chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD) and (#nebulaObjects == 0) then
+        local cx = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
+        local cy = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
+        table.insert(nebulaObjects, {
+            type = MapConfig.ObjectType.NEBULA,
+            x = cx, y = cy,
+            size = math.random(120, 220) * MapConfig.chunk.worldScale,
+            color = MapConfig.colors.nebulae[math.random(1, #MapConfig.colors.nebulae)],
+            intensity = math.random(25, 55) / 100,
+            biomeType = chunk.biome.type,
+            globalX = chunkX * MapConfig.chunk.size + math.floor(MapConfig.chunk.size * 0.5),
+            globalY = chunkY * MapConfig.chunk.size + math.floor(MapConfig.chunk.size * 0.5)
+        })
+    end
+
     chunk.objects.nebulae = nebulaObjects
 end
 

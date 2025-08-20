@@ -146,11 +146,12 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     return maxCount
 end
 
--- Dibujar estrellas mejoradas
+-- Dibujar estrellas con efectos mejorados
 function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConfig)
     local time = love.timer.getTime()
     local starsRendered = 0
-    local maxStarsPerFrame = starConfig.maxStarsPerFrame or 5000
+    -- Limita a 3000 sin tocar config global
+    local maxStarsPerFrame = math.min(starConfig.maxStarsPerFrame or 5000, 3000)
     -- Obtener la posición de la cámara en el espacio de juego
     local cameraX, cameraY = camera.x, camera.y
     local parallaxStrength = starConfig.parallaxStrength or 0.2
@@ -178,26 +179,30 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     local viewportBottom = camBottom + margin / camera.zoom
     
     -- Calcular chunks visibles basados en la vista
+    -- Usar los bounds/unidades unificadas
     local chunkSize = STRIDE * MapConfig.chunk.worldScale
-    local startChunkX = math.floor(viewportLeft / chunkSize)
-    local endChunkX = math.ceil(viewportRight / chunkSize)
-    local startChunkY = math.floor(viewportTop / chunkSize)
-    local endChunkY = math.ceil(viewportBottom / chunkSize)
-    
-    -- Recorrer solo los chunks visibles
+    local viewportLeft = chunkInfo.worldLeft
+    local viewportTop = chunkInfo.worldTop
+    local viewportRight = chunkInfo.worldRight
+    local viewportBottom = chunkInfo.worldBottom
+
+    local startChunkX = chunkInfo.startX
+    local endChunkX = chunkInfo.endX
+    local startChunkY = chunkInfo.startY
+    local endChunkY = chunkInfo.endY
+
+    -- Recorrer solo los chunks visibles (idéntico a otros renderers)
     for chunkY = startChunkY, endChunkY do
         for chunkX = startChunkX, endChunkX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.objects and chunk.objects.stars then
-                -- Coordenadas base del chunk en el mundo
                 local chunkBaseX = chunkX * chunkSize
                 local chunkBaseY = chunkY * chunkSize
-                
+
                 for _, star in ipairs(chunk.objects.stars) do
-                    -- Calcular posición absoluta de la estrella en el mundo
                     local worldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
                     local worldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
-                    
+
                     -- Aplicar efecto de paralaje basado en la profundidad
                     if parallaxStrength > 0 then
                         local depth = star.depth or 0.5
@@ -337,7 +342,7 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
         
     elseif starType == 4 then
         local pulseIndex = math.floor((time * 6 + (star.pulsePhase or 0)) * 57.29) % 360
-        local pulse = 0.8 + 0.4 * MapRenderer.sinTable[pulseIndex]
+        local pulse = 0.8 + 0.2 * MapRenderer.sinTable[pulseIndex]
         
         love.graphics.setColor(color[1] * brightness * 0.7, color[2] * brightness * 0.7, color[3] * brightness * 0.7, 0.3)
         love.graphics.circle("fill", screenX, screenY, size * 3 * pulse, 12)
@@ -358,19 +363,21 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
 end
 
 -- Dibujar nebulosas
--- Dibujar nebulosas
 function MapRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
     local time = love.timer.getTime()
     local rendered = 0
+    local maxNebulaePerFrame = (MapConfig.performance and MapConfig.performance.maxNebulaePerFrame) or 1200
     
     for chunkY = chunkInfo.startY, chunkInfo.endY do
         for chunkX = chunkInfo.startX, chunkInfo.endX do
+            if rendered >= maxNebulaePerFrame then return rendered end
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.objects and chunk.objects.nebulae then
                 local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
                 local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 
                 for _, nebula in ipairs(chunk.objects.nebulae) do
+                    if rendered >= maxNebulaePerFrame then return rendered end
                     local worldX = chunkBaseX + nebula.x * MapConfig.chunk.worldScale
                     local worldY = chunkBaseY + nebula.y * MapConfig.chunk.worldScale
                     
@@ -426,8 +433,12 @@ end
 -- Dibujar asteroides
 function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
     local rendered = 0
+    -- Cap duro de asteroides por frame (puedes ajustar)
+    local maxAsteroidsPerFrame = (MapConfig.performance and MapConfig.performance.maxAsteroidsPerFrame) or 3000
+
     for chunkY = chunkInfo.startY, chunkInfo.endY do
         for chunkX = chunkInfo.startX, chunkInfo.endX do
+            if rendered >= maxAsteroidsPerFrame then return rendered end
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.tiles then
                 local chunkBaseTileX = chunkX * MapConfig.chunk.size
@@ -436,7 +447,9 @@ function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
                 local chunkBaseWorldY = chunkY * STRIDE * MapConfig.chunk.worldScale
 
                 for y = 0, MapConfig.chunk.size - 1 do
+                    if rendered >= maxAsteroidsPerFrame then return rendered end
                     for x = 0, MapConfig.chunk.size - 1 do
+                        if rendered >= maxAsteroidsPerFrame then return rendered end
                         local tileType = chunk.tiles[y][x]
                         if tileType >= MapConfig.ObjectType.ASTEROID_SMALL and tileType <= MapConfig.ObjectType.ASTEROID_LARGE then
                             local globalTileX = chunkBaseTileX + x
@@ -451,6 +464,7 @@ function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
                                 local lod = MapRenderer.calculateLOD(worldX, worldY, camera)
                                 MapRenderer.drawAsteroidLOD(tileType, worldX, worldY, globalTileX, globalTileY, lod, camera)
                                 rendered = rendered + 1
+                                if rendered >= maxAsteroidsPerFrame then return rendered end
                             end
                         end
                     end
@@ -573,13 +587,22 @@ end
 -- Dibujar objetos especiales
 function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
     local rendered = 0
-    for chunkY = chunkInfo.startY, chunkInfo.endY do
-        for chunkX = chunkInfo.startX, chunkInfo.endX do
+    local maxSpecialPerFrame = (MapConfig.performance and MapConfig.performance.maxSpecialPerFrame) or 800
+
+    local startX = chunkInfo.startX - 1
+    local endX   = chunkInfo.endX + 1
+    local startY = chunkInfo.startY - 1
+    local endY   = chunkInfo.endY + 1
+
+    for chunkY = startY, endY do
+        for chunkX = startX, endX do
+            if rendered >= maxSpecialPerFrame then return rendered end
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.specialObjects then
                 local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
                 local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 for _, obj in ipairs(chunk.specialObjects) do
+                    if rendered >= maxSpecialPerFrame then return rendered end
                     if obj.type == MapConfig.ObjectType.STATION or obj.type == MapConfig.ObjectType.WORMHOLE then
                         local worldX = chunkBaseX + obj.x * MapConfig.chunk.worldScale
                         local worldY = chunkBaseY + obj.y * MapConfig.chunk.worldScale
@@ -587,6 +610,7 @@ function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
                             if obj.type == MapConfig.ObjectType.STATION then
                                 MapRenderer.drawStation(obj, worldX, worldY, camera)
                             elseif obj.type == MapConfig.ObjectType.WORMHOLE then
+                                -- FIX: pasar el objeto correcto
                                 MapRenderer.drawWormhole(obj, worldX, worldY, camera)
                             end
                             rendered = rendered + 1
@@ -601,9 +625,12 @@ end
 
 -- Dibujar estación (en coordenadas de pantalla con fade)
 function MapRenderer.drawStation(station, worldX, worldY, camera)
+    if not station then return end  -- Guardia defensiva como en wormhole
+
     local r, g, b, a = love.graphics.getColor()
     local screenX, screenY = camera:worldToScreen(worldX, worldY)
     local renderSize = station.size * camera.zoom
+    if renderSize < 6 then renderSize = 6 end
     local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, station.size, camera)
     
     love.graphics.push()
@@ -613,34 +640,24 @@ function MapRenderer.drawStation(station, worldX, worldY, camera)
     local rotation = station.rotation + love.timer.getTime() * 0.1
     love.graphics.rotate(rotation)
     
-    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
-    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("white") or nil
-    if shader and img then
-        love.graphics.setShader(shader)
-        love.graphics.setColor(0.6, 0.6, 0.8, 1 * alpha)
-        local iw, ih = img:getWidth(), img:getHeight()
-        local scale = (renderSize * 2) / math.max(1, iw)
-        love.graphics.draw(img, 0, 0, 0, scale, scale, iw * 0.5, ih * 0.5)
-        love.graphics.setShader()
-    else
-        local segments = station.size < 20 and 8 or (station.size > 40 and 16 or 12)
-        love.graphics.setColor(0.1, 0.1, 0.1, 0.3 * alpha)
-        love.graphics.circle("fill", 2, 2, renderSize * 1.1, segments)
-        love.graphics.setColor(0.6, 0.6, 0.8, 1 * alpha)
-        love.graphics.circle("fill", 0, 0, renderSize, segments)
-        if renderSize > 15 then
-            love.graphics.setColor(0.3, 0.5, 0.8, 1 * alpha)
-            love.graphics.circle("line", 0, 0, renderSize * 0.8, segments)
-            love.graphics.circle("line", 0, 0, renderSize * 0.6, segments)
-        end
-        love.graphics.setColor(0.2, 0.3, 0.7, 0.8 * alpha)
-        love.graphics.rectangle("fill", -renderSize * 1.5, -renderSize * 0.2, renderSize * 0.4, renderSize * 0.4)
-        love.graphics.rectangle("fill",  renderSize * 1.1, -renderSize * 0.2, renderSize * 0.4, renderSize * 0.4)
-        if math.floor(love.timer.getTime()) % 2 == 0 then
-            love.graphics.setColor(0, 1, 0, 1 * alpha)
-            love.graphics.circle("fill", renderSize * 0.7, 0, 2, 4)
-            love.graphics.circle("fill", -renderSize * 0.7, 0, 2, 4)
-        end
+    -- Forzar el estilo anterior (vectorial) y NO usar shader ni imagen base
+    local segments = station.size < 20 and 8 or (station.size > 40 and 16 or 12)
+    love.graphics.setColor(0.1, 0.1, 0.1, 0.3 * alpha)
+    love.graphics.circle("fill", 2, 2, renderSize * 1.1, segments)
+    love.graphics.setColor(0.6, 0.6, 0.8, 1 * alpha)
+    love.graphics.circle("fill", 0, 0, renderSize, segments)
+    if renderSize > 15 then
+        love.graphics.setColor(0.3, 0.5, 0.8, 1 * alpha)
+        love.graphics.circle("line", 0, 0, renderSize * 0.8, segments)
+        love.graphics.circle("line", 0, 0, renderSize * 0.6, segments)
+    end
+    love.graphics.setColor(0.2, 0.3, 0.7, 0.8 * alpha)
+    love.graphics.rectangle("fill", -renderSize * 1.5, -renderSize * 0.2, renderSize * 0.4, renderSize * 0.4)
+    love.graphics.rectangle("fill",  renderSize * 1.1, -renderSize * 0.2, renderSize * 0.4, renderSize * 0.4)
+    if math.floor(love.timer.getTime()) % 2 == 0 then
+        love.graphics.setColor(0, 1, 0, 1 * alpha)
+        love.graphics.circle("fill", renderSize * 0.7, 0, 2, 4)
+        love.graphics.circle("fill", -renderSize * 0.7, 0, 2, 4)
     end
     
     love.graphics.pop()
@@ -649,11 +666,13 @@ end
 
 -- Dibujar wormhole (en coordenadas de pantalla con fade)
 function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
+    if not wormhole then return end
     local r, g, b, a = love.graphics.getColor()
     local time = love.timer.getTime()
     local timeIndex = math.floor((time * 2 + wormhole.pulsePhase) * 57.29) % 360
     local pulse = 0.8 + 0.2 * MapRenderer.sinTable[timeIndex]
     local sizePx = wormhole.size * pulse * camera.zoom
+    if sizePx < 6 then sizePx = 6 end
 
     local screenX, screenY = camera:worldToScreen(worldX, worldY)
     local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, wormhole.size * pulse, camera)
