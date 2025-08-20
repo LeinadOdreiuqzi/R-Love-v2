@@ -744,10 +744,9 @@ function love.keypressed(key)
         lighting.enabled = not lighting.enabled
         print("Lighting: " .. (lighting.enabled and "ON" or "OFF"))
     elseif key == "f6" then
-        if player and player.stats then
-            local died = player:takeDamage(1)
-            print("Test damage applied. Died: " .. tostring(died))
-        end
+        -- Toggle del overlay de performance (antes: daño de prueba)
+        biomeDebug.showPerformanceOverlay = not biomeDebug.showPerformanceOverlay
+        print("Performance overlay: " .. (biomeDebug.showPerformanceOverlay and "ON" or "OFF"))
     elseif key == "f7" then
         if Map.starConfig then
             Map.starConfig.enhancedEffects = not Map.starConfig.enhancedEffects

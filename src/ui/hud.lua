@@ -777,7 +777,7 @@ function HUD.drawUnifiedInfoPanel()
     infoY = infoY + lineHeight
     love.graphics.print("F1: Info | F2: Seed | F12: Biomes", x + 15, infoY)
     infoY = infoY + lineHeight
-    love.graphics.print("F13: Performance | R: New Galaxy", x + 15, infoY)
+    love.graphics.print("F6: Performance | R: New Galaxy", x + 15, infoY)
 end
 
 -- Input de semilla alfanumérica (COMPLETAMENTE NUEVO)

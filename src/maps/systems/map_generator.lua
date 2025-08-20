@@ -554,20 +554,30 @@ function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities)
                 }
                 
                 local config = starConfigs[starType]
+                local brightness
+                local rpick = math.random()
+                if rpick < 0.15 then
+                    brightness = 1.3 + math.random() * 0.5
+                elseif rpick < 0.55 then
+                    brightness = 0.9 + math.random() * 0.3
+                else
+                    brightness = 0.7 + math.random() * 0.2
+                end
+                if starType == 4 then brightness = brightness * 1.15 end
+                brightness = math.min(brightness, 2.0)
                 local star = {
-                    x = x,
-                    y = y,
+                    x = x + (math.random() - 0.5) * 0.4,
+                    y = y + (math.random() - 0.5) * 0.4,
                     size = config.size,
                     type = starType,
                     color = MapConfig.colors.stars[math.random(1, #MapConfig.colors.stars)],
                     twinkle = math.random() * math.pi * 2,
                     twinkleSpeed = math.random(0.5, 3.0),
                     depth = config.depth,
-                    brightness = math.random(0.8, 1.2),
+                    brightness = brightness,
                     pulsePhase = math.random() * math.pi * 2,
                     biomeType = chunk.biome.type
-                }
-                
+                }      
                 table.insert(stars, star)
             end
         end

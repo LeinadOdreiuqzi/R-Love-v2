@@ -15,6 +15,7 @@ local MapGenerator = require 'src.maps.systems.map_generator'
 local MapRenderer = require 'src.maps.systems.map_renderer'
 local MapStats = require 'src.maps.systems.map_stats'
 local MapConfig = require 'src.maps.config.map_config'
+local VisibilityUtils = require 'src.maps.visibility_utils'
 
 -- Estado principal del mapa
 Map.seed = "A1B2C3D4E5"  -- Semilla alfanumérica por defecto
@@ -166,6 +167,9 @@ function Map.draw(camera)
     
     -- Grid de debug si está habilitado
     if _G.showGrid then
+        -- Overlay de grid de chunks (límites e índices)
+        Map.drawChunkGridOverlay(chunkInfo, camera)
+        -- Overlay anterior (grid relativo + estado de coordenadas)
         Map.drawEnhancedGrid(chunkInfo, camera)
     end
     
@@ -200,68 +204,14 @@ end
 
 -- Utilidad unificada: calcular bounds de chunks visibles con margen de pantalla (px)
 function Map.getVisibleChunkBounds(camera, marginPx)
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
-
-    local margin = marginPx or 800
-
-    -- Convertir viewport con margen a coordenadas del mundo
-    local worldLeft, worldTop = camera:screenToWorld(-margin, -margin)
-    local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
-
-    -- Usar stride escalado (alineado con renderers)
-    local strideScaled = Map.stride * Map.worldScale
-
-    -- Calcular índices visibles
-    local chunkStartX = math.floor(math.min(worldLeft, worldRight) / strideScaled)
-    local chunkStartY = math.floor(math.min(worldTop, worldBottom) / strideScaled)
-    local chunkEndX   = math.ceil(math.max(worldLeft, worldRight) / strideScaled)
-    local chunkEndY   = math.ceil(math.max(worldTop, worldBottom) / strideScaled)
-
-    -- Precarga suave (+/-3)
-    chunkStartX = chunkStartX - 3
-    chunkStartY = chunkStartY - 3
-    chunkEndX   = chunkEndX + 3
-    chunkEndY   = chunkEndY + 3
-
-    return {
-        startX = chunkStartX, startY = chunkStartY,
-        endX = chunkEndX, endY = chunkEndY,
-        worldLeft = worldLeft, worldTop = worldTop,
-        worldRight = worldRight, worldBottom = worldBottom,
-        marginPx = margin,
-        strideScaled = strideScaled
-    }
+    -- Usar la utilidad compartida con anillo de precarga suave (+/-3)
+    return VisibilityUtils.getVisibleChunkBounds(camera, marginPx or 800, 3)
 end
 
 -- Calcular chunks visibles (compatible)
 function Map.calculateVisibleChunksTraditional(camera)
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
-    
-    -- Margen más moderado para render
-    local margin = 300
-    
-    -- Convertir el viewport (con margen en píxeles) a coordenadas del mundo
-    local worldLeft, worldTop = camera:screenToWorld(-margin, -margin)
-    local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
-    
-    -- USAR STRIDE ESCALADO POR worldScale (alineado con el renderer)
-    local strideScaled = Map.stride * Map.worldScale
-
-    -- Calcular índices de chunk usando stride escalado (como hacen las estrellas)
-    local chunkStartX = math.floor(math.min(worldLeft, worldRight) / strideScaled)
-    local chunkStartY = math.floor(math.min(worldTop, worldBottom) / strideScaled)
-    local chunkEndX   = math.ceil(math.max(worldLeft, worldRight) / strideScaled)
-    local chunkEndY   = math.ceil(math.max(worldTop, worldBottom) / strideScaled)
-    
-    -- Importante: no añadimos ring de precarga aquí (eso lo maneja el ChunkManager)
-    return {
-        startX = chunkStartX, startY = chunkStartY,
-        endX = chunkEndX, endY = chunkEndY,
-        worldLeft = worldLeft, worldTop = worldTop,
-        worldRight = worldRight, worldBottom = worldBottom
-    }
+    -- Delegar a la utilidad sin anillo de precarga (lo maneja ChunkManager)
+    return VisibilityUtils.getVisibleChunkBounds(camera, 300, 0)
 end
 
 -- Obtener chunk (híbrido: intenta ChunkManager, luego tradicional)
@@ -346,6 +296,51 @@ function Map.drawEnhancedGrid(chunkInfo, camera)
     love.graphics.setColor(r, g, b, a)
 end
 
+-- Overlay de grid de chunks (líneas de límites e índices)
+function Map.drawChunkGridOverlay(chunkInfo, camera)
+    local r, g, b, a = love.graphics.getColor()
+    local strideScaled = chunkInfo.strideScaled or (Map.stride * Map.worldScale)
+
+    love.graphics.setColor(0.2, 0.8, 1.0, 0.25)
+
+    -- Líneas verticales en límites de chunk
+    for cx = chunkInfo.startX, chunkInfo.endX + 1 do
+        local xWorld = cx * strideScaled
+        local sx1, sy1 = camera:worldToScreen(xWorld, chunkInfo.worldTop)
+        local sx2, sy2 = camera:worldToScreen(xWorld, chunkInfo.worldBottom)
+        love.graphics.line(sx1, sy1, sx2, sy2)
+    end
+
+    -- Líneas horizontales en límites de chunk
+    for cy = chunkInfo.startY, chunkInfo.endY + 1 do
+        local yWorld = cy * strideScaled
+        local sx1, sy1 = camera:worldToScreen(chunkInfo.worldLeft,  yWorld)
+        local sx2, sy2 = camera:worldToScreen(chunkInfo.worldRight, yWorld)
+        love.graphics.line(sx1, sy1, sx2, sy2)
+    end
+
+    -- Índices de chunk en el centro de cada celda
+    if (camera.zoom or 1) > 0.25 then
+        love.graphics.setColor(1, 1, 0, 0.8)
+        for cy = chunkInfo.startY, chunkInfo.endY do
+            for cx = chunkInfo.startX, chunkInfo.endX do
+                local centerX = (cx + 0.5) * strideScaled
+                local centerY = (cy + 0.5) * strideScaled
+                local sx, sy = camera:worldToScreen(centerX, centerY)
+                love.graphics.print(string.format("(%d,%d)", cx, cy), sx + 4, sy + 4)
+            end
+        end
+    end
+
+    -- Mostrar info de bounds y margen
+    love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+    local info = string.format("Chunks: [%d..%d]x[%d..%d] | strideScaled=%.1f | marginPx=%d",
+        chunkInfo.startX, chunkInfo.endX, chunkInfo.startY, chunkInfo.endY, strideScaled, chunkInfo.marginPx or 0)
+    love.graphics.print(info, 10, love.graphics.getHeight() - 60)
+
+    love.graphics.setColor(r, g, b, a)
+end
+
 -- Regenerar mapa
 function Map.regenerate(newSeed)
     Map.seed = newSeed
@@ -380,8 +375,10 @@ function Map.getChunk(chunkX, chunkY, playerX, playerY)
 end
 
 function Map.getChunkInfo(worldX, worldY)
-    local chunkX = math.floor(worldX / Map.stride)
-    local chunkY = math.floor(worldY / Map.stride)
+    -- Usar stride escalado para estabilidad con worldScale
+    local strideScaled = Map.stride * Map.worldScale
+    local chunkX = math.floor(worldX / strideScaled)
+    local chunkY = math.floor(worldY / strideScaled)
     return chunkX, chunkY
 end
 

@@ -1,11 +1,10 @@
--- src/maps/chunk_manager.lua
--- Sistema avanzado de gestión de chunks con pooling y priorización
-
+-- src/maps/chunk_manager.lua (cabecera)
 local ChunkManager = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
 local MapGenerator = require 'src.maps.systems.map_generator'
+local VisibilityUtils = require 'src.maps.visibility_utils'
 
 -- Configuración del gestor de chunks
 ChunkManager.config = {
@@ -395,11 +394,13 @@ function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY, playerV
         end
     end
     
-    -- Determinar chunk del jugador
-    local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
+    -- Determinar chunk del jugador usando MapConfig para asegurar determinismo
+    local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
+        * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
     local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
     local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-    local playerChunkX, playerChunkY
+    local playerChunkX = math.floor(playerX / (stride * ws))
+    local playerChunkY = math.floor(playerY / (stride * ws))
 
     if type(playerX) ~= "number" or type(playerY) ~= "number" then
         playerChunkX = ChunkManager.state.lastPlayerChunkX or 0
@@ -499,12 +500,8 @@ end
             local chunkId = ChunkManager.generateChunkId(futureX, futureY)
     
             if not ChunkManager.state.activeChunks[chunkId] and not ChunkManager.isInLoadQueue(chunkId) then
-                ChunkManager.requestChunkLoad(
-                    futureX, futureY,
-                    playerChunkX * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
-                    playerChunkY * ChunkManager.config.chunkSize * ChunkManager.config.tileSize,
-                    velX, velY
-                )
+                -- Pasar nil para usar lastPlayerChunk y evitar desfases de stride/escala
+                ChunkManager.requestChunkLoad(futureX, futureY, nil, nil, velX, velY)
             end
         end
     end
@@ -538,43 +535,23 @@ end
     -- Obtener chunks visibles con margen ampliado
     function ChunkManager.getVisibleChunks(camera)
         local visibleChunks = {}
-        
-        -- Calcular área visible con margen aumentado
-        local screenWidth = love.graphics.getWidth()
-        local screenHeight = love.graphics.getHeight()
-        
-        local margin = 300 -- Aumentado de 100 a 300 para mejor precarga
-        local worldLeft, worldTop = camera:screenToWorld(0 - margin, 0 - margin)
-        local worldRight, worldBottom = camera:screenToWorld(screenWidth + margin, screenHeight + margin)
-        
-        local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
-        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
-        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-        local strideScaled = stride * ws
-        local chunkStartX = math.floor(worldLeft / strideScaled)
-        local chunkStartY = math.floor(worldTop / strideScaled)
-        local chunkEndX = math.ceil(worldRight / strideScaled)
-        local chunkEndY = math.ceil(worldBottom / strideScaled)
-        
+    
+        -- Unificar cálculo de bounds (margen 300px, sin anillo extra aquí)
+        local bounds = VisibilityUtils.getVisibleChunkBounds(camera, 300, 0)
+    
         -- Recopilar chunks visibles
-        for chunkY = chunkStartY, chunkEndY do
-            for chunkX = chunkStartX, chunkEndX do
+        for chunkY = bounds.startY, bounds.endY do
+            for chunkX = bounds.startX, bounds.endX do
                 local chunkId = ChunkManager.generateChunkId(chunkX, chunkY)
                 local chunk = ChunkManager.state.activeChunks[chunkId]
-                
                 if chunk and chunk.status == "complete" then
                     chunk.visible = true
                     table.insert(visibleChunks, chunk)
                 end
             end
         end
-        
-        return visibleChunks, {
-            startX = chunkStartX, startY = chunkStartY,
-            endX = chunkEndX, endY = chunkEndY,
-            worldLeft = worldLeft, worldTop = worldTop,
-            worldRight = worldRight, worldBottom = worldBottom
-        }
+    
+        return visibleChunks, bounds
     end
     
     -- Obtener estadísticas del gestor

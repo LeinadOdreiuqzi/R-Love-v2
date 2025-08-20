@@ -650,4 +650,37 @@ function OptimizedRenderer.flushStationBatch()
     end
 end
 
+-- Módulo: OptimizedRenderer
+
+function OptimizedRenderer.getStats()
+    -- FPS actual vía LÖVE
+    local fps = (love and love.timer and love.timer.getFPS) and love.timer.getFPS() or 0
+
+    -- Intentar usar frameTime del estado si existe (segundos -> ms), si no, estimar desde FPS
+    local frameTimeMs
+    if OptimizedRenderer.state and OptimizedRenderer.state.stats and OptimizedRenderer.state.stats.frameTime then
+        frameTimeMs = (OptimizedRenderer.state.stats.frameTime or 0) * 1000
+    else
+        frameTimeMs = (fps > 0) and (1000 / fps) or 0
+    end
+
+    local stats = OptimizedRenderer.state and OptimizedRenderer.state.stats or {}
+    local quality = OptimizedRenderer.state and OptimizedRenderer.state.adaptiveQuality or {}
+
+    return {
+        performance = {
+            fps = fps or 0,
+            frameTime = frameTimeMs or 0,
+            drawCalls = stats.drawCalls or 0,
+        },
+        rendering = {
+            objectsRendered = stats.objectsRendered or 0,
+            cullingEfficiency = stats.cullingEfficiency or 0,
+        },
+        quality = {
+            current = quality.currentLevel or 1.0,
+        }
+    }
+end
+
 return OptimizedRenderer
