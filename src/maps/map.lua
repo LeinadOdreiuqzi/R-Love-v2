@@ -149,6 +149,7 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
 end
 
 -- Dibujo principal del mapa
+-- function Map.draw(camera)
 function Map.draw(camera)
     if not Map.initialized or not camera then return end
     
@@ -159,7 +160,7 @@ function Map.draw(camera)
     local chunkInfo = Map.calculateVisibleChunksTraditional(camera)
     
     -- Dibujar fondo según bioma dominante
-    local biomesActive = MapRenderer.drawBiomeBackground(chunkInfo, Map.getChunkTraditional)
+    local biomesActive = MapRenderer.drawBiomeBackground(chunkInfo, Map.getChunkNonBlocking)
     MapStats.setBiomesActive(biomesActive)
     
     -- Renderizar usando el sistema modular
@@ -178,27 +179,28 @@ function Map.draw(camera)
 end
 
 -- Renderizado principal mejorado
+-- function Map.drawTraditionalImproved(camera, chunkInfo)
 function Map.drawTraditionalImproved(camera, chunkInfo)
     -- 1. Dibujar estrellas con efectos mejorados
     local starsRendered, starsTotal = MapRenderer.drawEnhancedStars(
-        chunkInfo, camera, Map.getChunkTraditional, Map.starConfig
+        chunkInfo, camera, Map.getChunkNonBlocking, Map.starConfig
     )
     MapStats.addObjects(starsTotal, starsRendered, starsTotal - starsRendered)
     
     -- 2. Dibujar nebulosas
-    local nebulaeRendered = MapRenderer.drawNebulae(chunkInfo, camera, Map.getChunkTraditional)
+    local nebulaeRendered = MapRenderer.drawNebulae(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(nebulaeRendered, nebulaeRendered, 0)
     
     -- 3. Dibujar asteroides
-    local asteroidsRendered = MapRenderer.drawAsteroids(chunkInfo, camera, Map.getChunkTraditional)
+    local asteroidsRendered = MapRenderer.drawAsteroids(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(asteroidsRendered, asteroidsRendered, 0)
     
     -- 4. Dibujar objetos especiales
-    local specialRendered = MapRenderer.drawSpecialObjects(chunkInfo, camera, Map.getChunkTraditional)
+    local specialRendered = MapRenderer.drawSpecialObjects(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(specialRendered, specialRendered, 0)
     
     -- 5. Dibujar características de biomas
-    local featuresRendered = MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkTraditional)
+    local featuresRendered = MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(featuresRendered, featuresRendered, 0)
 end
 
@@ -215,6 +217,7 @@ function Map.calculateVisibleChunksTraditional(camera)
 end
 
 -- Obtener chunk (híbrido: intenta ChunkManager, luego tradicional)
+-- function Map.getChunkTraditional(chunkX, chunkY)
 function Map.getChunkTraditional(chunkX, chunkY)
     -- Intentar usar ChunkManager si está disponible
     if ChunkManager and ChunkManager.getChunk then
@@ -402,7 +405,19 @@ end
 function Map.resetStats()
     MapStats.resetStats()
 end
-
+-- NUEVO: obtener chunk sin bloquear (no genera si falta)
+function Map.getChunkNonBlocking(chunkX, chunkY)
+    if ChunkManager and ChunkManager.getChunk then
+        local px = (Map.lastPlayerPosition and Map.lastPlayerPosition.x) or 0
+        local py = (Map.lastPlayerPosition and Map.lastPlayerPosition.y) or 0
+        return ChunkManager.getChunk(chunkX, chunkY, px, py)
+    end
+    -- Si no hay ChunkManager, devuelve el ya existente (si lo hay), pero no genera
+    if Map.chunks and Map.chunks[chunkX] then
+        return Map.chunks[chunkX][chunkY]
+    end
+    return nil
+end
 function Map.toggleAsyncLoading()
     print("Async loading is handled by ChunkManager")
     if ChunkManager and ChunkManager.getStats then
@@ -433,3 +448,4 @@ Map.isObjectVisible = MapRenderer.isObjectVisible
 Map.calculateLOD = MapRenderer.calculateLOD
 
 return Map
+

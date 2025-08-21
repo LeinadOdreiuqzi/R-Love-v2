@@ -6,6 +6,7 @@ local PerlinNoise = require 'src.maps.perlin_noise'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
 
+MapGenerator.debugLogs = false
 -- Función de ruido multi-octava
 function MapGenerator.multiOctaveNoise(x, y, octaves, persistence, scale)
 
@@ -48,20 +49,18 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
     end
     
     -- Parámetros de la red de asteroides
-    local cellSize = 4  -- Reduced cell size for more dense coverage
-    local jitter = 0.6  -- Reduced jitter for more regular patterns
-    local minDistance = 2.0  -- Reduced minimum distance between asteroids
-    local maxDistance = 4.0  -- Reduced maximum connection distance
+    local cellSize = 4
+    local jitter = 0.6
+    local minDistance = 2.0
+    local maxDistance = 4.0
     
-    -- Generar puntos de la red usando ruido para asegurar consistencia entre chunks
+    -- Generar puntos de la red
     local points = {}
     local wx = chunkX * size
     local wy = chunkY * size
     
-    -- Crear una cuadrícula de puntos con jitter
     for gy = -1, math.ceil(size/cellSize) + 1 do
         for gx = -1, math.ceil(size/cellSize) + 1 do
-            -- Usar ruido para el jitter consistente
             local nx = (wx + gx * cellSize) * 0.1
             local ny = (wy + gy * cellSize) * 0.1
             local jx = (PerlinNoise.noise(nx, ny, 123) - 0.5) * cellSize * jitter
@@ -70,38 +69,34 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
             local x = gx * cellSize + jx
             local y = gy * cellSize + jy
             
-            -- Mantener puntos dentro del chunk con margen
             if x >= -cellSize and x < size + cellSize and y >= -cellSize and y < size + cellSize then
                 table.insert(points, {x = x, y = y, size = 0})
             end
         end
     end
     
-    -- Determinar el tamaño de cada asteroide basado en la densidad local
+    -- Determinar tamaños
     for i, point in ipairs(points) do
-        -- Usar ruido para tamaño consistente con offset basado en la posición del punto
         local noise = (PerlinNoise.noise(
             (wx + point.x) * 0.07, 
             (wy + point.y) * 0.07, 
             789
-        ) + 1) * 0.5  -- Normalizar a 0..1
+        ) + 1) * 0.5
         
-        -- Ajustar por densidad global primero
         if deterministicRandom() > baseDensity then
-            point.size = -1  -- Punto vacío (espacio abierto)
+            point.size = -1
         else
-            -- Asignar tamaño basado en el ruido, con distribución más sesgada hacia tamaños pequeños
             if noise > 0.8 then
-                point.size = 2  -- Grande (20% de probabilidad)
+                point.size = 2
             elseif noise > 0.5 then
-                point.size = 1  -- Mediano (30% de probabilidad)
+                point.size = 1
             else
-                point.size = 0  -- Pequeño (50% de probabilidad)
+                point.size = 0
             end
         end
     end
     
-    -- Conectar puntos cercanos para formar una red
+    -- Conexiones
     local connections = {}
     for i = 1, #points do
         connections[i] = {}
@@ -111,7 +106,6 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
             local dist = math.sqrt(dx * dx + dy * dy)
             
             if dist <= maxDistance and (points[i].size >= 0 or points[j].size >= 0) then
-                -- Conectar solo si al menos uno de los puntos es un asteroide
                 connections[i][j] = true
                 connections[j] = connections[j] or {}
                 connections[j][i] = true
@@ -119,16 +113,13 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
         end
     end
     
-    -- Rellenar los asteroides en el chunk
+    -- Rellenar asteroides
     local asteroidsPlaced = 0
     local minAsteroids = math.floor(size * size * baseDensity * 0.5)
     
     for i, point in ipairs(points) do
         local x, y = math.floor(point.x + 0.5), math.floor(point.y + 0.5)
-        
-        -- Solo dibujar puntos dentro del chunk
         if x >= 0 and x < size and y >= 0 and y < size and point.size >= 0 then
-            -- Determinar el tipo de asteroide basado en el tamaño
             local asteroidType
             if point.size == 2 then
                 asteroidType = MapConfig.ObjectType.ASTEROID_LARGE
@@ -138,12 +129,10 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
                 asteroidType = MapConfig.ObjectType.ASTEROID_SMALL
             end
             
-            -- Colocar el asteroide solo si la celda está vacía
             if chunk.tiles[y][x] == MapConfig.ObjectType.EMPTY then
                 chunk.tiles[y][x] = asteroidType
                 asteroidsPlaced = asteroidsPlaced + 1
                 
-                -- Para asteroides grandes, agregar algunos pequeños alrededor
                 if point.size == 2 and deterministicRandom() > 0.5 then
                     for dy = -1, 1 do
                         for dx = -1, 1 do
@@ -163,7 +152,7 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
         end
     end
     
-    -- Asegurar un mínimo de asteroides en el chunk
+    -- Forzar mínimo
     if asteroidsPlaced < minAsteroids then
         local attempts = 0
         while asteroidsPlaced < minAsteroids and attempts < minAsteroids * 2 do
@@ -171,7 +160,6 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
             local y = math.floor(deterministicRandom() * size)
             
             if chunk.tiles[y][x] == MapConfig.ObjectType.EMPTY then
-                -- Usar una distribución más probable de asteroides pequeños
                 local sizeRoll = deterministicRandom()
                 if sizeRoll > 0.9 then
                     chunk.tiles[y][x] = MapConfig.ObjectType.ASTEROID_LARGE
@@ -186,7 +174,7 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
         end
     end
     
-    -- Asegurar que haya suficientes asteroides (al menos 25% de cobertura)
+    -- Cobertura mínima
     local marked = 0
     local candidates = {}
     for y = 0, size - 1 do
@@ -194,7 +182,6 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
             if chunk.tiles[y][x] ~= MapConfig.ObjectType.EMPTY then
                 marked = marked + 1
             else
-                -- Usar ruido para determinar qué celdas vacías podrían convertirse en asteroides
                 local noise = (PerlinNoise.noise(
                     (wx + x) * 0.1, 
                     (wy + y) * 0.1, 
@@ -208,13 +195,9 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
         end
     end
     
-    -- Asegurar un mínimo de cobertura (25%)
     local minFill = math.floor(size * size * 0.25)
     if marked < minFill and #candidates > 0 then
-        -- Ordenar candidatos por valor de ruido descendente
         table.sort(candidates, function(a, b) return a.d > b.d end)
-        
-        -- Añadir asteroides pequeños hasta alcanzar el mínimo
         local idx = 1
         while marked < minFill and idx <= #candidates do
             local c = candidates[idx]
@@ -226,20 +209,23 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
         end
     end
     
-    -- Crear algunos espacios abiertos más grandes (10-15% de probabilidad por chunk)
+    -- Crear espacios abiertos grandes (optimizado con distancia²)
     if deterministicRandom() < 0.12 then
-        local openSpaceX = math.floor(deterministicRandom() * (size - 12) + 6)
-        local openSpaceY = math.floor(deterministicRandom() * (size - 12) + 6)
+        local centerX = math.floor(deterministicRandom() * (size - 12) + 6)
+        local centerY = math.floor(deterministicRandom() * (size - 12) + 6)
         local radius = 3 + math.floor(deterministicRandom() * 3)
         
-        for dy = -radius, radius do
-            for dx = -radius, radius do
-                local x, y = openSpaceX + dx, openSpaceY + dy
-                if x >= 0 and x < size and y >= 0 and y < size then
-                    local dist = math.sqrt(dx*dx + dy*dy)
-                    if dist <= radius and chunk.tiles[y][x] ~= MapConfig.ObjectType.ASTEROID_LARGE then
-                        chunk.tiles[y][x] = MapConfig.ObjectType.EMPTY
-                    end
+        local O = MapConfig.ObjectType
+        local radius2 = radius * radius
+        for y = 0, size - 1 do
+            local row = chunk.tiles[y]
+            local dy = (y - centerY)
+            local dy2 = dy * dy
+            for x = 0, size - 1 do
+                local dx = (x - centerX)
+                local d2 = dx * dx + dy2
+                if d2 <= radius2 and row[x] ~= O.ASTEROID_LARGE then
+                    row[x] = O.EMPTY
                 end
             end
         end
@@ -247,7 +233,6 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
     
     return chunk
 end
-
 -- Generar asteroides balanceados
 function MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, densities)
     local asteroidDensity = densities.asteroids or MapConfig.density.asteroids
@@ -257,77 +242,85 @@ function MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, densities
     end
     
     local placed = 0
-    for y = 0, MapConfig.chunk.size - 1 do
-        for x = 0, MapConfig.chunk.size - 1 do
-            local globalX = chunkX * MapConfig.chunk.size + x
-            local globalY = chunkY * MapConfig.chunk.size + y
-            
-            local noiseMain = MapGenerator.multiOctaveNoise(globalX, globalY, 4, 0.5, 0.025)
-            local noiseDetail = MapGenerator.multiOctaveNoise(globalX, globalY, 2, 0.3, 0.12)
+    local size = MapConfig.chunk.size
+    local tiles = chunk.tiles
+    local O = MapConfig.ObjectType
+    local rnd = math.random
+    local bt = chunk.biome.type
+
+    for y = 0, size - 1 do
+        local row = tiles[y]
+        local globalY = chunkY * size + y
+        for x = 0, size - 1 do
+            local globalX = chunkX * size + x
+
+            -- Menos octavas: 4->3 y 2->1 para reducir coste por celda
+            local noiseMain  = MapGenerator.multiOctaveNoise(globalX, globalY, 3, 0.5, 0.025)
+            local noiseDetail = MapGenerator.multiOctaveNoise(globalX, globalY, 1, 0.3, 0.12)
             local combinedNoise = (noiseMain * 0.7 + noiseDetail * 0.3)
             
             local threshold = 0.20
-            if chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
+            if bt == BiomeSystem.BiomeType.DEEP_SPACE then
                 threshold = 0.25
                 combinedNoise = combinedNoise * 0.9
-            elseif chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
+            elseif bt == BiomeSystem.BiomeType.NEBULA_FIELD then
                 threshold = 0.35
-            elseif chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
+            elseif bt == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
                 threshold = 0.18
                 combinedNoise = combinedNoise * 1.1
-            elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
+            elseif bt == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
                 threshold = 0.4
-            elseif chunk.biome.type == BiomeSystem.BiomeType.ANCIENT_RUINS then
+            elseif bt == BiomeSystem.BiomeType.ANCIENT_RUINS then
                 threshold = 0.45
             end
             
             if combinedNoise > threshold + 0.3 then
-                chunk.tiles[y][x] = MapConfig.ObjectType.ASTEROID_LARGE
+                row[x] = O.ASTEROID_LARGE
                 placed = placed + 1
             elseif combinedNoise > threshold + 0.15 then
-                chunk.tiles[y][x] = MapConfig.ObjectType.ASTEROID_MEDIUM
+                row[x] = O.ASTEROID_MEDIUM
                 placed = placed + 1
             elseif combinedNoise > threshold then
-                chunk.tiles[y][x] = MapConfig.ObjectType.ASTEROID_SMALL
+                row[x] = O.ASTEROID_SMALL
                 placed = placed + 1
             end
             
-            local randomFactor = math.random()
+            local randomFactor = rnd()
             if randomFactor < asteroidDensity * 0.08 then
-                if chunk.tiles[y][x] == MapConfig.ObjectType.EMPTY then
-                    chunk.tiles[y][x] = MapConfig.ObjectType.ASTEROID_SMALL
+                if row[x] == O.EMPTY then
+                    row[x] = O.ASTEROID_SMALL
                 end
             end
         end
     end
 
-    -- Garantizar presencia mínima de asteroides según bioma (evitar chunks vacíos)
-    local size = MapConfig.chunk.size
+    -- Garantizar presencia mínima (igual lógica, con PRNG local y filas cacheadas)
     local totalTiles = size * size
     local minRatioByBiome = {
         [BiomeSystem.BiomeType.DEEP_SPACE] = 0.005,
         [BiomeSystem.BiomeType.NEBULA_FIELD] = 0.02,
-        [BiomeSystem.BiomeType.ASTEROID_BELT] = 0.0, -- ya manejado por generador dedicado
+        [BiomeSystem.BiomeType.ASTEROID_BELT] = 0.0,
         [BiomeSystem.BiomeType.GRAVITY_ANOMALY] = 0.015,
         [BiomeSystem.BiomeType.RADIOACTIVE_ZONE] = 0.01,
         [BiomeSystem.BiomeType.ANCIENT_RUINS] = 0.008
     }
-    local minNeeded = math.floor(totalTiles * (minRatioByBiome[chunk.biome.type] or 0.01))
+    local minNeeded = math.floor(totalTiles * (minRatioByBiome[bt] or 0.01))
     if placed < minNeeded then
         local toAdd = minNeeded - placed
         local attempts = 0
         while toAdd > 0 and attempts < totalTiles * 2 do
             attempts = attempts + 1
-            local rx = math.random(0, size - 1)
-            local ry = math.random(0, size - 1)
-            if chunk.tiles[ry][rx] == MapConfig.ObjectType.EMPTY then
-                local roll = math.random()
+            local rx = rnd(0, size - 1)
+            local ry = rnd(0, size - 1)
+            local row = tiles[ry]
+            if row[rx] == O.EMPTY then
+                local roll = rnd()
                 if roll < 0.15 then
-                    chunk.tiles[ry][rx] = MapConfig.ObjectType.ASTEROID_LARGE
+                    row[rx] = O.ASTEROID_LARGE
                 elseif roll < 0.45 then
-                    chunk.tiles[ry][rx] = MapConfig.ObjectType.ASTEROID_MEDIUM
+                    row[rx] = O.ASTEROID_MEDIUM
                 else
-                    chunk.tiles[ry][rx] = MapConfig.ObjectType.ASTEROID_SMALL
+                    row[rx] = O.ASTEROID_SMALL
                 end
                 toAdd = toAdd - 1
             end
@@ -340,7 +333,7 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities)
     local nebulaDensity = densities.nebulae or MapConfig.density.nebulae
     
     local baseNumNebulae = math.max(1, math.floor(nebulaDensity * 0.8))
-    local maxNebulae = 10
+    local maxNebulae = 8
 
     local numNebulae
     if chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
@@ -492,92 +485,90 @@ function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities)
     local starDensity = densities.stars or MapConfig.density.stars
     local baseNumStars = math.floor(MapConfig.chunk.size * MapConfig.chunk.size * starDensity * 0.2)
     
-    -- Aumentar la densidad base para evitar espacios vacíos
-    local numStars = baseNumStars * 2.0
+    -- Reducir multiplicadores (menos objetos y menos CPU por chunk)
+    local numStars = baseNumStars * 1.3
     if chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
-        numStars = baseNumStars * 3.0
+        numStars = baseNumStars * 2.0
     elseif chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-        numStars = baseNumStars * 2.2
+        numStars = baseNumStars * 1.5
     elseif chunk.biome.type == BiomeSystem.BiomeType.ASTEROID_BELT then
-        numStars = baseNumStars * 1.8
+        numStars = baseNumStars * 1.2
     elseif chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
-        numStars = baseNumStars * 2.5
+        numStars = baseNumStars * 1.8
     end
     
-    -- Distribución uniforme dividiendo el chunk en sectores
-    local sectorsPerSide = 6
+    -- Menos sectores para reducir trabajo
+    local sectorsPerSide = 5
     local sectorSize = MapConfig.chunk.size * MapConfig.chunk.tileSize / sectorsPerSide
     local starsPerSector = math.ceil(numStars / (sectorsPerSide * sectorsPerSide))
     
-    -- Generar estrellas por sector
+    -- Tablas y PRNG locales
+    local rnd = math.random
+    local colors = MapConfig.colors.stars
+    local colorCount = #colors
+    local starConfigs = {
+        [1] = {minS = 1, maxS = 2,  minD = 0.85, maxD = 0.95},
+        [2] = {minS = 2, maxS = 3,  minD = 0.70, maxD = 0.85},
+        [3] = {minS = 3, maxS = 4,  minD = 0.50, maxD = 0.70},
+        [4] = {minS = 3, maxS = 5,  minD = 0.30, maxD = 0.50},
+        [5] = {minS = 4, maxS = 6,  minD = 0.15, maxD = 0.30},
+        [6] = {minS = 5, maxS = 8,  minD = 0.05, maxD = 0.15}
+    }
+    
     for sectorY = 0, sectorsPerSide - 1 do
         for sectorX = 0, sectorsPerSide - 1 do
             local sectorStars = starsPerSector
-            if math.random() < 0.3 then
-                sectorStars = sectorStars + math.random(1, 3)
+            if rnd() < 0.3 then
+                sectorStars = sectorStars + rnd(1, 3)
             end
             
             for i = 1, sectorStars do
-                local x = sectorX * sectorSize + math.random(sectorSize * 0.1, sectorSize * 0.9)
-                local y = sectorY * sectorSize + math.random(sectorSize * 0.1, sectorSize * 0.9)
+                local x = sectorX * sectorSize + rnd(sectorSize * 0.1, sectorSize * 0.9)
+                local y = sectorY * sectorSize + rnd(sectorSize * 0.1, sectorSize * 0.9)
                 
                 -- Determinar tipo de estrella
-                local starTypeRoll = math.random(1, 100)
-                local starType
+                local roll = rnd(1, 100)
+                local starType =
+                      (roll <= 30) and 1
+                   or (roll <= 50) and 2
+                   or (roll <= 65) and 3
+                   or (roll <= 80) and 4
+                   or (roll <= 92) and 5
+                   or 6
                 
-                if starTypeRoll <= 30 then
-                    starType = 1
-                elseif starTypeRoll <= 50 then
-                    starType = 2
-                elseif starTypeRoll <= 65 then
-                    starType = 3
-                elseif starTypeRoll <= 80 then
-                    starType = 4
-                elseif starTypeRoll <= 92 then
-                    starType = 5
-                else
-                    starType = 6
-                end
-                
-                -- Ajuste para biomas específicos
-                if chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE and math.random() < 0.25 then
+                if chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE and rnd() < 0.25 then
                     starType = math.min(6, starType + 1)
                 end
                 
-                local starConfigs = {
-                    [1] = {size = math.random(1, 2), depth = math.random(0.85, 0.95)},
-                    [2] = {size = math.random(2, 3), depth = math.random(0.7, 0.85)},
-                    [3] = {size = math.random(3, 4), depth = math.random(0.5, 0.7)},
-                    [4] = {size = math.random(3, 5), depth = math.random(0.3, 0.5)},
-                    [5] = {size = math.random(4, 6), depth = math.random(0.15, 0.3)},
-                    [6] = {size = math.random(5, 8), depth = math.random(0.05, 0.15)}
-                }
+                local cfg = starConfigs[starType]
+                local size = rnd(cfg.minS, cfg.maxS)
+                local depth = cfg.minD + rnd() * (cfg.maxD - cfg.minD)
                 
-                local config = starConfigs[starType]
+                local rpick = rnd()
                 local brightness
-                local rpick = math.random()
                 if rpick < 0.15 then
-                    brightness = 1.3 + math.random() * 0.5
+                    brightness = 1.3 + rnd() * 0.5
                 elseif rpick < 0.55 then
-                    brightness = 0.9 + math.random() * 0.3
+                    brightness = 0.9 + rnd() * 0.3
                 else
-                    brightness = 0.7 + math.random() * 0.2
+                    brightness = 0.7 + rnd() * 0.2
                 end
                 if starType == 4 then brightness = brightness * 1.15 end
                 brightness = math.min(brightness, 2.0)
+                
                 local star = {
-                    x = x + (math.random() - 0.5) * 0.4,
-                    y = y + (math.random() - 0.5) * 0.4,
-                    size = config.size,
+                    x = x + (rnd() - 0.5) * 0.4,
+                    y = y + (rnd() - 0.5) * 0.4,
+                    size = size,
                     type = starType,
-                    color = MapConfig.colors.stars[math.random(1, #MapConfig.colors.stars)],
-                    twinkle = math.random() * math.pi * 2,
-                    twinkleSpeed = math.random(0.5, 3.0),
-                    depth = config.depth,
+                    color = colors[rnd(1, colorCount)],
+                    twinkle = rnd() * math.pi * 2,
+                    twinkleSpeed = rnd(0.5, 3.0),
+                    depth = depth,
                     brightness = brightness,
-                    pulsePhase = math.random() * math.pi * 2,
+                    pulsePhase = rnd() * math.pi * 2,
                     biomeType = chunk.biome.type
-                }      
+                }
                 table.insert(stars, star)
             end
         end
@@ -620,22 +611,38 @@ function MapGenerator.generateChunk(chunkX, chunkY)
             chunk.tiles[y][x] = MapConfig.ObjectType.EMPTY
         end
     end
-    
-    -- Generar contenido usando densidades modificadas por bioma
-    local modifiedDensities = BiomeSystem.modifyDensities(MapConfig.density, biomeInfo.type, chunkX, chunkY)
-    
-    MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, modifiedDensities)
-    MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, modifiedDensities)
-    MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, modifiedDensities)
-    MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modifiedDensities)
+
+    if MapGenerator.debugLogs then
+        local t0 = love.timer.getTime()
+        MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, BiomeSystem.modifyDensities(MapConfig.density, biomeInfo.type, chunkX, chunkY))
+        local t1 = love.timer.getTime()
+        MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, BiomeSystem.modifyDensities(MapConfig.density, biomeInfo.type, chunkX, chunkY))
+        local t2 = love.timer.getTime()
+        MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, BiomeSystem.modifyDensities(MapConfig.density, biomeInfo.type, chunkX, chunkY))
+        local t3 = love.timer.getTime()
+        MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, BiomeSystem.modifyDensities(MapConfig.density, biomeInfo.type, chunkX, chunkY))
+        local t4 = love.timer.getTime()
+        print(string.format("[GenProfile] Chunk (%d,%d): Ast=%.2fms, Neb=%.2fms, Spec=%.2fms, Stars=%.2fms",
+            chunkX, chunkY, (t1-t0)*1000, (t2-t1)*1000, (t3-t2)*1000, (t4-t3)*1000))
+    else
+        local modified = BiomeSystem.modifyDensities(MapConfig.density, biomeInfo.type, chunkX, chunkY)
+        MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, modified)
+        MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, modified)
+        MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, modified)
+        MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modified)
+    end
     
     -- IMPORTANTE: Asegurar que las características especiales de bioma SIEMPRE se generen
     BiomeSystem.generateSpecialFeatures(chunk, chunkX, chunkY, biomeInfo.type)
     
     -- Debug para verificar generación
     if #chunk.specialObjects > 0 then
-        print(string.format("Chunk (%d,%d) - Biome: %s, SpecialObjects: %d", 
-                           chunkX, chunkY, biomeInfo.name or "Unknown", #chunk.specialObjects))
+        -- dentro de MapGenerator.generateChunk, donde actualmente se imprime el resumen
+        -- print del resumen de chunk
+        if MapGenerator.debugLogs then
+            print(string.format("Chunk (%d,%d) - Biome: %s, SpecialObjects: %d",
+                chunkX, chunkY, chunk.biome and chunk.biome.name or "Unknown", #chunk.specialObjects))
+        end
     end
     
     return chunk
