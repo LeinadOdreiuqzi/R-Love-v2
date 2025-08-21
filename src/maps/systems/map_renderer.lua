@@ -358,7 +358,7 @@ end
 
 -- Dibujar estrella individual con efectos avanzados
 -- Ahora usa screenX y screenY que ya están en coordenadas de pantalla
-function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra)
+function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra, uniformsPreset)
     local r, g, b, a = love.graphics.getColor()
     
     if not starConfig.enhancedEffects then
@@ -384,8 +384,6 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     if starConfig.enhancedEffects and StarShader and StarShader.getShader and StarShader.getShader() then
         local adjustedSize = size * 0.8
 
-        -- Si no estamos ya en espacio de pantalla, aplicar push/origin temporalmente
-        -- Si estamos en lote principal, esto ya viene como true
         if not inScreenSpace then
             love.graphics.push()
             love.graphics.origin()
@@ -395,13 +393,15 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
         if shaderActive then
             if uniformsPreset and StarShader.drawStarBatchedNoUniforms then
                 StarShader.drawStarBatchedNoUniforms(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            elseif StarShader.drawStarWithUniformsNoSet then
+                StarShader.drawStarWithUniformsNoSet(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
             elseif StarShader.drawStarBatched then
                 StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
-            else
-                StarShader.drawStar(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
             end
         else
-            StarShader.drawStar(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            if StarShader.drawStarBatched then
+                StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            end
         end
 
         if not inScreenSpace then

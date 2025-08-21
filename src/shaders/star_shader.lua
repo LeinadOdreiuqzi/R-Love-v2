@@ -136,8 +136,8 @@ function StarShader.setType(starType)
     if starType == 4 then
         haloSize = 1.4
         coreSize = 0.55
-        flareStrength = 0.35
-        crossSharpness = 5.0
+        flareStrength = 0.42   -- antes: 0.35
+        crossSharpness = 4.5   -- antes: 5.0
         corePower = 1.05
         haloPower = 0.45
         quadMul = 4.0
@@ -201,7 +201,7 @@ end
 -- Dibuja una estrella con el shader. size = radio base en píxeles.
 -- color = {r,g,b,a}, brightness y twinkleIntensity modulan el color final.
 -- Para evitar problemas de precisión con coordenadas grandes, se recomienda usar coordenadas relativas a la cámara
-function StarShader.drawStar(x, y, size, color, brightness, twinkleIntensity, starType)
+function StarShader.drawStarBatched(x, y, size, color, brightness, twinkleIntensity, starType)
     if not shader or not whiteImage then return end
 
     local screenX, screenY = x, y
@@ -221,8 +221,8 @@ function StarShader.drawStar(x, y, size, color, brightness, twinkleIntensity, st
         -- Super brillante con flares en cruz marcados
         haloSize = 1.4
         coreSize = 0.55
-        flareStrength = 0.35
-        crossSharpness = 5.0
+        flareStrength = 0.42   -- antes: 0.35 (ligeramente más intenso)
+        crossSharpness = 4.5   -- antes: 5.0 (un poco más ancho/suave)
         corePower = 1.05
         haloPower = 0.45
         quadMul = 4.0
@@ -271,5 +271,71 @@ function StarShader.drawStar(x, y, size, color, brightness, twinkleIntensity, st
     love.graphics.setColor(r, g, b, a)
     love.graphics.draw(whiteImage, x - half, y - half, 0, s, s)
     love.graphics.setShader()
+end
+
+-- Dibujar con uniforms por tipo SIN set/unset del shader (para uso dentro de begin/finish)
+function StarShader.drawStarWithUniformsNoSet(x, y, size, color, brightness, twinkleIntensity, starType)
+    if not shader or not whiteImage then return end
+    starType = starType or 1
+
+    -- Parámetros por tipo (idénticos a los usados en drawStarBatched)
+    local haloSize = 1.2
+    local coreSize = 0.6
+    local flareStrength = 0.12
+    local crossSharpness = 9.0
+    local corePower = 0.95
+    local haloPower = 0.33
+    local quadMul = 2.8
+
+    if starType == 4 then
+        -- Super brillante con flares en cruz marcados (ajuste sutil aplicado)
+        haloSize = 1.4
+        coreSize = 0.55
+        flareStrength = 0.42
+        crossSharpness = 4.5
+        corePower = 1.05
+        haloPower = 0.45
+        quadMul = 4.0
+    elseif starType == 1 then
+        haloSize = 1.25
+        coreSize = 0.6
+        flareStrength = 0.10
+        crossSharpness = 10.0
+        corePower = 0.9
+        haloPower = 0.30
+        quadMul = 2.6
+    else
+        haloSize = 1.3
+        coreSize = 0.58
+        flareStrength = 0.18
+        crossSharpness = 8.0
+        corePower = 0.95
+        haloPower = 0.35
+        quadMul = 3.0
+    end
+
+    -- Multiplicadores globales
+    local haloMul = StarShader.settings.haloMultiplier or 1.0
+    local flareMul = StarShader.settings.flareMultiplier or 1.0
+    local coreMul = StarShader.settings.coreMultiplier or 1.0
+
+    -- Enviar uniforms (sin tocar el shader activo)
+    shader:send("u_haloSize", haloSize)
+    shader:send("u_coreSize", coreSize)
+    shader:send("u_flareStrength", flareStrength * flareMul)
+    shader:send("u_crossSharpness", crossSharpness)
+    shader:send("u_corePower", corePower * coreMul)
+    shader:send("u_haloPower", haloPower * haloMul)
+
+    local s = math.max(2, size * quadMul)
+    local half = s * 0.5
+
+    local r = (color[1] or 1) * (brightness or 1) * (twinkleIntensity or 1)
+    local g = (color[2] or 1) * (brightness or 1) * (twinkleIntensity or 1)
+    local b = (color[3] or 1) * (brightness or 1) * (twinkleIntensity or 1)
+    local a = color[4] or 1
+
+    love.graphics.setColor(r, g, b, a)
+    love.graphics.draw(whiteImage, x - half, y - half, 0, s, s)
 end
 return StarShader
