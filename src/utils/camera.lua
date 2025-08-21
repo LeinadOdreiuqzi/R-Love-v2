@@ -16,6 +16,10 @@ function Camera:new()
     camera.maxZoom = 2.0
     camera.zoomSpeed = 0.1
     
+    -- Auto zoom desactivado por defecto para no “volver” tras zoom manual
+    camera.autoZoomEnabled = false
+    camera.baseZoom = 1.0
+    
     -- Initialize screen dimensions safely
     camera:updateScreenDimensions()
     
@@ -119,11 +123,13 @@ function Camera:follow(target, dt)
     self.x = self.x + dx * lerpFactor
     self.y = self.y + dy * lerpFactor
     
-    -- Simple zoom based on speed
-    local speed = math.sqrt((target.dx or 0)^2 + (target.dy or 0)^2)
-    local baseZoom = 1.0  -- Normal zoom for 2D view
-    local targetZoom = baseZoom * (1 - math.min(0.2, speed * 0.0005))
-    self:zoomTo(self.targetZoom + (targetZoom - self.targetZoom) * 0.1)
+    -- Auto-zoom basado en velocidad SOLO si está habilitado
+    if self.autoZoomEnabled then
+        local speed = math.sqrt((target.dx or 0)^2 + (target.dy or 0)^2)
+        local baseZoom = self.baseZoom or 1.0
+        local targetZoom = baseZoom * (1 - math.min(0.2, speed * 0.0005))
+        self:zoomTo(self.targetZoom + (targetZoom - self.targetZoom) * 0.1)
+    end
     
     -- Return target position for synchronization
     return targetX, targetY
@@ -201,4 +207,8 @@ function Camera:shake(intensity, duration)
     self.shakeIntensity = intensity or 5
 end
 
+-- Habilitar/deshabilitar auto-zoom dinámico
+function Camera:setAutoZoomEnabled(enabled)
+    self.autoZoomEnabled = not not enabled
+end
 return Camera
