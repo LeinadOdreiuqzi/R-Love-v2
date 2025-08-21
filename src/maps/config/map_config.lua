@@ -17,7 +17,12 @@ MapConfig.stars = {
     maxStarsPerFrame = 6550,
     parallaxStrength = 0.15,
     twinkleEnabled = true,
-    enhancedEffects = true
+    enhancedEffects = true,
+    -- Capas profundas para paralaje: estrellas más pequeñas y movimiento más lento
+    deepLayers = {
+        { threshold = 0.90,  parallaxScale = 0.35, sizeScale = 0.55 }, -- Capa profunda 1 (más cercana de las profundas)
+        { threshold = 0.945, parallaxScale = 0.15, sizeScale = 0.40 }  -- Capa profunda 2 (la más profunda)
+    }
 }
 
 -- Densidades base balanceadas

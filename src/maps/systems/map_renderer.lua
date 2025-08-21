@@ -155,6 +155,11 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     -- Obtener la posición de la cámara en el espacio de juego
     local cameraX, cameraY = camera.x, camera.y
     local parallaxStrength = starConfig.parallaxStrength or 0.2
+    -- Config profunda (2 capas) - usar la clave correcta 'deepLayers'
+    local deepLayers = (starConfig and starConfig.deepLayers) or {
+        { threshold = 0.90,  parallaxScale = 0.35, sizeScale = 0.55 },
+        { threshold = 0.945, parallaxScale = 0.15, sizeScale = 0.40 }
+    }
     local screenWidth, screenHeight = love.graphics.getDimensions()
     local margin = 1000 -- Margen más grande para precarga suave
     local visibleStars = {}
@@ -203,44 +208,60 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                     local worldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
                     local worldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
 
-                    -- Aplicar efecto de paralaje basado en la profundidad
+                    -- Determinar capa y escalados según profundidad
+                    local layerId = star.type or 1
+                    local localParallaxStrength = parallaxStrength
+                    local sizeScaleExtra = 1.0
+
+                    if star.depth then
+                        -- Capa más profunda (deep2)
+                        if deepLayers[2] and star.depth >= deepLayers[2].threshold then
+                            layerId = -2
+                            localParallaxStrength = parallaxStrength * (deepLayers[2].parallaxScale or 0.35)
+                            sizeScaleExtra = deepLayers[2].sizeScale or 0.40
+                        -- Capa profunda 1 (deep1)
+                        elseif deepLayers[1] and star.depth >= deepLayers[1].threshold then
+                            layerId = -1
+                            localParallaxStrength = parallaxStrength * (deepLayers[1].parallaxScale or 0.60)
+                            sizeScaleExtra = deepLayers[1].sizeScale or 0.55
+                        end
+                    end
+
+                    -- Aplicar efecto de paralaje con la fuerza local (más lenta para capas profundas)
                     if parallaxStrength > 0 then
                         local depth = star.depth or 0.5
-                        -- Ajustar el factor de profundidad para un efecto más suave
                         local depthFactor = (1.0 - depth) * 1.5
-                        
-                        -- Calcular la posición relativa al jugador
                         local relX = worldX - playerX
                         local relY = worldY - playerY
-                        
-                        -- Aplicar el efecto de paralaje basado en la profundidad
-                        worldX = playerX + relX * (1 + depthFactor * parallaxStrength)
-                        worldY = playerY + relY * (1 + depthFactor * parallaxStrength)
+                        worldX = playerX + relX * (1 + depthFactor * localParallaxStrength)
+                        worldY = playerY + relY * (1 + depthFactor * localParallaxStrength)
                     end
-                    
+
                     -- Verificar si la estrella está dentro del área visible + margen
                     if worldX >= viewportLeft and worldX <= viewportRight and
                        worldY >= viewportTop and worldY <= viewportBottom then
-                        
-                        -- Convertir a coordenadas de pantalla
                         local screenX, screenY = camera:worldToScreen(worldX, worldY)
-                        -- Ajustar el tamaño basado en la profundidad y zoom
                         local depth = star.depth or 0.5
                         local baseSize = math.max(0.5, star.size or 1)
-                        -- Ajuste del tamaño según la profundidad (estrellas más lejanas más pequeñas)
-                        local sizeMultiplier = 0.3 + depth * 0.7  -- 0.3 a 1.0 basado en profundidad
-                        local starSize = baseSize * 2.0 * (camera.zoom or 1.0) * sizeMultiplier
-                        
-                        -- Verificar visibilidad en pantalla
+                        -- Invertir: estrellas más lejanas (depth alto) más pequeñas
+                        local sizeMultiplier = 0.3 + (1.0 - depth) * 0.7
+                        -- Reducir tamaño extra para capas profundas
+                        local starSize = baseSize * 2.0 * (camera.zoom or 1.0) * sizeMultiplier * (sizeScaleExtra or 1.0)
+
                         if screenX + starSize >= -margin and screenX - starSize <= screenWidth + margin and
                            screenY + starSize >= -margin and screenY - starSize <= screenHeight + margin then
-                            
-                            -- Clampear dentro del margen extendido (para evitar NaN raros en shaders)
                             screenX = math.max(-margin, math.min(screenWidth + margin, screenX))
                             screenY = math.max(-margin, math.min(screenHeight + margin, screenY))
+
+                            -- Guardar el factor para aplicarlo en el render real
+                            if sizeScaleExtra ~= 1.0 then
+                                star._sizeScaleExtra = sizeScaleExtra
+                            else
+                                star._sizeScaleExtra = nil
+                            end
                             
-                            visibleStars[star.type] = visibleStars[star.type] or {}
-                            table.insert(visibleStars[star.type], {
+                            visibleStars[layerId] = visibleStars[layerId] or {}
+                            table.insert(visibleStars[layerId], {
                                 star = star,
                                 screenX = screenX,
                                 screenY = screenY,
@@ -252,42 +273,84 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             end
         end
     end
-    
-    -- Renderizado por capas (de atrás hacia adelante para el orden de dibujado correcto)
-    for layer = 1, 6 do
-        if visibleStars[layer] then
-            local layerStars = visibleStars[layer]
-            local layerCount = #layerStars
-            
-            -- Ordenar estrellas por profundidad (más lejanas primero)
-            table.sort(layerStars, function(a, b) 
-                return (a.star.depth or 0.5) > (b.star.depth or 0.5)
-            end)
-            
-            for i = 1, layerCount do
-                if starsRendered >= maxStarsPerFrame then 
-                    break 
-                end
-                
-                local starInfo = layerStars[i]
-                if starInfo then
-                    -- Asegurar que las coordenadas sean válidas
-                    if starInfo.screenX and starInfo.screenY then
-                        MapRenderer.drawAdvancedStar(
-                            starInfo.star,
-                            starInfo.screenX,
-                            starInfo.screenY,
-                            time,
-                            starConfig,
-                            starInfo.camera or camera
-                        )
-                        starsRendered = starsRendered + 1
-                    end
-                end
+
+    -- Preparar espacio de pantalla y batching (una sola vez)
+    love.graphics.push()
+    love.graphics.origin()
+    local usingStarShader = (starConfig.enhancedEffects and StarShader and StarShader.getShader and StarShader.getShader())
+    if usingStarShader and StarShader.begin then
+        StarShader.begin()
+    end
+
+    -- Helper: dibujar una capa agrupando por tipo
+    local function drawLayerGroupedByType(layerStars)
+        -- Ordenar por profundidad para mantener estética
+        table.sort(layerStars, function(a, b)
+            return (a.star.depth or 0.5) > (b.star.depth or 0.5)
+        end)
+        -- Agrupar por tipo
+        local starsByType = {}
+        for i = 1, #layerStars do
+            local info = layerStars[i]
+            local t = info.star.type or 1
+            local list = starsByType[t]
+            if not list then
+                list = {}
+                starsByType[t] = list
+            end
+            list[#list + 1] = info
+        end
+        -- Iterar tipos en orden determinista
+        local typeKeys = {}
+        for t, _ in pairs(starsByType) do
+            typeKeys[#typeKeys + 1] = t
+        end
+        table.sort(typeKeys)
+
+        for _, t in ipairs(typeKeys) do
+            local list = starsByType[t]
+            if usingStarShader and StarShader.setType then
+                StarShader.setType(t)
+            end
+            for i = 1, #list do
+                if starsRendered >= maxStarsPerFrame then return end
+                local starInfo = list[i]
+                MapRenderer.drawAdvancedStar(
+                    starInfo.star,
+                    starInfo.screenX,
+                    starInfo.screenY,
+                    time,
+                    starConfig,
+                    starInfo.camera or camera,
+                    true,                                 -- inScreenSpace
+                    starInfo.star._sizeScaleExtra,       -- sizeScaleExtra
+                    true                                  -- uniformsPreset: ya fijados por tipo
+                )
+                starsRendered = starsRendered + 1
             end
         end
     end
-    
+
+    -- Dibujar capas profundas primero
+    for _, layer in ipairs({-2, -1}) do
+        if visibleStars[layer] then
+            drawLayerGroupedByType(visibleStars[layer])
+        end
+    end
+
+    -- Capas existentes (1..6)
+    for layer = 1, 6 do
+        if visibleStars[layer] then
+            drawLayerGroupedByType(visibleStars[layer])
+            if starsRendered >= maxStarsPerFrame then break end
+        end
+    end
+
+    if usingStarShader and StarShader.finish then
+        StarShader.finish()
+    end
+    love.graphics.pop()
+
     return starsRendered, totalStars
 end
 
@@ -295,7 +358,7 @@ end
 
 -- Dibujar estrella individual con efectos avanzados
 -- Ahora usa screenX y screenY que ya están en coordenadas de pantalla
-function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera)
+function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra)
     local r, g, b, a = love.graphics.getColor()
     
     if not starConfig.enhancedEffects then
@@ -314,19 +377,37 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     local brightness = (star.brightness or 1)
     
     local color = star.color
-    local size = star.size * (camera and camera.zoom or 1.0)  -- Ajustar tamaño según el zoom
+    local sizeScaleExtra = sizeScaleExtra or 1.0
+    local size = (star.size * sizeScaleExtra) * (camera and camera.zoom or 1.0)
 
     -- Si hay efectos mejorados y shader disponible, usar GPU shader para estrellas
     if starConfig.enhancedEffects and StarShader and StarShader.getShader and StarShader.getShader() then
-        -- Usar coordenadas de pantalla directamente
-        local adjustedSize = size * 0.8  -- Ajuste de tamaño para el shader
-        
-        -- IMPORTANTE: dibujar en espacio de pantalla (sin la transformación de cámara)
-        love.graphics.push()
-        love.graphics.origin()
-        StarShader.drawStar(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
-        love.graphics.pop()
-        
+        local adjustedSize = size * 0.8
+
+        -- Si no estamos ya en espacio de pantalla, aplicar push/origin temporalmente
+        -- Si estamos en lote principal, esto ya viene como true
+        if not inScreenSpace then
+            love.graphics.push()
+            love.graphics.origin()
+        end
+
+        local shaderActive = (love.graphics.getShader and (love.graphics.getShader() == StarShader.getShader()))
+        if shaderActive then
+            if uniformsPreset and StarShader.drawStarBatchedNoUniforms then
+                StarShader.drawStarBatchedNoUniforms(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            elseif StarShader.drawStarBatched then
+                StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            else
+                StarShader.drawStar(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            end
+        else
+            StarShader.drawStar(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+        end
+
+        if not inScreenSpace then
+            love.graphics.pop()
+        end
+
         love.graphics.setColor(r, g, b, a)
         return
     end
