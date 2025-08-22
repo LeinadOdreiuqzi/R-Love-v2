@@ -482,6 +482,7 @@ end
         if ChunkManager.config.useAdaptiveBudget and ChunkManager.computeGenerationBudget then
             budget = ChunkManager.computeGenerationBudget(dt)
         end
+        ChunkManager.state.stats.generationBudget = budget
         ChunkManager.processLoadQueue(dt, budget)
         
         -- Precarga direccional automática
@@ -604,14 +605,11 @@ end
             pooled = ChunkManager.state.stats.poolCount,
             loadQueue = #ChunkManager.state.loadQueue,
             unloadQueue = #ChunkManager.state.unloadQueue,
-            cacheHitRatio = ChunkManager.state.stats.cacheHits / 
+            cacheHitRatio = ChunkManager.state.stats.cacheHits /
                            math.max(1, ChunkManager.state.stats.cacheHits + ChunkManager.state.stats.cacheMisses),
             generationTime = ChunkManager.state.stats.generationTime,
             lastFrameTime = ChunkManager.state.stats.lastFrameTime,
-            playerChunk = {
-                x = ChunkManager.state.lastPlayerChunkX,
-                y = ChunkManager.state.lastPlayerChunkY
-            }
+            generationBudget = ChunkManager.state.stats.generationBudget,
         }
     end
     

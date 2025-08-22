@@ -675,6 +675,10 @@ function HUD.drawUnifiedInfoPanel()
     infoY = infoY + lineHeight
     love.graphics.print("Zoom: " .. string.format("%.1f", _G.camera and _G.camera.zoom or 1), x + 15, infoY)
     infoY = infoY + lineHeight
+    local budgetMs = ((stats.chunks and stats.chunks.generationBudget) or 0) * 1000
+    local loadQueueLen = (stats.chunks and stats.chunks.loadQueue) or 0
+    love.graphics.print(string.format("Chunk Budget: %.2f ms | Load Queue: %d", budgetMs, loadQueueLen), x + 15, infoY)
+    infoY = infoY + lineHeight
     
     -- Información de chunks
     local chunkInfo = "N/A"
