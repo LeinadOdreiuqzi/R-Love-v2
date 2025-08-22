@@ -249,6 +249,126 @@ BiomeSystem.debugMode = false
 BiomeSystem.seed = 12345
 BiomeSystem.numericSeed = 12345
 
+-- Perfíl de depuración basado en seeds de F2
+BiomeSystem.debugPresetProfile = nil
+
+-- Mapeo de seeds de HUD (F2) a perfiles de depuración
+-- Nota: Se activa SOLO si la seed coincide exactamente con estos códigos
+function BiomeSystem.setPresetProfileBySeed(seed)
+    local s = tostring(seed or ""):upper()
+    local T = BiomeSystem.BiomeType
+    local profiles = {
+        ["A5N9E3B7U1"] = {
+            name = "Dense Nebula",
+            preferBiome = T.NEBULA_FIELD,
+            preferBiomeBoost = 8.0,
+            reduceOthers = 0.25,
+            enforceMajority = true,
+            forceChance = 0.90,
+            enforceScoreBoost = 100.0,
+            enforceScoreReduce = 0.25,
+            globalMul = { nebulae = 8.0, stars = 1.0, asteroids = 0.2, wormholes = 1.2, specialFeatures = 1.2 }
+        },
+        ["S2P4A6C8E0"] = {
+            name = "Open Void",
+            preferBiome = T.DEEP_SPACE,
+            preferBiomeBoost = 6.0,
+            reduceOthers = 0.30,
+            enforceMajority = true,
+            forceChance = 0.90,
+            enforceScoreBoost = 80.0,
+            enforceScoreReduce = 0.30,
+            globalMul = { nebulae = 0.05, stars = 0.30, asteroids = 0.20, specialFeatures = 0.30, wormholes = 0.5 }
+        },
+        ["R3O7C9K2S6"] = {
+            name = "Asteroid Fields",
+            preferBiome = T.ASTEROID_BELT,
+            preferBiomeBoost = 8.0,
+            reduceOthers = 0.25,
+            enforceMajority = true,
+            forceChance = 0.90,
+            enforceScoreBoost = 100.0,
+            enforceScoreReduce = 0.25,
+            globalMul = { asteroids = 8.0, nebulae = 0.10, stars = 0.8, specialFeatures = 1.5 }
+        },
+        ["M1Y8S4T6I3"] = {
+            name = "Ancient Mysteries",
+            preferBiome = T.ANCIENT_RUINS,
+            preferBiomeBoost = 6.0,
+            reduceOthers = 0.40,
+            enforceMajority = true,
+            forceChance = 0.88,
+            enforceScoreBoost = 70.0,
+            enforceScoreReduce = 0.40,
+            globalMul = { specialFeatures = 8.0, stations = 3.0, stars = 0.9, nebulae = 1.1 }
+        },
+        ["H2A5Z9R3D7"] = {
+            name = "Radiation Storm",
+            preferBiome = T.RADIOACTIVE_ZONE,
+            preferBiomeBoost = 6.0,
+            reduceOthers = 0.40,
+            enforceMajority = true,
+            forceChance = 0.88,
+            enforceScoreBoost = 70.0,
+            enforceScoreReduce = 0.40,
+            globalMul = { stars = 3.0, wormholes = 2.5, nebulae = 0.8, specialFeatures = 1.3 }
+        },
+        ["C4R8Y1S5T9"] = {
+            name = "Crystal Caverns",
+            preferBiome = T.ASTEROID_BELT,
+            preferBiomeBoost = 5.5,
+            reduceOthers = 0.40,
+            enforceMajority = true,
+            forceChance = 0.88,
+            enforceScoreBoost = 60.0,
+            enforceScoreReduce = 0.40,
+            globalMul = { asteroids = 3.5, specialFeatures = 4.0, nebulae = 1.2, stars = 1.0 }
+        },
+        ["Q3U6A7N2T4"] = {
+            name = "Quantum Rifts",
+            preferBiome = T.GRAVITY_ANOMALY,
+            preferBiomeBoost = 7.0,
+            reduceOthers = 0.35,
+            enforceMajority = true,
+            forceChance = 0.90,
+            enforceScoreBoost = 90.0,
+            enforceScoreReduce = 0.35,
+            globalMul = { wormholes = 8.0, stars = 1.0, nebulae = 1.2, specialFeatures = 1.5 }
+        },
+        ["L6O1S4T9W3"] = {
+            name = "Lost Worlds",
+            preferBiome = T.ANCIENT_RUINS,
+            preferBiomeBoost = 6.0,
+            reduceOthers = 0.35,
+            enforceMajority = true,
+            forceChance = 0.88,
+            enforceScoreBoost = 70.0,
+            enforceScoreReduce = 0.35,
+            globalMul = { specialFeatures = 6.0, stations = 2.5, nebulae = 1.1, stars = 0.9 }
+        },
+        ["E2X8P5L7O9"] = {
+            name = "Deep Explorer",
+            preferBiome = T.DEEP_SPACE,
+            preferBiomeBoost = 5.5,
+            reduceOthers = 0.35,
+            enforceMajority = true,
+            forceChance = 0.88,
+            enforceScoreBoost = 60.0,
+            enforceScoreReduce = 0.35,
+            globalMul = { stars = 1.5, asteroids = 0.5, nebulae = 0.4, specialFeatures = 0.8 }
+        }
+    }
+    BiomeSystem.debugPresetProfile = profiles[s] or nil
+    if BiomeSystem.debugMode then
+        if BiomeSystem.debugPresetProfile then
+            print("[BiomeSystem] Debug preset active: " .. BiomeSystem.debugPresetProfile.name)
+        else
+            print("[BiomeSystem] Debug preset: none")
+        end
+    end
+end
+
+
 -- Campo macro para agrupar biomas en regiones de múltiples chunks
 BiomeSystem.macro = {
     -- Campo macro continuo para sesgar preferencias regionales SIN fijar tamaño de parche
@@ -313,6 +433,9 @@ function BiomeSystem.init(seed)
         lastPlayerBiome = nil,
         biomeChangeCount = 0
     }
+    
+    -- Activar perfil de depuración según seed (si aplica)
+    BiomeSystem.setPresetProfileBySeed(BiomeSystem.seed)
     
     -- Inicializar Perlin con semilla numérica
     PerlinNoise.init(BiomeSystem.numericSeed)
@@ -564,6 +687,36 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
         end
     end
 
+    -- NUEVO: aplicar sesgo del preset de F2 (si está activo) antes de la selección
+    do
+        local profile = BiomeSystem.debugPresetProfile
+        if profile and profile.preferBiome then
+            local boost = profile.preferBiomeBoost or 1.0
+            local reduce = profile.reduceOthers or 1.0
+            for _, entry in ipairs(biomeScores) do
+                if entry.type == profile.preferBiome then
+                    entry.score = entry.score * boost
+                else
+                    entry.score = entry.score * reduce
+                end
+            end
+        end
+    end
+
+    -- NUEVO: Si el preset exige mayoría, forzar este chunk al bioma preferido con alta probabilidad
+    do
+        local profile = BiomeSystem.debugPresetProfile
+        if profile and profile.preferBiome and profile.enforceMajority then
+            local chance = profile.forceChance or 0.85
+            if randomValue < chance then
+                local params2 = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
+                local coherentType = BiomeSystem.applyCoherence3D(chunkX, chunkY, profile.preferBiome, params2)
+                BiomeSystem.biomeCache[key] = coherentType
+                return coherentType
+            end
+        end
+    end
+
     -- Selección por ruleta ponderada
     local totalScore = 0
     for _, entry in ipairs(biomeScores) do
@@ -579,6 +732,17 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
         if accumulator >= targetValue then
             selectedType = entry.type
             break
+        end
+    end
+
+    -- Forzar bioma preferido por preset (si está activo) con alta probabilidad
+    do
+        local profile = BiomeSystem.debugPresetProfile
+        if profile and profile.enforceMajority and profile.preferBiome then
+            local forceChance = profile.forceChance or 0.9
+            if randomValue < forceChance then
+                selectedType = profile.preferBiome
+            end
         end
     end
 
@@ -649,12 +813,110 @@ function BiomeSystem.getBiomeInfo(chunkX, chunkY)
     local config = BiomeSystem.getBiomeConfig(biomeType)
     local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     
+    -- Calcular top-2 candidatos para mezcla (mismo pipeline de puntuación que getBiomeForChunk)
+    local biomeScores = {}
+    for bType, bCfg in pairs(BiomeSystem.biomeConfigs) do
+        if BiomeSystem.matchesBiomeConditions(params, bCfg.conditions) then
+            local score = bCfg.spawnWeight
+
+            if bCfg.conditions.continentalness then
+                local contLevel = BiomeSystem.findParameterLevel(params.continentalness, "continentalness")
+                for _, allowedLevel in ipairs(bCfg.conditions.continentalness) do
+                    if contLevel == allowedLevel then
+                        score = score * 1.2
+                        break
+                    end
+                end
+            end
+
+            local depthRange = bCfg.conditions.depthRange
+            if depthRange and params.depth then
+                local optimalDepth = (depthRange[1] + depthRange[2]) / 2
+                local depthDistance = math.abs(params.depth - optimalDepth)
+                local depthModifier = 1.0 + (0.3 - depthDistance * 0.6)
+                depthModifier = math.max(0.7, math.min(1.3, depthModifier))
+                score = score * depthModifier
+            end
+
+            table.insert(biomeScores, { type = bType, score = score })
+        end
+    end
+
+    if #biomeScores == 0 then
+        biomeScores = { { type = BiomeSystem.BiomeType.DEEP_SPACE, score = 1.0 } }
+    else
+        local macroPreferred = BiomeSystem.getMacroPreferredBiome(chunkX, chunkY)
+        for _, entry in ipairs(biomeScores) do
+            if entry.type == macroPreferred then
+                entry.score = entry.score * BiomeSystem.macro.strength
+            else
+                entry.score = entry.score * BiomeSystem.macro.offStrength
+            end
+        end
+    end
+
+    -- NUEVO: aplicar también el sesgo del preset aquí para que la mezcla A/B refleje el preset
+    do
+        local profile = BiomeSystem.debugPresetProfile
+        if profile and profile.preferBiome then
+            local boost = profile.preferBiomeBoost or 1.0
+            local reduce = profile.reduceOthers or 1.0
+            for _, entry in ipairs(biomeScores) do
+                if entry.type == profile.preferBiome then
+                    entry.score = entry.score * boost
+                else
+                    entry.score = entry.score * reduce
+                end
+            end
+
+            -- Extra: si se exige mayoría, hacer que el preferido gane casi siempre en la mezcla
+            if profile.enforceMajority then
+                local sb = profile.enforceScoreBoost or 100.0
+                local sr = profile.enforceScoreReduce or 0.25
+                for _, entry in ipairs(biomeScores) do
+                    if entry.type == profile.preferBiome then
+                        entry.score = entry.score * sb
+                    else
+                        entry.score = entry.score * sr
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(biomeScores, function(a, b) return a.score > b.score end)
+    local topA = biomeScores[1]
+    local topB = topA
+    for _, entry in ipairs(biomeScores) do
+        if entry.type ~= biomeType then
+            topB = entry
+            break
+        end
+    end
+
+    local function scoreOf(typeId)
+        for _, e in ipairs(biomeScores) do
+            if e.type == typeId then return e.score end
+        end
+        return 0
+    end
+
+    local scoreA = scoreOf(biomeType)
+    local scoreB = (topB and topB.score) or 0
+    local denom = scoreA + scoreB
+    local blendValue = (denom > 0) and (scoreB / denom) or 0
+
     return {
         type = biomeType,
         name = config.name,
         config = config,
         coordinates = {x = chunkX, y = chunkY},
-        parameters = params
+        parameters = params,
+        blend = {
+            biomeA = biomeType,
+            biomeB = topB and topB.type or biomeType,
+            blend = blendValue
+        }
     }
 end
 
@@ -739,8 +1001,59 @@ function BiomeSystem.modifyDensities(baseDensities, biomeType, chunkX, chunkY)
     else
         modifiedDensities = baseDensities
     end
+
+    -- Aplicar perfil de depuración por preset (si la seed coincide con un preset de F2)
+    local profile = BiomeSystem.debugPresetProfile
+    if profile then
+        -- Multiplicadores globales por tipo de objeto
+        local gm = profile.globalMul or {}
+        if gm.asteroids then modifiedDensities.asteroids = (modifiedDensities.asteroids or 0) * gm.asteroids end
+        if gm.nebulae then modifiedDensities.nebulae = (modifiedDensities.nebulae or 0) * gm.nebulae end
+        if gm.stars then modifiedDensities.stars = (modifiedDensities.stars or 0) * gm.stars end
+        if gm.stations then modifiedDensities.stations = (modifiedDensities.stations or 0) * gm.stations end
+        if gm.wormholes then modifiedDensities.wormholes = (modifiedDensities.wormholes or 0) * gm.wormholes end
+        if gm.specialFeatures then modifiedDensities.specialFeatures = (modifiedDensities.specialFeatures or 0) * gm.specialFeatures end
+
+        -- Favorecer bioma preferido y penalizar el resto (si corresponde)
+        if profile.preferBiome then
+            if biomeType == profile.preferBiome then
+                local boost = profile.preferBiomeBoost or 1.0
+                for k, v in pairs(modifiedDensities) do
+                    modifiedDensities[k] = v * boost
+                end
+            else
+                local reduce = profile.reduceOthers or 1.0
+                for k, v in pairs(modifiedDensities) do
+                    modifiedDensities[k] = v * reduce
+                end
+            end
+        end
+    end
     
     return modifiedDensities
+end
+
+-- Mezcla de densidades por bioma usando biomeBlend = { biomeA, biomeB, blend }
+function BiomeSystem.modifyDensitiesBlended(baseDensities, biomeBlend, chunkX, chunkY)
+    local A = biomeBlend and biomeBlend.biomeA
+    local B = biomeBlend and biomeBlend.biomeB
+    local t = biomeBlend and biomeBlend.blend or 0
+    t = math.max(0, math.min(1, t))
+
+    if not A or not B or A == B or t == 0 then
+        return BiomeSystem.modifyDensities(baseDensities, A or B or BiomeSystem.BiomeType.DEEP_SPACE, chunkX, chunkY)
+    end
+
+    local dA = BiomeSystem.modifyDensities(baseDensities, A, chunkX, chunkY)
+    local dB = BiomeSystem.modifyDensities(baseDensities, B, chunkX, chunkY)
+
+    local mixed = {}
+    for k, base in pairs(baseDensities) do
+        local va = dA[k] or base
+        local vb = dB[k] or base
+        mixed[k] = va * (1 - t) + vb * t
+    end
+    return mixed
 end
 
 function BiomeSystem.updatePlayerBiome(playerX, playerY)

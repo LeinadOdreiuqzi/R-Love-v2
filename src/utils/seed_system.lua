@@ -85,4 +85,47 @@ end
 -- Alias para compatibilidad con el código existente
 SeedSystem.toNumeric = SeedSystem.toNumber
 
+-- Crear un RNG determinista local (LCG 32-bit)
+function SeedSystem.makeRNG(seed)
+    local m = 2147483647 -- 2^31-1
+    local a = 1103515245
+    local c = 12345
+    local state = (SeedSystem.toNumber(seed) % m)
+
+    local rng = {}
+
+    local function nextState()
+        state = (a * state + c) % m
+        return state
+    end
+
+    -- random() -> [0,1)
+    function rng:random()
+        return nextState() / m
+    end
+
+    -- randomInt(min, max) -> entero en [min, max]
+    function rng:randomInt(min, max)
+        if max == nil then
+            max = min
+            min = 1
+        end
+        if max < min then min, max = max, min end
+        local r = self:random()
+        return math.floor(min + r * (max - min + 1))
+    end
+
+    -- randomRange(min, max) -> float en [min, max)
+    function rng:randomRange(min, max)
+        if max == nil then
+            return self:random()
+        end
+        if max < min then min, max = max, min end
+        local r = self:random()
+        return (min + r * (max - min))
+    end
+
+    return rng
+end
+
 return SeedSystem

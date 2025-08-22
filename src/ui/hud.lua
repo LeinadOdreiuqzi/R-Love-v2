@@ -1031,9 +1031,15 @@ function HUD.handleSeedInput(key)
         if hudState.seedInputText ~= "" then
             local normalizedSeed = SeedSystem.normalize(hudState.seedInputText)
             if SeedSystem.validate(normalizedSeed) then
+                -- Cerrar panel ANTES de devolver la semilla
+                hudState.showSeedInput = false
+                hudState.seedInputText = ""
                 return normalizedSeed, "custom"
             else
                 -- Si no es válido, intentar normalizar
+                -- Cerrar panel ANTES de devolver la semilla
+                hudState.showSeedInput = false
+                hudState.seedInputText = ""
                 return normalizedSeed, "normalized"
             end
         else
@@ -1047,10 +1053,11 @@ function HUD.handleSeedInput(key)
                 selectedPreset.seed = selectedSeed  -- Actualizar para mostrar
             end
             
+            -- Cerrar panel ANTES de devolver la semilla
+            hudState.showSeedInput = false
+            hudState.seedInputText = ""
             return selectedSeed, "preset"
         end
-        hudState.showSeedInput = false
-        hudState.seedInputText = ""
     elseif key == "backspace" then
         hudState.seedInputText = string.sub(hudState.seedInputText, 1, -2)
     elseif key == "up" then

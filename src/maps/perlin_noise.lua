@@ -2,9 +2,11 @@
 
 local PerlinNoise = {}
 
+local SeedSystem = require 'src.utils.seed_system'
+
 -- Tabla de permutación para el ruido de Perlin
 local p = {}
-local permutation = {
+local basePermutation = {
     151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225,
     140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
     247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32,
@@ -25,18 +27,25 @@ local permutation = {
 
 -- Inicializa la tabla de permutación con una semilla
 function PerlinNoise.init(seed)
-    math.randomseed(seed)
-    
-    -- Mezclar la tabla de permutación
+    -- Usar RNG local determinista para no contaminar math.random global
+    local rng = SeedSystem.makeRNG(seed or 0)
+
+    -- Clonar permutación base para evitar barajar sobre estado anterior
+    local perm = {}
     for i = 1, 256 do
-        local j = math.random(1, 256)
-        permutation[i], permutation[j] = permutation[j], permutation[i]
+        perm[i] = basePermutation[i]
+    end
+
+    -- Mezclar la tabla clonada con RNG local (idéntico estilo de barajado previo)
+    for i = 1, 256 do
+        local j = rng:randomInt(1, 256)
+        perm[i], perm[j] = perm[j], perm[i]
     end
     
     -- Duplicar la tabla para evitar desbordamientos
     for i = 1, 256 do
-        p[i] = permutation[i]
-        p[i + 256] = permutation[i]
+        p[i] = perm[i]
+        p[i + 256] = perm[i]
     end
 end
 

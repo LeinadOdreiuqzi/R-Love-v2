@@ -67,7 +67,7 @@ function loadWorld(updateProgress)
         updateProgress("init", "Setting up game systems...")
         
         -- Configuración inicial de la ventana
-        love.window.setTitle("Space Roguelike - Enhanced Systems - Seed: " .. gameState.currentSeed)
+        -- (Mover setTitle al Paso 2, para que use la seed final)
         love.window.setMode(1200, 800, {resizable = true})
         return true
     end)
@@ -79,6 +79,7 @@ function loadWorld(updateProgress)
         -- Inicializar semilla aleatoria real
         math.randomseed(os.time())
         gameState.currentSeed = SeedSystem.generate()
+        love.window.setTitle("Space Roguelike - Enhanced Systems - Seed: " .. gameState.currentSeed)
         return true
     end)
     
@@ -720,6 +721,8 @@ function love.keypressed(key)
     if HUD.isSeedInputVisible() then
         local newSeed, seedType = HUD.handleSeedInput(key)
         if newSeed then
+            -- Asegurar cierre del panel antes de regenerar
+            HUD.hideSeedInput()
             changeSeed(newSeed)
         end
         return
