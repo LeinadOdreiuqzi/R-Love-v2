@@ -41,8 +41,16 @@ ChunkManager.config = {
     },
     
     -- Configuración de generación
-    maxGenerationTime = 0.003,  -- Aumentado de 0.002 a 0.003 (3ms)
+    maxGenerationTime = 0.003,  -- Fallback (3ms)
     maxObjectsPerFrame = 150,   -- Aumentado de 100 a 150
+
+    -- Presupuesto adaptativo por frame
+    useAdaptiveBudget = true,
+    targetFrameSec = 1 / 60,        -- Objetivo ~16.67ms
+    softBudgetFraction = 0.12,       -- 12% del frame objetivo (~2ms)
+    minGenerationTime = 0.0015,      -- 1.5ms mínimo
+    maxGenerationTimeAdaptive = 0.0035, -- 3.5ms máximo adaptativo
+    reduceOnOvershoot = 0.5,         -- Reducir a la mitad si dt > target
     
     -- Estadísticas
     enableStats = true
@@ -270,7 +278,22 @@ function ChunkManager.insertLoadRequest(loadRequest)
         table.insert(queue, loadRequest)
     end
 end
-
+-- Presupuesto de generación adaptativo (segundos)
+function ChunkManager.computeGenerationBudget(dt)
+    local cfg = ChunkManager.config
+    local target = cfg.targetFrameSec or (1 / 60)
+    local soft = (cfg.softBudgetFraction or 0.12) * target
+    local base = soft
+    local minB = cfg.minGenerationTime or 0.0015
+    local maxB = cfg.maxGenerationTimeAdaptive or 0.0035
+    -- Limitar por mínimos/máximos
+    base = math.max(minB, math.min(maxB, base))
+    -- Si el frame se pasa del objetivo, recortar el presupuesto
+    if dt and dt > target then
+        base = math.max(minB, base * (cfg.reduceOnOvershoot or 0.5))
+    end
+    return base
+end
 -- Procesar cola de carga con presupuesto de tiempo (segundos)
 function ChunkManager.processLoadQueue(dt, timeBudgetSec)
     local startTime = love.timer.getTime()
@@ -454,8 +477,12 @@ end
         ChunkManager.state.lastPlayerChunkX = playerChunkX
         ChunkManager.state.lastPlayerChunkY = playerChunkY
         
-        -- Procesar cola de carga con tiempo extendido
-        ChunkManager.processLoadQueue(dt, ChunkManager.config.maxGenerationTime)
+        -- Procesar cola de carga con presupuesto adaptativo
+        local budget = ChunkManager.config.maxGenerationTime
+        if ChunkManager.config.useAdaptiveBudget and ChunkManager.computeGenerationBudget then
+            budget = ChunkManager.computeGenerationBudget(dt)
+        end
+        ChunkManager.processLoadQueue(dt, budget)
         
         -- Precarga direccional automática
         if ChunkManager.config.directionalPreload.enabled and playerVelX and playerVelY then
@@ -472,6 +499,7 @@ end
             ChunkManager.cleanupCache()
         end
         
+        ChunkManager.state.stats.lastFrameTime = dt or 0
         ChunkManager.state.stats.generationTime = love.timer.getTime() - startTime
     end
     

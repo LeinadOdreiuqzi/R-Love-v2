@@ -219,15 +219,13 @@ end
 -- Obtener chunk (híbrido: intenta ChunkManager, luego tradicional)
 -- function Map.getChunkTraditional(chunkX, chunkY)
 function Map.getChunkTraditional(chunkX, chunkY)
-    -- Intentar usar ChunkManager si está disponible
-    if ChunkManager and ChunkManager.getChunk then
-        local px = (Map.lastPlayerPosition and Map.lastPlayerPosition.x) or 0
-        local py = (Map.lastPlayerPosition and Map.lastPlayerPosition.y) or 0
-        local chunk = ChunkManager.getChunk(chunkX, chunkY, px, py)
-        if chunk then return chunk end
+    -- Si hay ChunkManager y no se ha permitido explícitamente la generación sincrónica,
+    -- redirigir a la ruta no bloqueante para evitar parones.
+    if ChunkManager and ChunkManager.getChunk and not Map.debugAllowSyncGen then
+        return Map.getChunkNonBlocking(chunkX, chunkY)
     end
-    
-    -- Fallback al sistema tradicional
+
+    -- Fallback al sistema tradicional (permitido en herramientas/debug explícito)
     if not Map.chunks then Map.chunks = {} end
     if not Map.chunks[chunkX] then Map.chunks[chunkX] = {} end
     
@@ -366,7 +364,8 @@ end
 -- Funciones de acceso y compatibilidad
 function Map.getPlayerBiome(playerX, playerY)
     local chunkX, chunkY = Map.getChunkInfo(playerX, playerY)
-    local chunk = Map.getChunkTraditional(chunkX, chunkY)
+    -- Usar la ruta no bloqueante para evitar generación sincrónica en tiempo de juego
+    local chunk = Map.getChunkNonBlocking(chunkX, chunkY)
     return chunk and chunk.biome or nil
 end
 

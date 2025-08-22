@@ -214,12 +214,10 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                     local sizeScaleExtra = 1.0
 
                     if star.depth then
-                        -- Capa más profunda (deep2)
                         if deepLayers[2] and star.depth >= deepLayers[2].threshold then
                             layerId = -2
                             localParallaxStrength = parallaxStrength * (deepLayers[2].parallaxScale or 0.35)
                             sizeScaleExtra = deepLayers[2].sizeScale or 0.40
-                        -- Capa profunda 1 (deep1)
                         elseif deepLayers[1] and star.depth >= deepLayers[1].threshold then
                             layerId = -1
                             localParallaxStrength = parallaxStrength * (deepLayers[1].parallaxScale or 0.60)
@@ -227,7 +225,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                         end
                     end
 
-                    -- Aplicar efecto de paralaje con la fuerza local (más lenta para capas profundas)
+                    -- Aplicar efecto de paralaje
                     if parallaxStrength > 0 then
                         local depth = star.depth or 0.5
                         local depthFactor = (1.0 - depth) * 1.5
@@ -237,15 +235,12 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                         worldY = playerY + relY * (1 + depthFactor * localParallaxStrength)
                     end
 
-                    -- Verificar si la estrella está dentro del área visible + margen
                     if worldX >= viewportLeft and worldX <= viewportRight and
                        worldY >= viewportTop and worldY <= viewportBottom then
                         local screenX, screenY = camera:worldToScreen(worldX, worldY)
                         local depth = star.depth or 0.5
                         local baseSize = math.max(0.5, star.size or 1)
-                        -- Invertir: estrellas más lejanas (depth alto) más pequeñas
                         local sizeMultiplier = 0.3 + (1.0 - depth) * 0.7
-                        -- Reducir tamaño extra para capas profundas
                         local starSize = baseSize * 2.0 * (camera.zoom or 1.0) * sizeMultiplier * (sizeScaleExtra or 1.0)
 
                         if screenX + starSize >= -margin and screenX - starSize <= screenWidth + margin and
@@ -253,20 +248,25 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                             screenX = math.max(-margin, math.min(screenWidth + margin, screenX))
                             screenY = math.max(-margin, math.min(screenHeight + margin, screenY))
 
-                            -- Guardar el factor para aplicarlo en el render real
                             if sizeScaleExtra ~= 1.0 then
                                 star._sizeScaleExtra = sizeScaleExtra
                             else
                                 star._sizeScaleExtra = nil
                             end
                             
-                            visibleStars[layerId] = visibleStars[layerId] or {}
-                            table.insert(visibleStars[layerId], {
+                            -- A: evitar table.insert, usar asignación indexada
+                            local list = visibleStars[layerId]
+                            if not list then
+                                list = visibleStars[layerId] or {}
+                                visibleStars[layerId] = list
+                            end
+                            local idx = #list + 1
+                            list[idx] = {
                                 star = star,
                                 screenX = screenX,
                                 screenY = screenY,
                                 camera = camera
-                            })
+                            }
                         end
                     end
                 end
@@ -282,14 +282,35 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
         StarShader.begin()
     end
 
-    -- Helper: dibujar una capa agrupando por tipo
+    -- Helper: cuantización de color (B: bins de color)
+    local function quantizeColor(r, g, b, a)
+        local levels = 16
+        local rq = math.floor(math.max(0, math.min(1, r)) * (levels - 1) + 0.5)
+        local gq = math.floor(math.max(0, math.min(1, g)) * (levels - 1) + 0.5)
+        local bq = math.floor(math.max(0, math.min(1, b)) * (levels - 1) + 0.5)
+        local aq = math.floor(math.max(0, math.min(1, a or 1)) * (levels - 1) + 0.5)
+        return rq .. "|" .. gq .. "|" .. bq .. "|" .. aq
+    end
+
+    -- Helper: dibujar una capa agrupando por tipo (y por color cuando no hay shader)
     local function drawLayerGroupedByType(layerStars)
         -- Ordenar por profundidad para mantener estética
         table.sort(layerStars, function(a, b)
             return (a.star.depth or 0.5) > (b.star.depth or 0.5)
         end)
-        -- Agrupar por tipo
-        local starsByType = {}
+
+        -- A: pooling de agrupación por tipo
+        local starsByType = MapRenderer._tmpStarsByType or {}
+        MapRenderer._tmpStarsByType = starsByType
+        -- limpiar listas previas reusables
+        for t, lst in pairs(starsByType) do
+            if type(lst) == "table" then
+                for i = 1, #lst do lst[i] = nil end
+            end
+            -- mantener la clave para reutilizar capacidad
+        end
+
+        -- Agrupar por tipo evitando table.insert
         for i = 1, #layerStars do
             local info = layerStars[i]
             local t = info.star.type or 1
@@ -298,8 +319,10 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                 list = {}
                 starsByType[t] = list
             end
-            list[#list + 1] = info
+            local idx = #list + 1
+            list[idx] = info
         end
+
         -- Iterar tipos en orden determinista
         local typeKeys = {}
         for t, _ in pairs(starsByType) do
@@ -309,24 +332,165 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
 
         for _, t in ipairs(typeKeys) do
             local list = starsByType[t]
-            if usingStarShader and StarShader.setType then
-                StarShader.setType(t)
-            end
-            for i = 1, #list do
-                if starsRendered >= maxStarsPerFrame then return end
-                local starInfo = list[i]
-                MapRenderer.drawAdvancedStar(
-                    starInfo.star,
-                    starInfo.screenX,
-                    starInfo.screenY,
-                    time,
-                    starConfig,
-                    starInfo.camera or camera,
-                    true,                                 -- inScreenSpace
-                    starInfo.star._sizeScaleExtra,       -- sizeScaleExtra
-                    true                                  -- uniformsPreset: ya fijados por tipo
-                )
-                starsRendered = starsRendered + 1
+            if list and #list > 0 then
+                if usingStarShader and StarShader.setType then
+                    StarShader.setType(t)
+                end
+
+                if usingStarShader then
+                    -- Ruta con shader (como antes)
+                    for i = 1, #list do
+                        if starsRendered >= maxStarsPerFrame then return end
+                        local starInfo = list[i]
+                        MapRenderer.drawAdvancedStar(
+                            starInfo.star,
+                            starInfo.screenX,
+                            starInfo.screenY,
+                            time,
+                            starConfig,
+                            starInfo.camera or camera,
+                            true,                                 -- inScreenSpace
+                            starInfo.star._sizeScaleExtra,        -- sizeScaleExtra
+                            true                                  -- uniformsPreset: ya fijados por tipo
+                        )
+                        starsRendered = starsRendered + 1
+                    end
+                else
+                    -- B: Ruta sin shader: agrupar por color bin y minimizar setColor
+                    if t == 4 then
+                        -- Tipo complejo: mantener ruta por estrella para preservar estética
+                        for i = 1, #list do
+                            if starsRendered >= maxStarsPerFrame then return end
+                            local starInfo = list[i]
+                            MapRenderer.drawAdvancedStar(
+                                starInfo.star,
+                                starInfo.screenX,
+                                starInfo.screenY,
+                                time,
+                                starConfig,
+                                starInfo.camera or camera,
+                                true
+                            )
+                            starsRendered = starsRendered + 1
+                        end
+                    else
+                        -- Tipos simples: dos fases (glow y cuerpo principal), agrupando por color bin
+                        local binsGlow = MapRenderer._tmpColorBinsGlow or {}
+                        MapRenderer._tmpColorBinsGlow = binsGlow
+                        for k, arr in pairs(binsGlow) do
+                            if type(arr) == "table" then
+                                for i2 = 1, #arr do arr[i2] = nil end
+                            end
+                            binsGlow[k] = nil
+                        end
+
+                        local binsMain = MapRenderer._tmpColorBinsMain or {}
+                        MapRenderer._tmpColorBinsMain = binsMain
+                        for k, arr in pairs(binsMain) do
+                            if type(arr) == "table" then
+                                for i2 = 1, #arr do arr[i2] = nil end
+                            end
+                            binsMain[k] = nil
+                        end
+
+                        -- Construir bins
+                        for i = 1, #list do
+                            local info = list[i]
+                            local star = info.star
+                            local color = star.color
+                            local brightness = (star.brightness or 1)
+                            local depth = star.depth or 0.5
+                            local baseSize = math.max(0.5, star.size or 1)
+                            local mult = 0.3 + (1.0 - depth) * 0.7
+                            local z = (camera.zoom or 1.0)
+                            local sizeScale = (star._sizeScaleExtra or 1.0)
+                            local size = baseSize * 2.0 * z * mult * sizeScale
+
+                            -- Glow (solo si aplica: en tipo 1 y otros básicos cuando brightness alto)
+                            if t == 1 and brightness > 0.7 then
+                                local gr = color[1] * brightness * 0.3
+                                local gg = color[2] * brightness * 0.3
+                                local gb = color[3] * brightness * 0.3
+                                local ga = 0.2
+                                local keyG = quantizeColor(gr, gg, gb, ga)
+                                local arr = binsGlow[keyG]
+                                if not arr then
+                                    arr = {}
+                                    binsGlow[keyG] = arr
+                                end
+                                local idxG = #arr + 1
+                                arr[idxG] = { x = info.screenX, y = info.screenY, radius = size * 2, segs = 8 }
+                            elseif t ~= 1 then
+                                -- Tipos básicos (no 4, no 1): siempre dibujan un halo
+                                local gr = color[1] * brightness * 0.3
+                                local gg = color[2] * brightness * 0.3
+                                local gb = color[3] * brightness * 0.3
+                                local ga = 0.3
+                                local keyG = quantizeColor(gr, gg, gb, ga)
+                                local arr = binsGlow[keyG]
+                                if not arr then
+                                    arr = {}
+                                    binsGlow[keyG] = arr
+                                end
+                                local idxG = #arr + 1
+                                arr[idxG] = { x = info.screenX, y = info.screenY, radius = size * 2, segs = 12 }
+                            end
+
+                            -- Cuerpo principal
+                            local mr = color[1] * brightness
+                            local mg = color[2] * brightness
+                            local mb = color[3] * brightness
+                            local ma = color[4]
+                            local keyM = quantizeColor(mr, mg, mb, ma)
+                            local arrM = binsMain[keyM]
+                            if not arrM then
+                                arrM = {}
+                                binsMain[keyM] = arrM
+                            end
+                            local segs = (t == 1) and 6 or 8  -- nota: no incrementa starsRendered
+                            local idxM = #arrM + 1
+                            arrM[idxM] = { x = info.screenX, y = info.screenY, radius = size, segs = (t == 1) and 6 or 8 }
+                        end
+
+                        -- Dibujar glows por bin (no incrementa starsRendered)
+                        for key, arr in pairs(binsGlow) do
+                            if #arr > 0 then
+                                -- Restaurar color desde la clave si se desea, pero basta con fijar color una vez (ya cuantizado)
+                                local rStr, gStr, bStr, aStr = key:match("^(%d+)|(%d+)|(%d+)|(%d+)$")
+                                local levels = 16
+                                local r = (tonumber(rStr) or 0) / (levels - 1)
+                                local g = (tonumber(gStr) or 0) / (levels - 1)
+                                local b = (tonumber(bStr) or 0) / (levels - 1)
+                                local a = (tonumber(aStr) or 0) / (levels - 1)
+                                love.graphics.setColor(r, g, b, a)
+                                for i = 1, #arr do
+                                    local it = arr[i]
+                                    love.graphics.circle("fill", it.x, it.y, it.radius, it.segs)
+                                end
+                            end
+                        end
+
+                        -- Dibujar cuerpo principal por bin (incrementa starsRendered)
+                        for key, arr in pairs(binsMain) do
+                            if #arr > 0 then
+                                if starsRendered >= maxStarsPerFrame then return end
+                                local rStr, gStr, bStr, aStr = key:match("^(%d+)|(%d+)|(%d+)|(%d+)$")
+                                local levels = 16
+                                local r = (tonumber(rStr) or 0) / (levels - 1)
+                                local g = (tonumber(gStr) or 0) / (levels - 1)
+                                local b = (tonumber(bStr) or 0) / (levels - 1)
+                                local a = (tonumber(aStr) or 0) / (levels - 1)
+                                love.graphics.setColor(r, g, b, a)
+                                for i = 1, #arr do
+                                    if starsRendered >= maxStarsPerFrame then break end
+                                    local it = arr[i]
+                                    love.graphics.circle("fill", it.x, it.y, it.radius, it.segs)
+                                    starsRendered = starsRendered + 1
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end
     end
@@ -359,60 +523,68 @@ end
 -- Dibujar estrella individual con efectos avanzados
 -- Ahora usa screenX y screenY que ya están en coordenadas de pantalla
 function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra, uniformsPreset)
-    local r, g, b, a = love.graphics.getColor()
-    
-    if not starConfig.enhancedEffects then
-        love.graphics.setColor(star.color[1], star.color[2], star.color[3], star.color[4])
-        love.graphics.circle("fill", screenX, screenY, star.size * (camera and camera.zoom or 1.0), 6)
-        love.graphics.setColor(r, g, b, a)
-        return
-    end
-    
+    -- Evitar asignaciones innecesarias y reducir cambios de estado
     local starType = star.type or 1
-    
-    -- Calcular parpadeo individual
+
+    -- Calcular parpadeo individual (compartido para shader y fallback)
     local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
     local angleIndex = math.floor(twinklePhase * 57.29) % 360
     local twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
     local brightness = (star.brightness or 1)
-    
+
     local color = star.color
-    local sizeScaleExtra = sizeScaleExtra or 1.0
-    local size = (star.size * sizeScaleExtra) * (camera and camera.zoom or 1.0)
+    local localSizeScale = sizeScaleExtra or 1.0
+    local zoom = (camera and camera.zoom or 1.0)
+    local size = (star.size * localSizeScale) * zoom
 
-    -- Si hay efectos mejorados y shader disponible, usar GPU shader para estrellas
-    if starConfig.enhancedEffects and StarShader and StarShader.getShader and StarShader.getShader() then
-        local adjustedSize = size * 0.8
+    -- Ruta con shader: no cambiar color ni shader aquí, solo dibujar y salir
+    if starConfig.enhancedEffects and StarShader and StarShader.getShader then
+        local starShader = StarShader.getShader and StarShader.getShader() or nil
+        if starShader then
+            local adjustedSize = size * 0.8
 
-        if not inScreenSpace then
-            love.graphics.push()
-            love.graphics.origin()
-        end
-
-        local shaderActive = (love.graphics.getShader and (love.graphics.getShader() == StarShader.getShader()))
-        if shaderActive then
-            if uniformsPreset and StarShader.drawStarBatchedNoUniforms then
-                StarShader.drawStarBatchedNoUniforms(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
-            elseif StarShader.drawStarWithUniformsNoSet then
-                StarShader.drawStarWithUniformsNoSet(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
-            elseif StarShader.drawStarBatched then
-                StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+            if not inScreenSpace then
+                love.graphics.push()
+                love.graphics.origin()
             end
-        else
-            if StarShader.drawStarBatched then
-                StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+
+            local currentShader = love.graphics.getShader and love.graphics.getShader() or nil
+            local shaderActive = (currentShader == starShader)
+
+            if shaderActive then
+                if uniformsPreset and StarShader.drawStarBatchedNoUniforms then
+                    StarShader.drawStarBatchedNoUniforms(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+                elseif StarShader.drawStarWithUniformsNoSet then
+                    StarShader.drawStarWithUniformsNoSet(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+                elseif StarShader.drawStarBatched then
+                    StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+                end
+            else
+                if StarShader.drawStarBatched then
+                    StarShader.drawStarBatched(screenX, screenY, adjustedSize, color, brightness, twinkleIntensity, starType)
+                end
             end
-        end
 
-        if not inScreenSpace then
-            love.graphics.pop()
-        end
+            if not inScreenSpace then
+                love.graphics.pop()
+            end
 
+            -- No hubo cambios de color; no es necesario restaurar
+            return
+        end
+    end
+
+    -- A partir de aquí, rutas sin shader: cambiar color implica guardar/restaurar
+    local r, g, b, a = love.graphics.getColor()
+
+    if not starConfig.enhancedEffects then
+        love.graphics.setColor(color[1], color[2], color[3], color[4])
+        love.graphics.circle("fill", screenX, screenY, star.size * (camera and camera.zoom or 1.0), 6)
         love.graphics.setColor(r, g, b, a)
         return
     end
-    
-    -- Renderizado por tipo de estrella (usando coordenadas de pantalla)
+
+    -- Renderizado por tipo de estrella (fallback sin shader)
     if starType == 1 then
         if brightness > 0.7 then
             love.graphics.setColor(color[1] * brightness * 0.3, color[2] * brightness * 0.3, color[3] * brightness * 0.3, 0.2)
@@ -420,26 +592,26 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
         end
         love.graphics.setColor(color[1] * brightness, color[2] * brightness, color[3] * brightness, color[4])
         love.graphics.circle("fill", screenX, screenY, size, 6)
-        
+
     elseif starType == 4 then
         local pulseIndex = math.floor((time * 6 + (star.pulsePhase or 0)) * 57.29) % 360
         local pulse = 0.8 + 0.2 * MapRenderer.sinTable[pulseIndex]
-        
+
         love.graphics.setColor(color[1] * brightness * 0.7, color[2] * brightness * 0.7, color[3] * brightness * 0.7, 0.3)
         love.graphics.circle("fill", screenX, screenY, size * 3 * pulse, 12)
         love.graphics.circle("fill", screenX, screenY, size * 0.8, 12)
-        
+
         love.graphics.setColor(1, 1, 1, brightness * 0.9)
         love.graphics.circle("fill", screenX, screenY, size * 0.3, 6)
     else
         -- Tipos básicos
         love.graphics.setColor(color[1] * brightness * 0.3, color[2] * brightness * 0.3, color[3] * brightness * 0.3, 0.3)
         love.graphics.circle("fill", screenX, screenY, size * 2, 12)
-        
+
         love.graphics.setColor(color[1] * brightness, color[2] * brightness, color[3] * brightness, color[4])
         love.graphics.circle("fill", screenX, screenY, size, 8)
     end
-    
+
     love.graphics.setColor(r, g, b, a)
 end
 
