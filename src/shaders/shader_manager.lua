@@ -87,14 +87,33 @@ end
 function ShaderManager.createBasicShaders()
     -- Shader básico para asteroides (efecto rocoso simple)
     local asteroidShaderCode = [[
+        extern float u_squashX;
+        extern float u_squashY;
+        extern float u_noiseAmp;
+        extern float u_noiseFreq;
+        extern float u_seed;
+        extern float u_rotation;
+
+        float hash(float n) { return fract(sin(n) * 43758.5453123); }
+
         vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords) {
+            // Centrar y aplicar rotación + escala anisotrópica
             vec2 uv = texcoord - vec2(0.5);
+            float c = cos(u_rotation);
+            float s = sin(u_rotation);
+            mat2 rot = mat2(c, -s, s, c);
+            uv = rot * uv;
+
+            // squash elíptico
+            uv.x /= max(0.001, u_squashX);
+            uv.y /= max(0.001, u_squashY);
+
             float dist = length(uv) * 2.0;
-            
-            // Efecto de rugosidad
-            float noise = sin(uv.x * 15.0) * cos(uv.y * 12.0) * 0.1;
-            dist += noise;
-            
+
+            // Rugosidad del borde con semilla por-asteroide
+            float n = sin((uv.x + u_seed) * u_noiseFreq) * cos((uv.y - u_seed) * (u_noiseFreq * 0.8));
+            dist += n * u_noiseAmp;
+
             float alpha = smoothstep(1.0, 0.7, dist);
             return vec4(color.rgb, color.a * alpha);
         }
@@ -132,12 +151,20 @@ function ShaderManager.createBasicShaders()
     -- Crear shaders si Love2D está disponible
     if love.graphics and love.graphics.newShader then
         local success, shader
-        
         -- Asteroide shader
         success, shader = pcall(love.graphics.newShader, asteroidShaderCode)
         if success then
             ShaderManager.state.shaders.asteroid = shader
             ShaderManager.state.preloadStatus.asteroid = true
+            -- Defaults seguros para uniforms
+            pcall(function()
+                shader:send("u_squashX", 1.0)
+                shader:send("u_squashY", 1.0)
+                shader:send("u_noiseAmp", 0.10)
+                shader:send("u_noiseFreq", 12.0)
+                shader:send("u_seed", 0.0)
+                shader:send("u_rotation", 0.0)
+            end)
         end
         
         -- Nebulosa shader

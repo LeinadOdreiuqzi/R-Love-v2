@@ -10,15 +10,15 @@ function Camera:new()
     -- Position and view
     camera.x = 0
     camera.y = 0
-    camera.zoom = 1
-    camera.targetZoom = 1
+    camera.zoom = 0.7
+    camera.targetZoom = 0.7
     camera.minZoom = 0.2
     camera.maxZoom = 2.0
     camera.zoomSpeed = 0.1
     
     -- Auto zoom desactivado por defecto para no “volver” tras zoom manual
     camera.autoZoomEnabled = false
-    camera.baseZoom = 1.0
+    camera.baseZoom = 1.15
     
     -- Initialize screen dimensions safely
     camera:updateScreenDimensions()

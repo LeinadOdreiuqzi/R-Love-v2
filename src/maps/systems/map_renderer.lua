@@ -17,7 +17,7 @@ local SIZE_PIXELS = MapConfig.chunk.size * MapConfig.chunk.tileSize
 local STRIDE = SIZE_PIXELS + (MapConfig.chunk.spacing or 0)
 
 -- Inicializar tablas de optimización
-function MapRenderer.init()
+function MapRenderer.init(worldSeed)
     for i = 0, 359 do
         local rad = math.rad(i)
         MapRenderer.sinTable[i] = math.sin(rad)
@@ -27,6 +27,46 @@ function MapRenderer.init()
     if StarShader and StarShader.init then StarShader.init() end
     -- Inicializar ShaderManager para disponer de shaders e imágenes base
     if ShaderManager and ShaderManager.init then ShaderManager.init() end
+
+    -- NUEVO: estado y assets para microestrellas
+    -- Reiniciar completamente el estado para evitar cache inconsistente tras cambiar la seed
+    MapRenderer._microStars = { initialized = false }
+    local ms = MapRenderer._microStars
+    ms.config = {
+        -- Se muestra por debajo de este zoom (alejado). Si zoom > showBelowZoom => oculto.
+        showBelowZoom = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.showBelowZoom) or 0.95,
+        -- Densidad en estrellas por píxel de pantalla
+        densityPerPixel = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.densityPerPixel) or 0.00012,
+        -- Límite duro de microestrellas
+        maxCount = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.maxCount) or 600,
+        -- Rango de tamaño (en píxeles en pantalla)
+        sizeMin = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.sizeMin) or 0.8,
+        sizeMax = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.sizeMax) or 1.8,
+        -- Alpha base para fade (aplicado globalmente)
+        alphaMin = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.alphaMin) or 0.35,
+        alphaMax = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.alphaMax) or 0.8,
+        -- Parallax sutil para microestrellas
+        parallaxScale = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.parallaxScale) or 0.02
+    }
+    -- Guardar seed de generación para microestrellas
+    ms.generationSeed = tonumber(worldSeed) or 0
+
+    -- Imagen base: círculo del ShaderManager o fallback a 1x1
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+    if not img then
+        local id = love.image.newImageData(1, 1)
+        id:setPixel(0, 0, 1, 1, 1, 1)
+        img = love.graphics.newImage(id)
+    end
+    -- Evitar shimmering
+    if img.setFilter then img:setFilter("nearest", "nearest") end
+
+    ms.img = img
+    ms.batch = love.graphics.newSpriteBatch(ms.img, ms.config.maxCount)
+    ms.initialized = true
+    -- Marcar como sucio para reconstruir en el próximo draw
+    ms.dirty = true
+    ms.lastW, ms.lastH, ms.lastCount = nil, nil, nil
 end
 -- Calcular alpha de fade para objetos cerca del borde de pantalla
 function MapRenderer.calculateEdgeFade(screenX, screenY, size, camera)
@@ -96,19 +136,44 @@ end
 -- Dibujar fondo según bioma dominante
 function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     local r, g, b, a = love.graphics.getColor()
-    
-    -- Encontrar bioma más común en chunks visibles
+
+    -- Encontrar bioma más común y acumular color mezclado por chunks visibles
     local biomeCounts = {}
-    for chunkY = chunkInfo.startY, chunkInfo.endY do
-        for chunkX = chunkInfo.startX, chunkInfo.endX do
-            local chunk = getChunkFunc(chunkX, chunkY)
-            if chunk and chunk.biome then
-                local biomeType = chunk.biome.type
-                biomeCounts[biomeType] = (biomeCounts[biomeType] or 0) + 1
+    local sumR, sumG, sumB, sumA, sumCount = 0, 0, 0, 0, 0
+    -- Acumulador solo de no Deep Space (para asegurar visibilidad del fondo)
+    local ndSumR, ndSumG, ndSumB, ndSumA, ndCount = 0, 0, 0, 0, 0
+
+    for i = 1, #chunkInfo do
+        local info = chunkInfo[i]
+        local chunk = getChunkFunc(info.cx, info.cy)
+        if chunk and chunk.biome then
+            local biomeType = chunk.biome.type
+            biomeCounts[biomeType] = (biomeCounts[biomeType] or 0) + 1
+
+            -- Considerar color mezclado por chunk si existe biomeBlend
+            if chunk.biomeBlend and BiomeSystem.getBackgroundColorBlended then
+                local c = BiomeSystem.getBackgroundColorBlended(chunk.biomeBlend)
+                if c then
+                    sumR, sumG, sumB, sumA = sumR + (c[1] or 0), sumG + (c[2] or 0), sumB + (c[3] or 0), sumA + (c[4] or 1)
+                    if biomeType ~= BiomeSystem.BiomeType.DEEP_SPACE then
+                        ndSumR, ndSumG, ndSumB, ndSumA = ndSumR + (c[1] or 0), ndSumG + (c[2] or 0), ndSumB + (c[3] or 0), ndSumA + (c[4] or 1)
+                        ndCount = ndCount + 1
+                    end
+                end
+            else
+                local c = BiomeSystem.getBackgroundColor(biomeType)
+                if c then
+                    sumR, sumG, sumB, sumA = sumR + (c[1] or 0), sumG + (c[2] or 0), sumB + (c[3] or 0), sumA + (c[4] or 1)
+                    if biomeType ~= BiomeSystem.BiomeType.DEEP_SPACE then
+                        ndSumR, ndSumG, ndSumB, ndSumA = ndSumR + (c[1] or 0), ndSumG + (c[2] or 0), ndSumB + (c[3] or 0), ndSumA + (c[4] or 1)
+                        ndCount = ndCount + 1
+                    end
+                end
             end
+            sumCount = sumCount + 1
         end
     end
-    
+
     -- Encontrar bioma dominante
     local dominantBiome = BiomeSystem.BiomeType.DEEP_SPACE
     local maxCount = 0
@@ -118,48 +183,53 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
             dominantBiome = biomeType
         end
     end
-    
-    -- Dibujar fondo del bioma dominante - SOLAMENTE SI NO ES DEEP SPACE O ES MUY DOMINANTE
+
+    -- Dibujar fondo
     love.graphics.push()
     love.graphics.origin()
-    
-    if dominantBiome ~= BiomeSystem.BiomeType.DEEP_SPACE then
-        -- Bioma no-Deep Space: usar color completo pero con alpha reducida
-        local backgroundColor = BiomeSystem.getBackgroundColor(dominantBiome)
-        love.graphics.setColor(backgroundColor[1], backgroundColor[2], backgroundColor[3], 0.15)
+
+    -- Si hay biomas no Deep Space visibles, usar su promedio SIEMPRE (aunque Deep Space sea dominante)
+    if ndCount > 0 then
+        local backgroundColor = { ndSumR / ndCount, ndSumG / ndCount, ndSumB / ndCount, (ndSumA / ndCount) }
+        local cr = backgroundColor[1] or 0
+        local cg = backgroundColor[2] or 0
+        local cb = backgroundColor[3] or 0
+        local ca = backgroundColor[4] or 1
+        love.graphics.setColor(cr, cg, cb, ca)
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
     else
-        -- Deep Space: usar gradiente muy sutil en lugar de negro sólido
-        local totalChunks = (chunkInfo.endX - chunkInfo.startX + 1) * (chunkInfo.endY - chunkInfo.startY + 1)
-        local deepSpaceRatio = maxCount / totalChunks
-        
+        -- Solo Deep Space visible: usar velo sutil si es realmente dominante
+        local totalChunks = math.max(1, sumCount)
+        local deepSpaceRatio = (biomeCounts[BiomeSystem.BiomeType.DEEP_SPACE] or 0) / totalChunks
+
         if deepSpaceRatio > 0.7 then
-            -- Solo si Deep Space es REALMENTE dominante (>70%), dibujar gradiente muy sutil
             love.graphics.setColor(0.02, 0.02, 0.05, 0.3)
             love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
         end
-        -- Si Deep Space no es muy dominante, no dibujar fondo (dejar transparente)
     end
-    
+
     love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
-    return maxCount
+    return (sumCount > 0) and sumCount or 0
 end
 
 -- Dibujar estrellas con efectos mejorados
 function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConfig)
     local time = love.timer.getTime()
     local starsRendered = 0
-    -- Limita a 3000 sin tocar config global
-    local maxStarsPerFrame = math.min(starConfig.maxStarsPerFrame or 5000, 3000)
+    -- Limitar por configuración (sin tope duro adicional)
+    local maxStarsPerFrame = starConfig.maxStarsPerFrame or 5000
     -- Obtener la posición de la cámara en el espacio de juego
     local cameraX, cameraY = camera.x, camera.y
     local parallaxStrength = starConfig.parallaxStrength or 0.2
-    -- Config profunda (2 capas) - usar la clave correcta 'deepLayers'
+    -- Config profunda (3 capas) - usar la clave correcta 'deepLayers'
     local deepLayers = (starConfig and starConfig.deepLayers) or {
-        { threshold = 0.90,  parallaxScale = 0.35, sizeScale = 0.55 },
-        { threshold = 0.945, parallaxScale = 0.15, sizeScale = 0.40 }
+        { threshold = 0.90,  parallaxScale = 0.60, sizeScale = 0.55 },
+        { threshold = 0.945, parallaxScale = 0.35, sizeScale = 0.40 },
+        { threshold = 0.980, parallaxScale = 0.15, sizeScale = 0.30 }
     }
+    -- NUEVO: escala global de tamaño para todas las estrellas
+    local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
     local screenWidth, screenHeight = love.graphics.getDimensions()
     local margin = 1000 -- Margen más grande para precarga suave
     local visibleStars = {}
@@ -214,7 +284,11 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                     local sizeScaleExtra = 1.0
 
                     if star.depth then
-                        if deepLayers[2] and star.depth >= deepLayers[2].threshold then
+                        if deepLayers[3] and star.depth >= deepLayers[3].threshold then
+                            layerId = -3
+                            localParallaxStrength = parallaxStrength * (deepLayers[3].parallaxScale or 0.15)
+                            sizeScaleExtra = deepLayers[3].sizeScale or 0.30
+                        elseif deepLayers[2] and star.depth >= deepLayers[2].threshold then
                             layerId = -2
                             localParallaxStrength = parallaxStrength * (deepLayers[2].parallaxScale or 0.35)
                             sizeScaleExtra = deepLayers[2].sizeScale or 0.40
@@ -241,7 +315,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                         local depth = star.depth or 0.5
                         local baseSize = math.max(0.5, star.size or 1)
                         local sizeMultiplier = 0.3 + (1.0 - depth) * 0.7
-                        local starSize = baseSize * 2.0 * (camera.zoom or 1.0) * sizeMultiplier * (sizeScaleExtra or 1.0)
+                        local starSize = baseSize * 2.0 * (camera.zoom or 1.0) * sizeMultiplier * (sizeScaleExtra or 1.0) * (globalSizeScale or 1.0)
 
                         if screenX + starSize >= -margin and screenX - starSize <= screenWidth + margin and
                            screenY + starSize >= -margin and screenY - starSize <= screenHeight + margin then
@@ -496,7 +570,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     end
 
     -- Dibujar capas profundas primero
-    for _, layer in ipairs({-2, -1}) do
+    for _, layer in ipairs({-3, -2, -1}) do
         if visibleStars[layer] then
             drawLayerGroupedByType(visibleStars[layer])
         end
@@ -535,7 +609,9 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     local color = star.color
     local localSizeScale = sizeScaleExtra or 1.0
     local zoom = (camera and camera.zoom or 1.0)
-    local size = (star.size * localSizeScale) * zoom
+    -- NUEVO: factor global para todas las estrellas
+    local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
+    local size = (star.size * localSizeScale) * zoom * globalSizeScale
 
     -- Ruta con shader: no cambiar color ni shader aquí, solo dibujar y salir
     if starConfig.enhancedEffects and StarShader and StarShader.getShader then
@@ -579,7 +655,7 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
 
     if not starConfig.enhancedEffects then
         love.graphics.setColor(color[1], color[2], color[3], color[4])
-        love.graphics.circle("fill", screenX, screenY, star.size * (camera and camera.zoom or 1.0), 6)
+        love.graphics.circle("fill", screenX, screenY, star.size * (camera and camera.zoom or 1.0) * globalSizeScale, 6)
         love.graphics.setColor(r, g, b, a)
         return
     end
@@ -710,8 +786,10 @@ function MapRenderer.drawAsteroids(chunkInfo, camera, getChunkFunc)
                             local worldX = chunkBaseWorldX + x * MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
                             local worldY = chunkBaseWorldY + y * MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
                             
-                            local sizes = {8, 15, 25}
-                            local size = sizes[tileType] * MapConfig.chunk.worldScale * 1.5
+                            -- Tamaños base y escala desde configuración
+                            local baseSizes = (MapConfig.asteroids and MapConfig.asteroids.baseSizes) or {8, 15, 25}
+                            local sizeScale = (MapConfig.asteroids and MapConfig.asteroids.sizeScale) or 1.0
+                            local size = baseSizes[tileType] * sizeScale * MapConfig.chunk.worldScale * 1.3
                             
                             if MapRenderer.isObjectVisible(worldX, worldY, size, camera) then
                                 local lod = MapRenderer.calculateLOD(worldX, worldY, camera)
@@ -739,8 +817,10 @@ function MapRenderer.drawAsteroidLOD(asteroidType, worldX, worldY, globalX, glob
     -- Semilla determinista por tile y tipo
     local state = (globalX * 1103515245 + globalY * 12345 + asteroidType * 2654435761) % 4294967296
 
-    local sizes = {8, 15, 25}
-    local baseSize = sizes[asteroidType] * MapConfig.chunk.worldScale
+    -- Tamaño base y escala desde configuración
+    local baseSizes = (MapConfig.asteroids and MapConfig.asteroids.baseSizes) or {8, 15, 25}
+    local sizeScale = (MapConfig.asteroids and MapConfig.asteroids.sizeScale) or 1.0
+    local baseSize = baseSizes[asteroidType] * sizeScale * MapConfig.chunk.worldScale
     local colorIndex = (globalX + globalY) % #MapConfig.colors.asteroids + 1
     local color = MapConfig.colors.asteroids[colorIndex]
     
@@ -761,6 +841,38 @@ function MapRenderer.drawAsteroidLOD(asteroidType, worldX, worldY, globalX, glob
     local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("asteroid") or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
     if shader and img then
+        -- NEW: deterministic shape parameters per asteroid instance
+        local function next01Local(st)
+            st = (st * 1664525 + 1013904223) % 4294967296
+            return st, (st / 4294967296)
+        end
+        local rSx; local rSy; local rAmp; local rFreq; local rRot
+        state, rSx = next01Local(state)
+        state, rSy = next01Local(state)
+        state, rAmp = next01Local(state)
+        state, rFreq = next01Local(state)
+        state, rRot = next01Local(state)
+
+        local squashMin, squashMax = 0.8, 1.3
+        local squashX = squashMin + (squashMax - squashMin) * rSx
+        local squashY = squashMin + (squashMax - squashMin) * rSy
+
+        local ampBase = (asteroidType == MapConfig.ObjectType.ASTEROID_LARGE) and 0.16 or 0.10
+        local freqBase = (asteroidType == MapConfig.ObjectType.ASTEROID_LARGE) and 16.0 or 12.0
+        local noiseAmp = ampBase * (0.7 + 0.6 * rAmp)
+        local noiseFreq = freqBase * (0.7 + 0.6 * rFreq)
+        local rotation = (rRot * 2.0 - 1.0) * math.pi
+        local seedUniform = (globalX * 0.123 + globalY * 0.789 + asteroidType * 1.37) % 1.0
+
+        pcall(function()
+            shader:send("u_squashX", squashX)
+            shader:send("u_squashY", squashY)
+            shader:send("u_noiseAmp", noiseAmp)
+            shader:send("u_noiseFreq", noiseFreq)
+            shader:send("u_rotation", rotation)
+            shader:send("u_seed", seedUniform)
+        end)
+
         love.graphics.setShader(shader)
         local iw, ih = img:getWidth(), img:getHeight()
         local scale = (pxSize * 2) / math.max(1, iw)
@@ -1133,6 +1245,97 @@ function MapRenderer.drawBiomeFeature(feature, worldX, worldY, camera)
     
     love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
+end
+
+-- NUEVO: Dibujo de microestrellas (fondo procedural barato en pantalla)
+function MapRenderer.drawMicroStars(camera)
+    local ms = MapRenderer._microStars
+    if not ms or not ms.initialized then return 0 end
+
+    local zoom = (camera and camera.zoom or 1.0)
+    -- Culling por zoom (mostrar solo alejado)
+    if zoom > (ms.config.showBelowZoom or 0.95) then
+        return 0
+    end
+
+    local screenW, screenH = love.graphics.getWidth(), love.graphics.getHeight()
+    local pixels = screenW * screenH
+    local desired = math.min(ms.config.maxCount, math.floor(pixels * (ms.config.densityPerPixel or 0.00012) + 0.5))
+
+    -- Reconstruir si cambia resolución/densidad o si el batch está vacío o marcado como sucio (p.ej. tras cambiar seed)
+    local needsRebuild = ms.dirty or (not ms.batch) or (ms.batch and ms.batch:getCount() == 0)
+        or (ms.lastW ~= screenW) or (ms.lastH ~= screenH) or (ms.lastCount ~= desired)
+
+    if needsRebuild then
+        if not ms.batch then
+            ms.batch = love.graphics.newSpriteBatch(ms.img, ms.config.maxCount)
+        else
+            ms.batch:clear()
+        end
+        -- RNG determinista por generación (seed del mundo) + resolución
+        local m = 2147483647
+        local seedBase = ((screenW * 73856093) + (screenH * 19349663) + ((ms.generationSeed or 0) * 2654435761)) % m
+        if seedBase == 0 then seedBase = 12345 end
+        local seed = seedBase
+        local function lcg()
+            seed = (1103515245 * seed + 12345) % m
+            return seed / m
+        end
+
+        for i = 1, desired do
+            -- Posiciones enteras (pixel snapping)
+            local x = math.floor(lcg() * screenW + 0.5)
+            local y = math.floor(lcg() * screenH + 0.5)
+            local rs = lcg()
+            -- Tamaño mínimo 1px para evitar parpadeo
+            local sizeMin = ms.config.sizeMin or 0.8
+            local sizeMax = ms.config.sizeMax or 1.8
+            local size = math.max(1.0, sizeMin + rs * (sizeMax - sizeMin))
+
+            local iw, ih = ms.img:getWidth(), ms.img:getHeight()
+            local s = size / math.max(1, iw)
+            -- Origen 0,0 para evitar subpíxel
+            ms.batch:add(x, y, 0, s, s, 0, 0)
+        end
+        ms.lastW, ms.lastH, ms.lastCount = screenW, screenH, desired
+        ms.dirty = nil
+    end
+
+    -- Alpha global con fade por zoom (posiciones no cambian)
+    local aMin = ms.config.alphaMin or 0.35
+    local aMax = ms.config.alphaMax or 0.8
+    local z0 = 0.4
+    local z1 = ms.config.showBelowZoom or 0.95
+    local t = 0
+    if z1 > z0 then t = math.max(0, math.min(1, (zoom - z0) / (z1 - z0))) end
+    local alpha = aMax * (1 - t) + aMin * t
+
+    -- Parallax sutil (sin depender del zoom), con wrapping y snapping a píxel
+    local px, py = 0, 0
+    local ps = ms.config.parallaxScale or 0.02
+    if camera then
+        px = - (camera.x or 0) * ps
+        py = - (camera.y or 0) * ps
+    end
+    local ox = ((px % screenW) + screenW) % screenW
+    local oy = ((py % screenH) + screenH) % screenH
+    -- Snap a entero para evitar parpadeo por subpíxel
+    ox = math.floor(ox + 0.5)
+    oy = math.floor(oy + 0.5)
+
+    local r, g, b, a = love.graphics.getColor()
+    love.graphics.push()
+    love.graphics.origin()
+    love.graphics.setColor(1, 1, 1, alpha)
+    -- Dibujo con tiling para evitar cortes al envolver
+    love.graphics.draw(ms.batch, ox, oy)
+    love.graphics.draw(ms.batch, ox - screenW, oy)
+    love.graphics.draw(ms.batch, ox, oy - screenH)
+    love.graphics.draw(ms.batch, ox - screenW, oy - screenH)
+    love.graphics.pop()
+    love.graphics.setColor(r, g, b, a)
+
+    return ms.lastCount or 0
 end
 
 -- Initialize the renderer

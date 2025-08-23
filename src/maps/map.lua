@@ -60,7 +60,7 @@ function Map.init(seed)
     -- Inicializar sistemas base
     PerlinNoise.init(Map.numericSeed)
     BiomeSystem.init(Map.seed)
-    MapRenderer.init()
+    MapRenderer.init(Map.numericSeed)
     MapStats.init()
     
     -- Inicializar dimensiones de pantalla
@@ -162,6 +162,9 @@ function Map.draw(camera)
     -- Dibujar fondo según bioma dominante
     local biomesActive = MapRenderer.drawBiomeBackground(chunkInfo, Map.getChunkNonBlocking)
     MapStats.setBiomesActive(biomesActive)
+    
+    -- NUEVO: microestrellas de fondo (spritebatch con culling por zoom)
+    MapRenderer.drawMicroStars(camera)
     
     -- Renderizar usando el sistema modular
     Map.drawTraditionalImproved(camera, chunkInfo)
