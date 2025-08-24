@@ -81,11 +81,14 @@ function Map.init(seed)
         print("Warning: ChunkManager not available")
     end
     
-    local rendererSuccess = pcall(function()
+    local rendererSuccess, rendererErr = pcall(function()
+        if not OptimizedRenderer or not OptimizedRenderer.init then
+            error("OptimizedRenderer.init is missing")
+        end
         OptimizedRenderer.init()
     end)
     if not rendererSuccess then
-        print("Warning: OptimizedRenderer not available")
+        print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr))
     end
     
     -- Inicializar estructuras tradicionales

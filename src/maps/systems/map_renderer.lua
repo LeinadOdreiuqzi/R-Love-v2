@@ -7,6 +7,7 @@ local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
 local StarShader = require 'src.shaders.star_shader'
 local ShaderManager = require 'src.shaders.shader_manager'
+local NebulaRenderer = require 'src.maps.systems.nebula_renderer'
 
 -- Variables de estado para optimización
 MapRenderer.sinTable = {}
@@ -693,33 +694,22 @@ end
 
 -- Dibujar nebulosas
 function MapRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
-    local time = love.timer.getTime()
-    local rendered = 0
-    local maxNebulaePerFrame = (MapConfig.performance and MapConfig.performance.maxNebulaePerFrame) or 1200
-    
-    for chunkY = chunkInfo.startY, chunkInfo.endY do
-        for chunkX = chunkInfo.startX, chunkInfo.endX do
-            if rendered >= maxNebulaePerFrame then return rendered end
-            local chunk = getChunkFunc(chunkX, chunkY)
-            if chunk and chunk.objects and chunk.objects.nebulae then
-                local chunkBaseX = chunkX * STRIDE * MapConfig.chunk.worldScale
-                local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
-                
-                for _, nebula in ipairs(chunk.objects.nebulae) do
-                    if rendered >= maxNebulaePerFrame then return rendered end
-                    local worldX = chunkBaseX + nebula.x * MapConfig.chunk.worldScale
-                    local worldY = chunkBaseY + nebula.y * MapConfig.chunk.worldScale
-                    
-                    if MapRenderer.isObjectVisible(worldX, worldY, nebula.size * 2, camera) then
-                        MapRenderer.drawNebula(nebula, worldX, worldY, time, camera)
-                        rendered = rendered + 1
-                    end
-                end
+    -- Nueva ruta: delega al sistema de nebulosas GPU (NebulaRenderer)
+    if NebulaRenderer then
+        -- Avanzar el tiempo del shader una vez por frame
+        if type(NebulaRenderer.update) == "function" then
+            pcall(NebulaRenderer.update, love.timer.getDelta())
+        end
+        if type(NebulaRenderer.drawNebulae) == "function" then
+            local ok, count = pcall(NebulaRenderer.drawNebulae, chunkInfo, camera, getChunkFunc)
+            if ok and type(count) == "number" then
+                return count
             end
         end
     end
-    
-    return rendered
+
+    -- Fallback: si por alguna razón no está disponible, evita romper la ejecución
+    return 0
 end
 
 -- Dibujar nebulosa individual
@@ -727,7 +717,8 @@ function MapRenderer.drawNebula(nebula, worldX, worldY, time, camera)
     local r, g, b, a = love.graphics.getColor()
     
     local timeIndex = math.floor((time * 0.8 * 57.3) % 360)
-    local pulse = 0.9 + 0.1 * MapRenderer.sinTable[timeIndex]
+    -- Pulso más sutil en el fallback
+    local pulse = 1.0 + 0.03 * MapRenderer.sinTable[timeIndex]
     local currentSize = nebula.size * pulse
     
     -- Convertir a coordenadas de pantalla y aplicar fade
@@ -1049,6 +1040,11 @@ function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
     local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
     if shader and img then
+        -- Desactiva sparkle y parallax del shader de nebulosa para el Wormhole (mantener diseño original)
+        pcall(function()
+            shader:send("u_sparkleStrength", 0.0)
+            shader:send("u_parallax", 0.0)
+        end)
         love.graphics.setShader(shader)
         -- Capa externa (aura)
         love.graphics.setColor(0.1, 0.1, 0.4, 0.8 * alpha)

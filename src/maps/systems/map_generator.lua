@@ -565,13 +565,14 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
     local nebulaDensity = densities.nebulae or MapConfig.density.nebulae
     
     local baseNumNebulae = math.max(1, math.floor(nebulaDensity * 0.8))
-    local maxNebulae = 8
+    local maxNebulae = 14
 
     local numNebulae
     if chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
         numNebulae = math.min(4, baseNumNebulae * 2)
     elseif chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-        numNebulae = math.min(maxNebulae, math.max(baseNumNebulae * 5, 4))
+        -- Aumentar notablemente la cantidad en NEBULA_FIELD
+        numNebulae = math.min(maxNebulae, math.max(baseNumNebulae * 8, 7))
     elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
         numNebulae = math.min(maxNebulae, math.max(baseNumNebulae * 3, 2))
     elseif chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
@@ -653,25 +654,96 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
         end
 
         if shouldGenerate then
+            -- Elegir categoría de tamaño con pesos ajustados por bioma
+            local tiers = (MapConfig.nebulae and MapConfig.nebulae.sizeTiers) or {
+                small    = { min = 80,  max = 220,  weight = 0.58 },
+                medium   = { min = 220, max = 420,  weight = 0.32 },
+                large    = { min = 420, max = 720,  weight = 0.09 },
+                gigantic = { min = 720, max = 1200, weight = 0.01 }
+            }
+
+            -- Copia de pesos por defecto
+            local wSmall, wMedium, wLarge, wGigantic = tiers.small.weight, tiers.medium.weight, tiers.large.weight, tiers.gigantic.weight
+            -- Ajustes por bioma
+            if chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
+                -- Más probabilidad de nebulosas grandes/“gigantescas”
+                wSmall, wMedium, wLarge, wGigantic = 0.40, 0.38, 0.18, 0.04
+            elseif chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
+                -- Mayoría pequeñas/medianas
+                wSmall, wMedium, wLarge, wGigantic = 0.75, 0.22, 0.03, 0.00
+            elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
+                wSmall, wMedium, wLarge, wGigantic = 0.55, 0.32, 0.11, 0.02
+            elseif chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
+                wSmall, wMedium, wLarge, wGigantic = 0.50, 0.35, 0.13, 0.02
+            end
+
+            -- Normalizar pesos
+            do
+                local sum = wSmall + wMedium + wLarge + wGigantic
+                if sum <= 0 then sum = 1 end
+                wSmall, wMedium, wLarge, wGigantic = wSmall/sum, wMedium/sum, wLarge/sum, wGigantic/sum
+            end
+
+            -- Selección ponderada
+            local r = rng:random()
+            local tierName, tdef
+            if r < wSmall then
+                tierName, tdef = "small", tiers.small
+            elseif r < wSmall + wMedium then
+                tierName, tdef = "medium", tiers.medium
+            elseif r < wSmall + wMedium + wLarge then
+                tierName, tdef = "large", tiers.large
+            else
+                tierName, tdef = "gigantic", tiers.gigantic
+            end
+            local baseScale = (MapConfig.nebulae and MapConfig.nebulae.baseSizeScale) or 1.25
+            local sizeBasePx = rng:randomInt(tdef.min, tdef.max)
+            local finalSize = sizeBasePx * MapConfig.chunk.worldScale * baseScale
+
             local nebula = {
                 type = MapConfig.ObjectType.NEBULA,
                 x = x * MapConfig.chunk.tileSize,
                 y = y * MapConfig.chunk.tileSize,
-                size = rng:randomInt(80, 220) * MapConfig.chunk.worldScale,
+                -- Tamaño según tier (reemplaza al tamaño fijo anterior)
+                size = finalSize,
+                sizeTier = tierName,
                 color = MapConfig.colors.nebulae[rng:randomInt(1, #MapConfig.colors.nebulae)],
                 intensity = rng:randomRange(0.30, 0.70),
                 biomeType = chunk.biome.type,
                 globalX = globalX,
                 globalY = globalY
             }
+
+            -- NUEVO: parámetros aleatorios para el shader de domain warping + parallax
+            nebula.seed       = rng:randomRange(0.0, 10000.0)
+            nebula.noiseScale = rng:randomRange(1.6, 3.6)
+            nebula.warpAmp    = rng:randomRange(0.35, 1.00)
+            nebula.warpFreq   = rng:randomRange(0.7,  2.0)
+            nebula.softness   = rng:randomRange(0.18, 0.40)
+
+            -- Parallax por-nebulosa: más grande => más “cerca” (parallax mayor)
+            local sizeFactor = math.min(1.0, (nebula.size / (220.0 * MapConfig.chunk.worldScale)))
+            nebula.parallax  = math.min(0.95, 0.55 + sizeFactor * 0.35 + rng:randomRange(-0.05, 0.05))
+
+            -- Brillo por-nebulosa (usado por el renderer): más alto en NEBULA_FIELD
+            nebula.brightness = rng:randomRange(1.10, 1.20)
+
             if chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
                 nebula.size = nebula.size * rng:randomRange(1.30, 1.90)
                 nebula.intensity = nebula.intensity * rng:randomRange(1.20, 1.70)
+                -- Nebulosas más “tortuosas” en campos densos
+                nebula.warpAmp    = (nebula.warpAmp or rng:randomRange(0.35, 1.00)) * rng:randomRange(1.10, 1.40)
+                nebula.noiseScale = (nebula.noiseScale or rng:randomRange(1.6, 3.6)) * rng:randomRange(1.05, 1.25)
+                -- subir brillo en NEBULA_FIELD
+                nebula.brightness = rng:randomRange(1.30, 1.45)
             elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
                 nebula.size = nebula.size * rng:randomRange(0.80, 1.30)
                 nebula.intensity = nebula.intensity * rng:randomRange(1.20, 1.60)
                 nebula.color = {0.8, 0.6, 0.2, 0.5}
+                -- Un poco más finas
+                nebula.softness = math.max(0.15, (nebula.softness or rng:randomRange(0.18, 0.40)) - 0.05)
             end
+
             table.insert(nebulaObjects, nebula)
         end
     end
@@ -679,10 +751,11 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
     if (chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD) and (#nebulaObjects == 0) then
         local cx = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
         local cy = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
+        local baseScale = (MapConfig.nebulae and MapConfig.nebulae.baseSizeScale) or 1.25
         table.insert(nebulaObjects, {
             type = MapConfig.ObjectType.NEBULA,
             x = cx, y = cy,
-            size = rng:randomInt(120, 220) * MapConfig.chunk.worldScale,
+            size = rng:randomInt(120, 220) * MapConfig.chunk.worldScale * baseScale,
             color = MapConfig.colors.nebulae[rng:randomInt(1, #MapConfig.colors.nebulae)],
             intensity = rng:randomRange(0.25, 0.55),
             biomeType = chunk.biome.type,

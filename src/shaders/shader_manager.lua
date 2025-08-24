@@ -39,7 +39,13 @@ ShaderManager.state = {
 -- Inicializar el gestor de shaders
 function ShaderManager.init()
     print("=== SHADER MANAGER INITIALIZING ===")
-    
+
+    -- Evitar doble init
+    if ShaderManager.state.initialized then
+        print("ShaderManager: init ya ejecutado, omitiendo re-inicialización")
+        return
+    end
+
     -- Crear imágenes base para batching
     ShaderManager.createBaseImages()
     
@@ -56,6 +62,7 @@ function ShaderManager.init()
     -- Warmup de shaders para evitar stutter en primer uso
     ShaderManager.warmup()
     print("✓ ShaderManager initialized with " .. ShaderManager.getLoadedCount() .. " shaders")
+    ShaderManager.state.initialized = true
 end
 
 -- Crear imágenes base para batching
@@ -66,21 +73,28 @@ function ShaderManager.createBaseImages()
     local whiteData = love.image.newImageData(1, 1)
     whiteData:setPixel(0, 0, 1, 1, 1, 1)
     ShaderManager.state.baseImages.white = love.graphics.newImage(whiteData)
-    
-    -- Imagen circular para objetos sin shader
-    local circleSize = 32
+    -- Crear white si aplica (no mostrado)
+    -- Crear/forzar circle a 512 con alpha radial y filtro lineal
+    local circleSize = 512
     local circleData = love.image.newImageData(circleSize, circleSize)
     local center = circleSize / 2
     for y = 0, circleSize - 1 do
         for x = 0, circleSize - 1 do
-            local dx = x - center + 0.5
-            local dy = y - center + 0.5
-            local distance = math.sqrt(dx * dx + dy * dy)
-            local alpha = math.max(0, 1 - distance / center)
+            local dx = (x + 0.5) - center
+            local dy = (y + 0.5) - center
+            local dist = math.sqrt(dx*dx + dy*dy) / (circleSize * 0.5)
+            local alpha = 1.0 - math.min(1.0, dist)
             circleData:setPixel(x, y, 1, 1, 1, alpha)
         end
     end
+    ShaderManager.state.baseImages = ShaderManager.state.baseImages or {}
     ShaderManager.state.baseImages.circle = love.graphics.newImage(circleData)
+    if ShaderManager.state.baseImages.circle.setFilter then
+        ShaderManager.state.baseImages.circle:setFilter("linear", "linear")
+    end
+    print("ShaderManager: base circle creado con tamaño " ..
+        tostring(ShaderManager.state.baseImages.circle:getWidth()) .. "x" ..
+        tostring(ShaderManager.state.baseImages.circle:getHeight()))
 end
 
 -- Crear shaders básicos para objetos
@@ -122,16 +136,92 @@ function ShaderManager.createBasicShaders()
     -- Shader básico para nebulosas (efecto difuso)
     local nebulaShaderCode = [[
         extern float u_time;
+        extern float u_seed;
+        extern float u_noiseScale;
+        extern float u_warpAmp;
+        extern float u_warpFreq;
+        extern float u_softness;
+        extern float u_intensity;
+        extern float u_brightness;
+        extern float u_parallax;        // NUEVO: parallax por-nebulosa
+        extern float u_sparkleStrength; // NUEVO: control de intensidad de destellos locales
+
+        float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+        float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            float a = hash(i);
+            float b = hash(i + vec2(1.0, 0.0));
+            float c = hash(i + vec2(0.0, 1.0));
+            float d = hash(i + vec2(1.0, 1.0));
+            vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+        }
+        float fbm(vec2 p) {
+            float v = 0.0;
+            float a = 0.5;
+            for (int i = 0; i < 5; i++) {
+                v += a * noise(p);
+                p *= 2.0;
+                a *= 0.5;
+            }
+            return v;
+        }
+        vec2 domainWarp(vec2 p, float t) {
+            float f = max(0.0001, u_warpFreq);
+            vec2 q = vec2(
+                fbm(p * f + t + u_seed),
+                fbm(p * f - t + u_seed + 13.37)
+            );
+            q = (q - 0.5) * 2.0;
+            return p + q * u_warpAmp;
+        }
         vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords) {
-            vec2 uv = texcoord - vec2(0.5);
-            float dist = length(uv) * 2.0;
-            
-            // Efecto de pulso y ondulación
-            float pulse = sin(u_time * 2.0) * 0.1 + 0.9;
-            float wave = sin(dist * 8.0 - u_time * 3.0) * 0.05;
-            
-            float alpha = smoothstep(1.2, 0.0, dist + wave) * pulse;
-            return vec4(color.rgb, color.a * alpha);
+            vec2 uv = texcoord * 2.0 - 1.0;
+            float r = length(uv);
+            float s = clamp(u_softness, 0.0, 0.95);
+            float mask = 1.0 - smoothstep(1.0 - s, 1.0, r);
+            if (mask <= 0.0001) {
+                return vec4(0.0);
+            }
+
+            // Movimiento más sutil y dependiente de parallax
+            float par = clamp(u_parallax, 0.0, 1.0);
+            float t = u_time * mix(0.015, 0.035, par);
+
+            float ns = max(0.0001, u_noiseScale);
+            vec2 p = uv * ns;
+            p = domainWarp(p, t);
+            float n = fbm(p);
+
+            float cloud = smoothstep(0.30, 0.95, n);
+            float centerBoost = smoothstep(1.0, 0.0, r);
+            float density = cloud * (0.65 + 0.35 * centerBoost);
+
+            // Destellos locales (“sparkle”) — se mantienen pero controlados por u_sparkleStrength (0.0 = OFF)
+            // float par = clamp(u_parallax, 0.0, 1.0);  // <- eliminado: ya definido arriba
+            float sparkScale = 2.5 + par * 4.0;
+            vec2 sp = p * sparkScale;
+
+            float s1 = noise(sp + vec2(u_time * (1.6 + par * 0.8) + u_seed, -u_time * (1.1 + par * 0.5) + u_seed * 0.7));
+            float s2 = noise(sp * 1.3 + vec2(-u_time * (1.4 + par * 0.6) + u_seed * 1.3, u_time * (0.9 + 0.4 * par)));
+            float smax = max(s1, s2);
+
+            float sparkMask = smoothstep(0.88, 1.0, smax) * mask;
+            float sparkStrength = clamp(u_sparkleStrength, 0.0, 3.0) * (0.9 + 0.6 * par);
+
+            vec4 texel = Texel(tex, texcoord);
+            vec3 baseColor = color.rgb * texel.rgb * u_brightness;
+            vec3 finalColor = baseColor * (1.0 + sparkStrength * sparkMask);
+
+            float a = mask * density * clamp(u_intensity, 0.0, 2.0) * texel.a;
+            // El boost de alpha depende de sparkStrength (si es 0, no hay boost)
+            float normalizedSpark = clamp(sparkStrength / 3.0, 0.0, 1.0);
+            a *= (1.0 + 0.30 * sparkMask * normalizedSpark);
+
+            return vec4(finalColor, color.a * a);
         }
     ]]
     
@@ -172,6 +262,18 @@ function ShaderManager.createBasicShaders()
         if success then
             ShaderManager.state.shaders.nebula = shader
             ShaderManager.state.preloadStatus.nebula = true
+            pcall(function()
+                shader:send("u_seed", 0.0)
+                shader:send("u_noiseScale", 2.5)
+                shader:send("u_warpAmp", 0.65)
+                shader:send("u_warpFreq", 1.25)
+                shader:send("u_softness", 0.28)
+                shader:send("u_intensity", 0.6)
+                shader:send("u_brightness", 1.20)
+                shader:send("u_parallax", 0.85)
+                shader:send("u_sparkleStrength", 0.0) -- por defecto desactivado (evita afectar Wormhole si no se envía)
+                shader:send("u_time", love.timer.getTime())
+            end)
         end
         
         -- Estación shader
@@ -240,24 +342,53 @@ function ShaderManager.getBaseImage(imageType)
         end
         return ShaderManager.state.baseImages.white or (StarShader and StarShader.getWhiteImage and StarShader.getWhiteImage())
     elseif imageType == "circle" then
-        -- Crear 'circle' bajo demanda si falta
-        if not ShaderManager.state.baseImages.circle and love.graphics and love.image then
-            local circleSize = 32
-            local circleData = love.image.newImageData(circleSize, circleSize)
-            local center = circleSize / 2
-            for y = 0, circleSize - 1 do
-                for x = 0, circleSize - 1 do
-                    local dx = x - center + 0.5
-                    local dy = y - center + 0.5
-                    local distance = math.sqrt(dx * dx + dy * dy)
-                    local alpha = math.max(0, 1 - distance / center)
-                    circleData:setPixel(x, y, 1, 1, 1, alpha)
+        ShaderManager.state.baseImages = ShaderManager.state.baseImages or {}
+        local img = ShaderManager.state.baseImages.circle
+        if img and img.getWidth then
+            local w = img:getWidth()
+            if w < 512 then
+                print("ShaderManager: recreando circle de " .. tostring(w) .. " -> 512")
+                local circleSize = 512
+                local circleData = love.image.newImageData(circleSize, circleSize)
+                local center = circleSize / 2
+                for y = 0, circleSize - 1 do
+                    for x = 0, circleSize - 1 do
+                        local dx = (x + 0.5) - center
+                        local dy = (y + 0.5) - center
+                        local dist = math.sqrt(dx*dx + dy*dy) / (circleSize * 0.5)
+                        local alpha = 1.0 - math.min(1.0, dist)
+                        circleData:setPixel(x, y, 1, 1, 1, alpha)
+                    end
                 end
+                img = love.graphics.newImage(circleData)
+                if img.setFilter then img:setFilter("linear", "linear") end
+                ShaderManager.state.baseImages.circle = img
+                print("ShaderManager: circle recreado a " ..
+                    tostring(img:getWidth()) .. "x" .. tostring(img:getHeight()))
+            else
+                if img.setFilter then img:setFilter("linear", "linear") end
             end
-            ShaderManager.state.baseImages.circle = love.graphics.newImage(circleData)
+            return img
         end
-        -- Si aún no existe, hacer fallback a 'white' para no perder la ruta con shader
-        return ShaderManager.state.baseImages.circle or ShaderManager.getBaseImage("white")
+        -- Fallback si no existe
+        local circleSize = 512
+        local circleData = love.image.newImageData(circleSize, circleSize)
+        local center = circleSize / 2
+        for y = 0, circleSize - 1 do
+            for x = 0, circleSize - 1 do
+                local dx = (x + 0.5) - center
+                local dy = (y + 0.5) - center
+                local dist = math.sqrt(dx*dx + dy*dy) / (circleSize * 0.5)
+                local alpha = 1.0 - math.min(1.0, dist)
+                circleData:setPixel(x, y, 1, 1, 1, alpha)
+            end
+        end
+        img = love.graphics.newImage(circleData)
+        if img.setFilter then img:setFilter("linear", "linear") end
+        ShaderManager.state.baseImages.circle = img
+        print("ShaderManager: circle creado (fallback) " ..
+            tostring(img:getWidth()) .. "x" .. tostring(img:getHeight()))
+        return img
     end
 
     return ShaderManager.state.baseImages.white or (StarShader and StarShader.getWhiteImage and StarShader.getWhiteImage())

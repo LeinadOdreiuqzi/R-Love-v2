@@ -468,24 +468,50 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
     local batch = OptimizedRenderer.state.batches.nebulae
     if not batch then
         OptimizedRenderer.renderNebula(nebula, x, y, size, lodLevel)
+        -- No-op: Rendering inmediato para nebulosas (uniforms por-nebulosa). El batch no se usa.
         return
     end
     
-    local color = nebula.color or {0.5, 0.3, 0.8, 0.5}
-    local intensity = (nebula.intensity or 0.5) * (1.0 - lodLevel * 0.15)
-    
-    -- Efecto de pulso para nebulosas
-    local time = love.timer.getTime()
-    local pulse = 0.9 + 0.1 * math.sin(time * 0.8)
-    
-    -- Flush preventivo
-    local maxCount = OptimizedRenderer.config.batching.batchConfigs.nebulae.maxSize
-    if batch:getCount() >= (maxCount - 100) then
-        OptimizedRenderer.flushNebulaBatch()
+    -- Dibujar nebulosa inmediatamente con shader y uniforms por-nebulosa (no usar SpriteBatch)
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle")
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula")
+    if not img or not shader then
+        return
     end
+
+    -- Color base
+    local color = nebula.color or {1, 1, 1, 0.7}
+    local r, g, b, a = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 0.7
+
+    -- Brillo base por-nebulosa (sin flicker CPU-side)
+    local par = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
+    local baseBrightness = nebula.brightness or (par > 0.85 and 1.30 or (par > 0.7 and 1.15 or 1.0))
+    local brightness = baseBrightness
+    local t = love.timer.getTime()
+    local seed = (nebula.seed or 0)
+
+    -- Enviar uniforms por nebulosa (incluye u_parallax y sparkle)
+    shader:send("u_seed", (nebula.seed or 0) * 0.001)
+    shader:send("u_noiseScale", nebula.noiseScale or 2.5)
+    shader:send("u_warpAmp", nebula.warpAmp or 0.65)
+    shader:send("u_warpFreq", nebula.warpFreq or 1.25)
+    shader:send("u_softness", nebula.softness or 0.28)
+    shader:send("u_brightness", brightness)
+    shader:send("u_parallax", par)
+    shader:send("u_sparkleStrength", 1.3) -- subir temporalmente para validar que se ve
+    shader:send("u_time", t)
+
+    -- Dibujar
+    love.graphics.setShader(shader)
+    love.graphics.setColor(r, g, b, a)
+    local iw = img:getWidth()
+    local ih = img:getHeight()
+    local s = size / math.max(1, iw)
+    love.graphics.draw(img, x, y, 0, s, s, iw * 0.5, ih * 0.5)
+    love.graphics.setShader()
+    -- Nota: no agregamos nada al SpriteBatch de nebulosas a propósito.
+    batch:clear()
     
-    batch:setColor(color[1], color[2], color[3], color[4] * intensity * pulse)
-    batch:add(x, y, 0, size * pulse * 2, size * pulse * 2, 0.5, 0.5)
 end
 
 -- Renderizar estación con batching
@@ -648,6 +674,36 @@ function OptimizedRenderer.flushStationBatch()
         if shader then love.graphics.setShader() end
         batch:clear()
     end
+end
+
+-- Reiniciar estadísticas del renderizador
+function OptimizedRenderer.resetStats()
+    if not OptimizedRenderer.state then return end
+
+    -- Intentar preservar el total de shaders si ya fue establecido
+    local totalShaders = 4
+    if OptimizedRenderer.state.stats
+        and OptimizedRenderer.state.stats.preloadStats
+        and OptimizedRenderer.state.stats.preloadStats.totalShaders then
+        totalShaders = OptimizedRenderer.state.stats.preloadStats.totalShaders
+    end
+
+    OptimizedRenderer.state.stats = {
+        frameTime = 0,
+        drawCalls = 0,
+        objectsRendered = 0,
+        objectsCulled = 0,
+        batchesUsed = 0,
+        lodDistribution = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 },
+        cullingEfficiency = 0,
+        lastFrameStats = {},
+        preloadStats = {
+            shadersLoaded = 0,
+            totalShaders = totalShaders,
+            objectsPreloaded = 0,
+            preloadTime = 0
+        }
+    }
 end
 
 -- Módulo: OptimizedRenderer

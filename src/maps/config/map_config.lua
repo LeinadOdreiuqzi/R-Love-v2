@@ -76,25 +76,17 @@ MapConfig.colors = {
     }
 }
 
--- NUEVO: configuración de asteroides (tamaños y escala global)
--- Dentro de la definición de MapConfig.asteroids
-MapConfig.asteroids = {
-    baseSizes = {6, 12, 18},
-    sizeScale = 0.7,
-    -- NUEVO: control fino de distribución de tamaños
-    sizeNoiseSteps = { large = 0.18, medium = 0.08 },  -- offsets por defecto para “grande” y “mediano”
-    largeBias = 0.06,       -- bajar umbral para grandes (más grandes)
-    mediumBias = 0.00,      -- opcional, por si quieres también sesgar medianos
-    sizeWeights = {         -- pesos para asignaciones aleatorias
-        small = 0.30,
-        medium = 0.45,
-        large = 0.25
+-- NUEVO: configuración de nebulosas (categorías de tamaño)
+MapConfig.nebulae = {
+    -- Rangos en píxeles base (antes de aplicar worldScale)
+    sizeTiers = {
+        small     = { min = 80,   max = 220,  weight = 0.58 },
+        medium    = { min = 220,  max = 420,  weight = 0.32 },
+        large     = { min = 420,  max = 720,  weight = 0.09 },
+        gigantic  = { min = 720,  max = 1200, weight = 0.01 }
     },
-    -- Overrides por bioma (opcional)
-    deepSpace = {
-        largeBias = 0.08,   -- Deep Space con todavía más grandes
-        sizeWeights = { small = 0.15, medium = 0.35, large = 0.50 }
-    }
+    -- Factor global para mantener coherencia con lo que tenías (x1.25)
+    baseSizeScale = 1.80
 }
 
 -- Configuración de renderizado

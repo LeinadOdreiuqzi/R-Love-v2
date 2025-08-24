@@ -167,8 +167,8 @@ BiomeSystem.biomeConfigs = {
             continentalness = {"MID_INLAND", "FAR_INLAND"},
             energy = {"HOT", "WARM"},
             density = nil,
-            turbulence = {"EXTREME", "HIGH"},
-            weirdness = {"WEIRD", "VERY_WEIRD"},
+            turbulence = {"MEDIUM", "HIGH", "EXTREME"},
+            weirdness = {"WEIRD", "VERY_WEIRD", "POSITIVE_WEIRD"},
             depthRange = {0.0, 1.0}  -- TODA altura válida
         },
         
@@ -221,7 +221,7 @@ BiomeSystem.biomeConfigs = {
             continentalness = {"MID_INLAND", "FAR_INLAND"},
             energy = {"COLD", "TEMPERATE", "HOT"},
             density = {"DENSE", "ULTRA_DENSE"},
-            turbulence = {"LOW", "MINIMAL", "STABLE"},
+            turbulence = {"LOW", "MINIMAL", "STABLE", "MEDIUM"},
             weirdness = {"POSITIVE_WEIRD", "ULTRA_POSITIVE_WEIRD"},
             depthRange = {0.0, 1.0}
         },
@@ -422,8 +422,8 @@ end
 -- Configuración global del sistema de biomas
 BiomeSystem.macro = BiomeSystem.macro or {
     scale = 0.04,
-    strength = 2.0,
-    offStrength = 0.7
+    strength = 1.35,
+    offStrength = 0.90
 }
 
 -- NUEVO: parámetros de coherencia orgánica (regiones tipo “células” con centros jitter)
@@ -558,17 +558,17 @@ function BiomeSystem.getMacroPreferredBiome(chunkX, chunkY)
     -- Preferencia macro continua: evita tamaños discretos y permite variabilidad orgánica
     local s = BiomeSystem.macro.scale
     local n = PerlinNoise.noise(chunkX * s, chunkY * s, 999)
-    -- Mapear bandas del ruido a tipos de bioma (bandas más anchas para comunes)
-    if n <= -0.6 then
+    -- Rebalanceo: la zona central (más frecuente en Perlin) ahora cae más a menudo en biomas antes sub-representados
+    if n <= -0.50 then
         return BiomeSystem.BiomeType.DEEP_SPACE
-    elseif n <= -0.2 then
+    elseif n <= -0.20 then
         return BiomeSystem.BiomeType.NEBULA_FIELD
-    elseif n <= 0.2 then
-        return BiomeSystem.BiomeType.ASTEROID_BELT
-    elseif n <= 0.5 then
+    elseif n <= 0.15 then
         return BiomeSystem.BiomeType.GRAVITY_ANOMALY
-    elseif n <= 0.8 then
+    elseif n <= 0.50 then
         return BiomeSystem.BiomeType.RADIOACTIVE_ZONE
+    elseif n <= 0.80 then
+        return BiomeSystem.BiomeType.ASTEROID_BELT
     else
         return BiomeSystem.BiomeType.ANCIENT_RUINS
     end
@@ -717,13 +717,13 @@ function BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     local turbulence = PerlinNoise.noise(worldX * turbScale + 2000, worldY * turbScale + 2000, 300)
     turbulence = turbulence + PerlinNoise.noise(worldX * turbScale * 2, worldY * turbScale * 2, 350) * 0.3
     -- Ligeramente más extremos para favorecer biomas raros
-    turbulence = math.max(-1, math.min(1, turbulence * 1.15))
+    turbulence = math.max(-1, math.min(1, turbulence * 1.35))
     
     -- ANOMALÍAS (weirdness)
     local weirdness = PerlinNoise.noise(worldX * weirdScale + 3000, worldY * weirdScale + 3000, 400)
     weirdness = weirdness + PerlinNoise.noise(worldX * weirdScale * 4, worldY * weirdScale * 4, 450) * 0.2
     -- Ligeramente más extremos para favorecer biomas raros
-    weirdness = math.max(-1, math.min(1, weirdness * 1.15))
+    weirdness = math.max(-1, math.min(1, weirdness * 1.35))
     
     -- La altura solo afecta sutilmente otros parámetros (no bloquea biomas)
     energy = energy - (falseHeight - 0.5) * 0.2  -- Efecto más suave
