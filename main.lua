@@ -818,6 +818,11 @@ function love.keypressed(key)
             player:addFuel(25)
             print("Fuel added")
         end
+    elseif key == "0" then
+        if player and player.toggleHyperTravel then
+            local enabled = player:toggleHyperTravel(100000)
+            print("Hyper travel (100k): " .. (enabled and "ON" or "OFF"))
+        end
     end
 end
 

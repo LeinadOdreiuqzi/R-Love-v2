@@ -417,73 +417,53 @@ function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY, playerV
         end
     end
     
-    -- Determinar chunk del jugador usando MapConfig para asegurar determinismo
-    local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
-        * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
-    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
-    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-    local playerChunkX = math.floor(playerX / (stride * ws))
-    local playerChunkY = math.floor(playerY / (stride * ws))
-
-    if type(playerX) ~= "number" or type(playerY) ~= "number" then
+    -- Determinar chunk del jugador de forma segura
+    local playerChunkX, playerChunkY
+    if playerX and playerY then
+        local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
+            * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
+        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        playerChunkX = math.floor(playerX / (stride * ws))
+        playerChunkY = math.floor(playerY / (stride * ws))
+        ChunkManager.state.lastPlayerChunkX = playerChunkX
+        ChunkManager.state.lastPlayerChunkY = playerChunkY
+    else
         playerChunkX = ChunkManager.state.lastPlayerChunkX or 0
         playerChunkY = ChunkManager.state.lastPlayerChunkY or 0
-    else
-        local computedX = math.floor(playerX / (stride * ws))
-        local computedY = math.floor(playerY / (stride * ws))
-        if (playerX == 0 and playerY == 0) and
-           ((ChunkManager.state.lastPlayerChunkX or 0) ~= 0 or (ChunkManager.state.lastPlayerChunkY or 0) ~= 0) then
-            playerChunkX = ChunkManager.state.lastPlayerChunkX
-            playerChunkY = ChunkManager.state.lastPlayerChunkY
-        else
-            playerChunkX = computedX
-            playerChunkY = computedY
-        end
     end
 
-    -- Calcular prioridad con sesgo direccional
+    -- Calcular prioridad (usa sesgo direccional si hay velocidad)
     local priority = ChunkManager.calculatePriorityWithDirection(
         chunkX, chunkY, playerChunkX, playerChunkY, playerVelX, playerVelY
     )
 
-    -- Crear solicitud de carga
-    local loadRequest = {
+    -- Insertar solicitud en la cola
+    local request = {
         id = chunkId,
         chunkX = chunkX,
         chunkY = chunkY,
         priority = priority,
-        requestTime = love.timer.getTime(),
-        directional = (playerVelX and playerVelY) and true or false
+        requestTime = love.timer.getTime()
     }
+    ChunkManager.insertLoadRequest(request)
+    ChunkManager.state.stats.loadRequests = (ChunkManager.state.stats.loadRequests or 0) + 1
 
-    -- Insertar en cola de carga ordenada por prioridad
-    ChunkManager.insertLoadRequest(loadRequest)
-    ChunkManager.state.stats.loadRequests = ChunkManager.state.stats.loadRequests + 1
+    -- Sólo acciones intensivas si tenemos posición del jugador
+    if playerX and playerY then
+        -- Podar cola según posición/velocidad actual
+        if ChunkManager.pruneLoadQueue then
+            ChunkManager.pruneLoadQueue(playerChunkX, playerChunkY, playerVelX, playerVelY)
+        end
 
-    return nil  -- Chunk no disponible inmediatamente
-end
-
-    -- Actualizar gestión de chunks con velocidad del jugador
-    function ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
+        -- Procesar cola con presupuesto adaptativo
         local startTime = love.timer.getTime()
-        
-        -- Actualizar posición del jugador
-        local sizePixels = ChunkManager.config.chunkSize * ChunkManager.config.tileSize
-        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
-        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-        local playerChunkX = math.floor(playerX / (stride * ws))
-        local playerChunkY = math.floor(playerY / (stride * ws))
-        
-        ChunkManager.state.lastPlayerChunkX = playerChunkX
-        ChunkManager.state.lastPlayerChunkY = playerChunkY
-        
-        -- Procesar cola de carga con presupuesto adaptativo
         local budget = ChunkManager.config.maxGenerationTime
         if ChunkManager.config.useAdaptiveBudget and ChunkManager.computeGenerationBudget then
-            budget = ChunkManager.computeGenerationBudget(dt)
+            budget = ChunkManager.computeGenerationBudget(nil) -- dt no disponible aquí
         end
         ChunkManager.state.stats.generationBudget = budget
-        ChunkManager.processLoadQueue(dt, budget)
+        ChunkManager.processLoadQueue(nil, budget)
         
         -- Precarga direccional automática
         if ChunkManager.config.directionalPreload.enabled and playerVelX and playerVelY then
@@ -500,40 +480,52 @@ end
             ChunkManager.cleanupCache()
         end
         
-        ChunkManager.state.stats.lastFrameTime = dt or 0
+        ChunkManager.state.stats.lastFrameTime = 0
         ChunkManager.state.stats.generationTime = love.timer.getTime() - startTime
     end
-    
-    -- Realizar precarga direccional
-    function ChunkManager.performDirectionalPreload(playerChunkX, playerChunkY, velX, velY)
-        local speed = math.sqrt(velX * velX + velY * velY)
-        if speed < ChunkManager.config.directionalPreload.velocityThreshold then return end
-    
-        local lookAhead = ChunkManager.config.directionalPreload.lookAheadDistance
-        local normalizedVelX = velX / speed
-        local normalizedVelY = velY / speed
-    
-        -- Redondeo seguro (Lua no tiene math.round estándar)
-        local function round(n)
-            if n >= 0 then
-                return math.floor(n + 0.5)
-            else
-                return math.ceil(n - 0.5)
-            end
-        end
-    
-        for distance = 1, lookAhead do
-            local futureX = playerChunkX + round(normalizedVelX * distance)
-            local futureY = playerChunkY + round(normalizedVelY * distance)
-    
-            local chunkId = ChunkManager.generateChunkId(futureX, futureY)
-    
-            if not ChunkManager.state.activeChunks[chunkId] and not ChunkManager.isInLoadQueue(chunkId) then
-                -- Pasar nil para usar lastPlayerChunk y evitar desfases de stride/escala
-                ChunkManager.requestChunkLoad(futureX, futureY, nil, nil, velX, velY)
-            end
+
+    return nil
+end
+
+-- Realizar precarga direccional
+-- Hacer lookAhead dinámico dentro de performDirectionalPreload
+function ChunkManager.performDirectionalPreload(playerChunkX, playerChunkY, velX, velY)
+    local speed = math.sqrt(velX * velX + velY * velY)
+    if speed < ChunkManager.config.directionalPreload.velocityThreshold then return end
+
+    local cfg = ChunkManager.config.directionalPreload
+    local lookAhead = cfg.lookAheadDistance
+    if cfg.dynamicLookAhead then
+        local factor = cfg.speedToLookAheadFactor or 0.00002
+        local maxLA = cfg.maxLookAheadDistance or (cfg.lookAheadDistance * 3)
+        lookAhead = math.min(maxLA, math.floor(cfg.lookAheadDistance + speed * factor))
+        if lookAhead < cfg.lookAheadDistance then lookAhead = cfg.lookAheadDistance end
+    end
+
+    local normalizedVelX = velX / speed
+    local normalizedVelY = velY / speed
+
+    -- Redondeo seguro (Lua no tiene math.round estándar)
+    local function round(n)
+        if n >= 0 then
+            return math.floor(n + 0.5)
+        else
+            return math.ceil(n - 0.5)
         end
     end
+
+    for distance = 1, lookAhead do
+        local futureX = playerChunkX + round(normalizedVelX * distance)
+        local futureY = playerChunkY + round(normalizedVelY * distance)
+    
+        local chunkId = ChunkManager.generateChunkId(futureX, futureY)
+    
+        if not ChunkManager.state.activeChunks[chunkId] and not ChunkManager.isInLoadQueue(chunkId) then
+            -- Encolar precarga sin reactivar precarga encadenada
+            ChunkManager.requestChunkLoad(futureX, futureY, nil, nil, nil, nil)
+        end
+    end
+end
     
     -- Verificar si un chunk está en la cola de carga
     function ChunkManager.isInLoadQueue(chunkId)
@@ -582,7 +574,69 @@ end
     
         return visibleChunks, bounds
     end
-    
+    -- Nueva función utilitaria para podar la cola de carga
+function ChunkManager.pruneLoadQueue(playerChunkX, playerChunkY, velX, velY)
+    local queue = ChunkManager.state.loadQueue
+    if not queue or #queue == 0 then return end
+
+    local cfgP = (ChunkManager.config and ChunkManager.config.pruning) or {}
+    local enabled = (cfgP.enabled ~= false)  -- por defecto ON
+    if not enabled then return end
+
+    local pruneDist = cfgP.maxQueueDistance or ((ChunkManager.config and ChunkManager.config.unloadDistance or 10) + 4)
+    local maxLen = cfgP.maxQueueLength or 256
+    local alignThresh = cfgP.alignmentThreshold or -0.1
+
+    local speed = 0
+    local nvx, nvy = 0, 0
+    if velX and velY then
+        speed = math.sqrt(velX * velX + velY * velY)
+        if speed > 0 then nvx, nvy = velX / speed, velY / speed end
+    end
+
+    local kept = {}
+    for i = 1, #queue do
+        local req = queue[i]
+        local dx = req.chunkX - playerChunkX
+        local dy = req.chunkY - playerChunkY
+        local cheb = math.max(math.abs(dx), math.abs(dy))
+
+        local keep = true
+        if cheb > pruneDist then
+            if speed > 0 then
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > 0 then
+                    local ndx, ndy = dx / len, dy / len
+                    local align = nvx * ndx + nvy * ndy
+                    if align < alignThresh then
+                        keep = false
+                    end
+                else
+                    keep = false
+                end
+            else
+                keep = false
+            end
+        end
+
+        if keep then
+            kept[#kept + 1] = req
+        end
+    end
+
+    -- Si queda demasiado larga, conservar mejores por prioridad y antigüedad
+    if #kept > maxLen then
+        table.sort(kept, function(a, b)
+            if a.priority ~= b.priority then return a.priority < b.priority end
+            return a.requestTime < b.requestTime
+        end)
+        local trimmed = {}
+        for i = 1, maxLen do trimmed[i] = kept[i] end
+        kept = trimmed
+    end
+
+    ChunkManager.state.loadQueue = kept
+end
     -- Obtener estadísticas del gestor
     function ChunkManager.getStats()
         -- Actualizar contadores actuales
@@ -650,3 +704,4 @@ end
     end
     
     return ChunkManager
+

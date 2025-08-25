@@ -9,7 +9,7 @@ local CoordinateSystem = require 'src.maps.coordinate_system'
 local STRIDE = ((MapConfig.chunk.size * MapConfig.chunk.tileSize) + MapConfig.chunk.spacing) * (MapConfig.chunk.worldScale or 1)
 
 -- Límites del mundo - usar CoordinateSystem para consistencia
-BiomeSystem.WORLD_LIMIT = CoordinateSystem.config.maxDistanceFromOrigin
+BiomeSystem.WORLD_LIMIT = (CoordinateSystem.config.sectorSize or 1000000) * 100
 
 -- Tipos de biomas ordenados por rareza
 BiomeSystem.BiomeType = {
@@ -671,19 +671,8 @@ function BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     local worldX = chunkX * STRIDE
     local worldY = chunkY * STRIDE
     
-    -- Verificar límites
-    if not BiomeSystem.isWithinWorldLimits(worldX, worldY) then
-        local params = {
-            energy = -0.8,
-            density = -0.9,
-            continentalness = -1.1,
-            turbulence = 0.3,
-            weirdness = 0.0,
-            depth = 0.5
-        }
-        BiomeSystem.parameterCache[cacheKey] = params
-        return params
-    end
+    -- YA NO cortamos por límites para evitar pérdida de biomas a grandes distancias
+    -- (antes había un early return si no se cumplía isWithinWorldLimits(worldX, worldY))
     
     -- Calcular altura falsa (solo para variación visual)
     local falseHeight = BiomeSystem.calculateFalseHeight(worldX, worldY)
@@ -1806,8 +1795,16 @@ end
 function BiomeSystem.findNearbyBiomes(x, y, radius)
     radius = radius or 10000
     local Map = require 'src.maps.map'
-    local chunkSize = Map.chunkSize * Map.tileSize
-    
+
+    -- Usar la misma malla que el sistema de generación/render (stride escalado)
+    local strideScaled = (Map.stride or (((Map.chunkSize or 0) * (Map.tileSize or 0)) + (Map.spacing or 0))) * (Map.worldScale or 1)
+
+    if strideScaled <= 0 then
+        -- Fallback seguro si faltan datos en Map
+        local cs = (MapConfig.chunk.size * MapConfig.chunk.tileSize) + (MapConfig.chunk.spacing or 0)
+        strideScaled = cs * (MapConfig.chunk.worldScale or 1)
+    end
+
     if not BiomeSystem.isWithinWorldLimits(x, y) then
         return {{
             type = BiomeSystem.BiomeType.DEEP_SPACE,
@@ -1816,22 +1813,26 @@ function BiomeSystem.findNearbyBiomes(x, y, radius)
             config = BiomeSystem.getBiomeConfig(BiomeSystem.BiomeType.DEEP_SPACE)
         }}
     end
-    
-    local chunkRadius = math.ceil(radius / chunkSize)
-    local startChunkX, startChunkY = math.floor(x / chunkSize), math.floor(y / chunkSize)
-    
+
+    -- Calcular el chunk de partida usando la misma función que usa todo el mapa
+    local startChunkX, startChunkY = Map.getChunkInfo(x, y)
+
+    -- Radio en chunks coherente con strideScaled
+    local chunkRadius = math.ceil(radius / strideScaled)
+
     local foundBiomes = {}
     local minDistances = {}
-    
+
     for dx = -chunkRadius, chunkRadius do
         for dy = -chunkRadius, chunkRadius do
             local chunkX = startChunkX + dx
             local chunkY = startChunkY + dy
-            
-            local chunkLeft = chunkX * chunkSize
-            local chunkTop = chunkY * chunkSize
-            local chunkRight = chunkLeft + chunkSize
-            local chunkBottom = chunkTop + chunkSize
+
+            -- Bounds del chunk en coordenadas de mundo usando strideScaled
+            local chunkLeft = chunkX * strideScaled
+            local chunkTop = chunkY * strideScaled
+            local chunkRight = chunkLeft + strideScaled
+            local chunkBottom = chunkTop + strideScaled
 
             local dxMin = 0
             if x < chunkLeft then
@@ -1853,7 +1854,6 @@ function BiomeSystem.findNearbyBiomes(x, y, radius)
                 local biomeInfo = BiomeSystem.getBiomeInfo(chunkX, chunkY)
                 if biomeInfo and biomeInfo.type then
                     local biomeType = biomeInfo.type
-
                     if not minDistances[biomeType] or distance < minDistances[biomeType] then
                         minDistances[biomeType] = distance
                         foundBiomes[biomeType] = {
@@ -1870,16 +1870,16 @@ function BiomeSystem.findNearbyBiomes(x, y, radius)
             end
         end
     end
-    
+
     local result = {}
     for _, biome in pairs(foundBiomes) do
         table.insert(result, biome)
     end
-    
-    table.sort(result, function(a, b) 
+
+    table.sort(result, function(a, b)
         return a.distance < b.distance
     end)
-    
+
     return result
 end
 

@@ -59,8 +59,10 @@ function MapRenderer.init(worldSeed)
         id:setPixel(0, 0, 1, 1, 1, 1)
         img = love.graphics.newImage(id)
     end
-    -- Evitar shimmering
-    if img.setFilter then img:setFilter("nearest", "nearest") end
+    -- Mantener el filtro del ShaderManager (suele ser linear). Si es fallback 1x1, usar linear para suavizar.
+    if img and img.getWidth and img:getWidth() == 1 and img.getHeight and img:getHeight() == 1 then
+        if img.setFilter then img:setFilter("linear", "linear") end
+    end
 
     ms.img = img
     ms.batch = love.graphics.newSpriteBatch(ms.img, ms.config.maxCount)
@@ -266,7 +268,66 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     local endChunkX = chunkInfo.endX
     local startChunkY = chunkInfo.startY
     local endChunkY = chunkInfo.endY
-
+    -- Precalcular proyección en pantalla de nebulosas visibles para atenuar estrellas detrás
+    local function clamp(x, a, b) return (x < a) and a or ((x > b) and b or x) end
+    local nebulaCircles = {}
+    do
+        local zoom = camera and camera.zoom or 1
+        -- Reutilizamos STRIDE y worldScale como en NebulaRenderer
+        for cy = startChunkY, endChunkY do
+            for cx = startChunkX, endChunkX do
+                local chunk = getChunkFunc(cx, cy)
+                if chunk and chunk.objects and chunk.objects.nebulae and #chunk.objects.nebulae > 0 then
+                    local baseWorldX = cx * STRIDE * MapConfig.chunk.worldScale
+                    local baseWorldY = cy * STRIDE * MapConfig.chunk.worldScale
+                    for i = 1, #chunk.objects.nebulae do
+                        local n = chunk.objects.nebulae[i]
+                        local wx = baseWorldX + n.x * MapConfig.chunk.worldScale
+                        local wy = baseWorldY + n.y * MapConfig.chunk.worldScale
+                        local par = clamp(n.parallax or 0.85, 0.0, 1.0)
+                        -- worldToScreenParallax inline
+                        local px = camera.x + (wx - camera.x) * par
+                        local py = camera.y + (wy - camera.y) * par
+                        local sx, sy = camera:worldToScreen(px, py)
+                        local radiusPx = (n.size or 140) * zoom
+                        nebulaCircles[#nebulaCircles + 1] = {
+                            sx = sx, sy = sy, radius = radiusPx, parallax = par,
+                            intensity = n.intensity or 0.6
+                        }
+                    end
+                end
+            end
+        end
+    end
+    -- Calcula factor de atenuación [0.35..1] según proximidad y si la estrella está “detrás”
+    local function computeNebulaDimmingFactor(starScreenX, starScreenY, starDepth)
+        if #nebulaCircles == 0 then return 1.0 end
+        -- Aproximación de parallax de estrella (profundidad -> menos parallax cuanto más “detrás”)
+        local depth = clamp(starDepth or 0.5, 0.0, 1.0)
+        local starPar = 0.60 + (1.0 - depth) * 0.40  -- ~[0.60..1.0]
+        local best = 0.0
+        for i = 1, #nebulaCircles do
+            local n = nebulaCircles[i]
+            -- Detrás si la estrella tiene parallax menor que la nebulosa (con margen)
+            if starPar < (n.parallax - 0.01) then
+                local dx = starScreenX - n.sx
+                local dy = starScreenY - n.sy
+                local dist = math.sqrt(dx * dx + dy * dy)
+                local norm = dist / (n.radius * 1.12)  -- leve colchón
+                if norm <= 1.25 then
+                    local coverage = math.max(0.0, 1.0 - norm) -- 1 en centro, 0 fuera
+                    local parallaxDelta = clamp((n.parallax - starPar) / 0.5, 0.0, 1.0)
+                    -- Ponderar por delta de parallax (más detrás => más atenuación)
+                    local influence = coverage * parallaxDelta
+                    if influence > best then best = influence end
+                end
+            end
+        end
+        if best <= 0.0 then return 1.0 end
+        -- Atenuar hasta 75% según influencia, con un mínimo del 35% de brillo
+        local dim = 1.0 - best * 0.75
+        return clamp(dim, 0.35, 1.0)
+    end
     -- Recorrer solo los chunks visibles (idéntico a otros renderers)
     for chunkY = startChunkY, endChunkY do
         for chunkX = startChunkX, endChunkX do
@@ -340,7 +401,8 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                                 star = star,
                                 screenX = screenX,
                                 screenY = screenY,
-                                camera = camera
+                                camera = camera,
+                                dim = computeNebulaDimmingFactor(screenX, screenY, depth)
                             }
                         end
                     end
@@ -349,6 +411,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
         end
     end
 
+    -- Preparar espacio de pantalla y batching (una sola vez) y activar shader
     -- Preparar espacio de pantalla y batching (una sola vez)
     love.graphics.push()
     love.graphics.origin()
@@ -426,7 +489,8 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                             starInfo.camera or camera,
                             true,                                 -- inScreenSpace
                             starInfo.star._sizeScaleExtra,        -- sizeScaleExtra
-                            true                                  -- uniformsPreset: ya fijados por tipo
+                            true,
+                            starInfo.dim or 1.0 -- uniformsPreset: ya fijados por tipo
                         )
                         starsRendered = starsRendered + 1
                     end
@@ -472,14 +536,15 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                         for i = 1, #list do
                             local info = list[i]
                             local star = info.star
-                            local color = star.color
-                            local brightness = (star.brightness or 1)
+                            local color = star.color or { 1, 1, 1, 1 } or { 1, 1, 1, 1 }
+                            local dim = info.dim or 1.0
+                            local brightness = (star.brightness or 1) * dim
                             local depth = star.depth or 0.5
                             local baseSize = math.max(0.5, star.size or 1)
                             local mult = 0.3 + (1.0 - depth) * 0.7
                             local z = (camera.zoom or 1.0)
                             local sizeScale = (star._sizeScaleExtra or 1.0)
-                            local size = baseSize * 2.0 * z * mult * sizeScale
+                            local size = baseSize * 2.0 * z * mult * sizeScale * dim
 
                             -- Glow (solo si aplica: en tipo 1 y otros básicos cuando brightness alto)
                             if t == 1 and brightness > 0.7 then
@@ -515,16 +580,15 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                             local mr = color[1] * brightness
                             local mg = color[2] * brightness
                             local mb = color[3] * brightness
-                            local ma = color[4]
+                            local ma = (color[4] or 1.0)
                             local keyM = quantizeColor(mr, mg, mb, ma)
                             local arrM = binsMain[keyM]
                             if not arrM then
                                 arrM = {}
                                 binsMain[keyM] = arrM
                             end
-                            local segs = (t == 1) and 6 or 8  -- nota: no incrementa starsRendered
                             local idxM = #arrM + 1
-                            arrM[idxM] = { x = info.screenX, y = info.screenY, radius = size, segs = (t == 1) and 6 or 8 }
+                            arrM[idxM] = { x = info.screenX, y = info.screenY, radius = size, segs = 6 }
                         end
 
                         -- Dibujar glows por bin (no incrementa starsRendered)
@@ -597,7 +661,7 @@ end
 
 -- Dibujar estrella individual con efectos avanzados
 -- Ahora usa screenX y screenY que ya están en coordenadas de pantalla
-function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra, uniformsPreset)
+function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra, uniformsPreset, nebulaDim)
     -- Evitar asignaciones innecesarias y reducir cambios de estado
     local starType = star.type or 1
 
@@ -606,6 +670,11 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     local angleIndex = math.floor(twinklePhase * 57.29) % 360
     local twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
     local brightness = (star.brightness or 1)
+
+    -- NUEVO: aplicar factor de atenuación por nebulosa
+    nebulaDim = nebulaDim or 1.0
+    brightness = brightness * nebulaDim
+    twinkleIntensity = twinkleIntensity * nebulaDim
 
     local color = star.color
     local localSizeScale = sizeScaleExtra or 1.0
@@ -1268,6 +1337,12 @@ function MapRenderer.drawMicroStars(camera)
         else
             ms.batch:clear()
         end
+        -- Preparar/limpiar batch de halo
+        if not ms.batchGlow then
+            ms.batchGlow = love.graphics.newSpriteBatch(ms.img, ms.config.maxCount)
+        else
+            ms.batchGlow:clear()
+        end
         -- RNG determinista por generación (seed del mundo) + resolución
         local m = 2147483647
         local seedBase = ((screenW * 73856093) + (screenH * 19349663) + ((ms.generationSeed or 0) * 2654435761)) % m
@@ -1292,6 +1367,10 @@ function MapRenderer.drawMicroStars(camera)
             local s = size / math.max(1, iw)
             -- Origen 0,0 para evitar subpíxel
             ms.batch:add(x, y, 0, s, s, 0, 0)
+            -- NUEVO: halo/blur más grande y tenue
+            local glowMul = 2.4
+            local sg = s * glowMul
+            ms.batchGlow:add(x, y, 0, sg, sg, 0, 0)
         end
         ms.lastW, ms.lastH, ms.lastCount = screenW, screenH, desired
         ms.dirty = nil
@@ -1322,6 +1401,18 @@ function MapRenderer.drawMicroStars(camera)
     local r, g, b, a = love.graphics.getColor()
     love.graphics.push()
     love.graphics.origin()
+    -- NUEVO: dibujar halo/blur primero con blending aditivo suave
+    local oldBlend, oldAlpha = love.graphics.getBlendMode()
+    if ms.batchGlow then
+        love.graphics.setBlendMode("add", "alphamultiply")
+        love.graphics.setColor(1, 1, 1, alpha * 0.35)
+        love.graphics.draw(ms.batchGlow, ox, oy)
+        love.graphics.draw(ms.batchGlow, ox - screenW, oy)
+        love.graphics.draw(ms.batchGlow, ox, oy - screenH)
+        love.graphics.draw(ms.batchGlow, ox - screenW, oy - screenH)
+        love.graphics.setBlendMode(oldBlend or "alpha", oldAlpha)
+    end
+    -- Núcleo de microestrellas
     love.graphics.setColor(1, 1, 1, alpha)
     -- Dibujo con tiling para evitar cortes al envolver
     love.graphics.draw(ms.batch, ox, oy)

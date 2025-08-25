@@ -161,6 +161,21 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                         love.graphics.draw(img, screenX, screenY, 0, scale, scale, iw * 0.5, ih * 0.5)
                         love.graphics.setShader()
 
+                        -- NUEVO: superponer niebla suave (fog-of-war) para baja visibilidad
+                        do
+                            -- Oscurecer levemente con alpha; más intenso según intensidad de la nebulosa y parallax
+                            local fogAlpha = math.max(0.0, math.min(1.0, 0.10 + 0.30 * (n.intensity or 0.6) * (0.7 + 0.3 * par)))
+                            if fogAlpha > 0.01 then
+                                local prevBlend, prevAlpha = love.graphics.getBlendMode()
+                                love.graphics.setBlendMode("alpha", "alphamultiply")
+                                love.graphics.setColor(0, 0, 0, fogAlpha)
+                                -- un poco más grande que la nebulosa para sensación de velo
+                                local fogScale = scale * 1.08
+                                love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, iw * 0.5, ih * 0.5)
+                                love.graphics.setBlendMode(prevBlend or "add", prevAlpha)
+                            end
+                        end
+
                         love.graphics.pop()
                         rendered = rendered + 1
                     end

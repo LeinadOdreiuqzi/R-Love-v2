@@ -22,6 +22,23 @@ function Player:new(x, y)
     player.drag = 0.92              -- Air resistance (higher = less drag)
     player.brakePower = 0.6         -- How much to slow down when braking
     
+    -- Toggle de viaje rápido (100k)
+    player.hyperTravelEnabled = false
+    player.baseParams = {
+        maxSpeed = player.maxSpeed,
+        forwardAccel = player.forwardAccel,
+        strafeAccel = player.strafeAccel,
+        backwardAccel = player.backwardAccel,
+        drag = player.drag,
+    }
+    player.hyperParams = {
+        maxSpeed = 100000,    -- 100k unidades/seg (límite de velocidad)
+        forwardAccel = 40000, -- acelerar rápido hacia 100k
+        strafeAccel = 20000,
+        backwardAccel = 15000,
+        drag = 0.99,          -- menos pérdida de velocidad
+    }
+    
     -- State
     player.rotation = 0            -- Current rotation in radians
     player.isBraking = false
@@ -483,5 +500,34 @@ function Player:draw()
     -- Restore the graphics state
     love.graphics.pop()
 end
-
+function Player:toggleHyperTravel(targetMaxSpeed)
+    self.hyperTravelEnabled = not self.hyperTravelEnabled
+    
+    if self.hyperTravelEnabled then
+        if targetMaxSpeed and type(targetMaxSpeed) == "number" then
+            self.hyperParams.maxSpeed = targetMaxSpeed
+        end
+        self.maxSpeed = self.hyperParams.maxSpeed
+        self.forwardAccel = self.hyperParams.forwardAccel
+        self.strafeAccel = self.hyperParams.strafeAccel
+        self.backwardAccel = self.hyperParams.backwardAccel
+        self.drag = self.hyperParams.drag
+    else
+        self.maxSpeed = self.baseParams.maxSpeed
+        self.forwardAccel = self.baseParams.forwardAccel
+        self.strafeAccel = self.baseParams.strafeAccel
+        self.backwardAccel = self.baseParams.backwardAccel
+        self.drag = self.baseParams.drag
+        
+        -- Limitar la velocidad actual al máximo normal cuando se apaga el modo
+        local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
+        if speed > self.maxSpeed and speed > 0 then
+            self.dx = (self.dx / speed) * self.maxSpeed
+            self.dy = (self.dy / speed) * self.maxSpeed
+        end
+    end
+    
+    return self.hyperTravelEnabled
+end
 return Player
+
