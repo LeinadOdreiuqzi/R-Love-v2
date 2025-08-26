@@ -169,6 +169,9 @@ function Map.draw(camera)
     -- NUEVO: microestrellas de fondo (spritebatch con culling por zoom)
     MapRenderer.drawMicroStars(camera)
     
+    -- NUEVO: estrellas pequeñas (capa intermedia)
+    MapRenderer.drawSmallStars(camera)
+    
     -- Renderizar usando el sistema modular
     Map.drawTraditionalImproved(camera, chunkInfo)
     

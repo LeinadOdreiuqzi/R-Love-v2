@@ -17,24 +17,79 @@ MapConfig.stars = {
     parallaxStrength = 0.15,
     twinkleEnabled = true,
     enhancedEffects = true,
-    -- NUEVO: escala global de tamaño para todas las estrellas
     sizeScaleGlobal = 1.80,
-    -- Activar el shader instanced (override por-estrella sin buffer todavía)
     useInstancedShader = true,
-    -- Aumento global del tamaño en modo instanced 
     instancedSizeScale = 5.0,
-    -- Capas profundas para paralaje: estrellas más pequeñas y movimiento más lento
+    -- Capas profundas ajustadas (removiendo niveles menos profundos para la nueva capa intermedia)
     deepLayers = {
-        { threshold = 0.90,  parallaxScale = 0.25, sizeScale = 0.60 }, -- subido de 0.55
-        { threshold = 0.94,  parallaxScale = 0.20, sizeScale = 0.45 }  -- subido de 0.40
+        -- Solo mantener las capas más profundas
+        { threshold = 0.92,  parallaxScale = 0.04, sizeScale = 0.35 }, -- Ajustado
+        { threshold = 0.96,  parallaxScale = 0.06, sizeScale = 0.45 }, -- Ajustado
+        { threshold = 0.98,  parallaxScale = 0.08, sizeScale = 0.60 }  -- Ajustado
+    },
+    -- Configuración para estrellas intermedias (reemplazando capa cercana)
+    smallStars = {
+        -- Capa 1: Estrellas intermedias pequeñas (reemplaza estrellas cercanas pequeñas)
+        layer1 = {
+            showBelowZoom = 2.0,        -- Aumentado para mayor visibilidad
+            showAboveZoom = 0.2,        -- Límite inferior más bajo
+            densityPerPixel = 0.00008,  -- Aumentada la densidad
+            maxCount = 500,             -- Aumentado de 300 a 500
+            sizeMin = 3.0,              -- Aumentado de 2.0 a 3.0 (más visibles)
+            sizeMax = 5.0,              -- Aumentado de 3.5 a 5.0
+            alphaMin = 0.4,             -- Aumentado para mejor visibilidad
+            alphaMax = 0.8,             -- Aumentado para mejor visibilidad
+            parallaxScale = 0.015,      -- Ligeramente aumentado
+            depthRange = { min = 0.60, max = 0.80 },  -- Ajustado para capa cercana
+            useShaders = true,
+            -- Escalado inverso por zoom optimizado
+            inverseZoomScaling = {
+                enabled = true,
+                baseZoom = 1.0,
+                minScale = 0.4,         -- Aumentado de 0.3 a 0.4
+                maxScale = 2.5          -- Aumentado de 2.0 a 2.5
+            }
+        },
+        -- Capa 2: Estrellas intermedias medianas (reemplaza estrellas cercanas medianas)
+        layer2 = {
+            showBelowZoom = 1.8,        -- Aumentado para mayor visibilidad
+            showAboveZoom = 0.3,        -- Límite inferior ajustado
+            densityPerPixel = 0.00006,  -- Aumentada la densidad
+            maxCount = 350,             -- Aumentado de 200 a 350
+            sizeMin = 4.0,              -- Aumentado de 2.5 a 4.0 (más visibles)
+            sizeMax = 6.5,              -- Aumentado de 4.0 a 6.5
+            alphaMin = 0.6,             -- Aumentado para mejor visibilidad
+            alphaMax = 0.9,             -- Aumentado para mejor visibilidad
+            parallaxScale = 0.025,      -- Aumentado para efecto parallax más notorio
+            depthRange = { min = 0.75, max = 0.90 },  -- Ajustado para capa cercana
+            useShaders = true,
+            -- Escalado inverso por zoom optimizado
+            inverseZoomScaling = {
+                enabled = true,
+                baseZoom = 1.0,
+                minScale = 0.5,         -- Aumentado de 0.4 a 0.5
+                maxScale = 2.2          -- Aumentado de 1.8 a 2.2
+            }
+        }
+    },
+    -- Configuración específica para microestrellas
+    microStars = {
+        showBelowZoom = 0.95,
+        densityPerPixel = 0.00018,
+        maxCount = 1000,
+        sizeMin = 0.5,
+        sizeMax = 1.2,
+        alphaMin = 0.20,
+        alphaMax = 0.55,
+        parallaxScale = 0.005
     }
 }
 
 -- Densidades base balanceadas
 MapConfig.density = {
     asteroids = 8,
-    nebulae = 4,
-    stations = 4,
+    nebulae = 5,
+    stations = 3,
     wormholes = 3,
     stars = 0.50
 }
@@ -64,13 +119,12 @@ MapConfig.colors = {
         {0.8, 0.6, 0.2, 0.3}, {0.2, 0.8, 0.2, 0.3}
     },
     stars = {
-        {1.0, 1.0, 1.0, 0.9},   -- Blanco brillante
-        {0.8, 0.8, 1.0, 0.8},   -- Azul claro
-        {1.0, 0.9, 0.7, 0.7},   -- Amarillo
-        {1.0, 0.7, 0.7, 0.6},   -- Rojizo
-        {0.7, 1.0, 0.9, 0.8},   -- Verde azulado
-        {0.9, 0.6, 1.0, 0.7},   -- Púrpura
-        {0.6, 0.8, 1.0, 0.8}    -- Azul celeste
+        {1.0, 0.9, 0.8, 0.9},   -- Blanco cálido
+        {0.8, 0.9, 1.0, 0.9},   -- Azul claro
+        {1.0, 0.8, 0.6, 0.9},   -- Naranja
+        {0.9, 0.7, 1.0, 0.9},   -- Púrpura claro
+        {0.7, 1.0, 0.8, 0.9},   -- Verde claro
+        {1.0, 0.7, 0.7, 0.9}    -- Rojo claro
     },
     biomeFeatures = {
         ancient = {0.3, 0.7, 0.5, 0.8},
@@ -118,6 +172,23 @@ MapConfig.spawn = {
     lod = {
         nearRadius = 800 * (MapConfig.chunk.worldScale or 1),
         farCull   = 3000 * (MapConfig.chunk.worldScale or 1)
+    }
+}
+-- Agregar configuración de culling inteligente
+MapConfig.stars.smartCulling = {
+    enabled = true,
+    -- Distancias de culling por zoom
+    zoomThresholds = {
+        { zoom = 2.0, cullDistance = 200 },
+        { zoom = 1.5, cullDistance = 400 },
+        { zoom = 1.0, cullDistance = 800 },
+        { zoom = 0.5, cullDistance = 1600 }
+    },
+    -- Culling por importancia visual
+    importanceCulling = {
+        enabled = true,
+        minImportance = 1.5,  -- Solo renderizar estrellas con importancia >= 1.5
+        distanceMultiplier = 2.0
     }
 }
 return MapConfig

@@ -190,17 +190,25 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
 
         vec3 accum = vec3(0.0);
 
+        // Calcular halo mejorado una sola vez
         if (u_enhancedEffects > 0.5) {
             float halo = haloFalloff(dist, screenRadius * 2.0, 0.75);
-            vec3 haloCol = c * (starBrightness * 0.3);
-            accum += halo * haloCol * 0.2;
+            vec3 haloCol = c * (starBrightness * 0.5); // Aumentado de 0.3 a 0.5
+            accum += halo * haloCol * 0.25; // Aumentado de 0.12 a 0.25
         }
 
         float body = circleFill(dist, screenRadius * (isType4 ? 0.8 : 1.0));
-        vec3 bodyCol = c * starBrightness;
+        // Mejorar el cuerpo principal (sin redefinir bodyCol)
+        vec3 bodyCol = c * starBrightness * 1.2; // Aumentar intensidad
 
         float core = circleFill(dist, screenRadius * 0.3);
-        vec3 coreCol = vec3(1.0) * min(1.0, starBrightness * 0.9);
+        vec3 coreCol = mix(c, vec3(1.0), 0.3) * min(1.0, starBrightness * 0.9);
+        
+        // Reducir el pulso para evitar blancos extremos
+        if (abs(type - 4.0) < 0.5) {
+            float pulse = sin(float(u_time) * 6.0 + pulsePhase);
+            pulseMul = (1.0 + 0.1 * pulse); // Reducido de 0.15 a 0.1
+        }
 
         // Usar isType4 para consistencia
         if (u_enhancedEffects > 0.5 && isType4) {

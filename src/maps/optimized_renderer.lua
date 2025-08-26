@@ -256,7 +256,7 @@ function OptimizedRenderer.createSpriteBatches()
 end
 
 -- Calcular nivel de LOD basado en distancia y zoom
-function OptimizedRenderer.calculateLOD(objectX, objectY, camera)
+function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
     if not camera then return 0 end
     
     -- Convertir coordenadas del mundo a relativas para precisión
@@ -271,9 +271,20 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera)
     -- Ajustar por zoom
     local adjustedDistance = distance / (camera.zoom or 1)
     
+    -- NUEVO: LOD específico para estrellas intermedias
+    if obj and obj.isIntermediateStar then
+        local zoom = camera.zoom or 1.0
+        
+        -- Culling agresivo por zoom
+        if zoom > 1.2 then return 3 end  -- No renderizar en zoom alto
+        if zoom > 0.8 then return 2 end  -- Calidad reducida
+        if zoom > 0.5 then return 1 end  -- Calidad media
+        return 0  -- Calidad completa solo en zoom bajo
+    end
+    
     -- NUEVO: Ajustar distancia por importancia de la estrella
-    if star and OptimizedRenderer.config.lod.intelligentLOD.enabled then
-        local importance = OptimizedRenderer.calculateStarImportance(star)
+    if obj and OptimizedRenderer.config.lod.intelligentLOD.enabled then
+        local importance = OptimizedRenderer.calculateStarImportance(obj)
         local config = OptimizedRenderer.config.lod.intelligentLOD
         
         -- Determinar multiplicador de distancia
@@ -610,7 +621,24 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
     batch:clear()
     
 end
-
+-- Culling jerárquico por capas
+function OptimizedRenderer.hierarchicalLayerCulling(camera, zoom, layer_config)
+    local frustum = {
+        left = camera.x - (love.graphics.getWidth() / (2 * zoom)),
+        right = camera.x + (love.graphics.getWidth() / (2 * zoom)),
+        top = camera.y - (love.graphics.getHeight() / (2 * zoom)),
+        bottom = camera.y + (love.graphics.getHeight() / (2 * zoom))
+    }
+    
+    -- Expandir frustum basado en factor de parallax
+    local parallax_expansion = 1.0 + (1.0 - layer_config.parallax_factor)
+    frustum.left = frustum.left - (frustum.right - frustum.left) * parallax_expansion * 0.1
+    frustum.right = frustum.right + (frustum.right - frustum.left) * parallax_expansion * 0.1
+    frustum.top = frustum.top - (frustum.bottom - frustum.top) * parallax_expansion * 0.1
+    frustum.bottom = frustum.bottom + (frustum.bottom - frustum.top) * parallax_expansion * 0.1
+    
+    return frustum
+end
 -- Renderizar estación con batching
 function OptimizedRenderer.renderStationBatched(station, x, y, size, lodLevel)
     if lodLevel >= 2 then return end

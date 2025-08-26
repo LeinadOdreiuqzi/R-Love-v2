@@ -38,17 +38,17 @@ function MapRenderer.init(worldSeed)
         -- Se muestra por debajo de este zoom (alejado). Si zoom > showBelowZoom => oculto.
         showBelowZoom = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.showBelowZoom) or 0.95,
         -- Densidad en estrellas por píxel de pantalla
-        densityPerPixel = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.densityPerPixel) or 0.00012,
+        densityPerPixel = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.densityPerPixel) or 0.00015,
         -- Límite duro de microestrellas
-        maxCount = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.maxCount) or 600,
+        maxCount = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.maxCount) or 800,
         -- Rango de tamaño (en píxeles en pantalla)
-        sizeMin = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.sizeMin) or 0.8,
-        sizeMax = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.sizeMax) or 1.8,
+        sizeMin = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.sizeMin) or 0.6,
+        sizeMax = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.sizeMax) or 1.4,
         -- Alpha base para fade (aplicado globalmente)
-        alphaMin = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.alphaMin) or 0.35,
-        alphaMax = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.alphaMax) or 0.8,
+        alphaMin = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.alphaMin) or 0.25,
+        alphaMax = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.alphaMax) or 0.65,
         -- Parallax sutil para microestrellas
-        parallaxScale = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.parallaxScale) or 0.02
+        parallaxScale = (MapConfig.stars and MapConfig.stars.microStars and MapConfig.stars.microStars.parallaxScale) or 0.01
     }
     -- Guardar seed de generación para microestrellas
     ms.generationSeed = tonumber(worldSeed) or 0
@@ -71,6 +71,51 @@ function MapRenderer.init(worldSeed)
     -- Marcar como sucio para reconstruir en el próximo draw
     ms.dirty = true
     ms.lastW, ms.lastH, ms.lastCount = nil, nil, nil
+
+    -- NUEVO: Inicializar estrellas intermedias (2 capas)
+    -- Capa 1: Estrellas pequeñas
+    MapRenderer._smallStars1 = { initialized = false }
+    local ss1 = MapRenderer._smallStars1
+    local layer1Config = MapConfig.stars and MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer1
+    ss1.config = {
+        showBelowZoom = (layer1Config and layer1Config.showBelowZoom) or 0.9,
+        densityPerPixel = (layer1Config and layer1Config.densityPerPixel) or 0.00010,
+        maxCount = (layer1Config and layer1Config.maxCount) or 600,
+        sizeMin = (layer1Config and layer1Config.sizeMin) or 1.0,
+        sizeMax = (layer1Config and layer1Config.sizeMax) or 1.8,
+        alphaMin = (layer1Config and layer1Config.alphaMin) or 0.3,
+        alphaMax = (layer1Config and layer1Config.alphaMax) or 0.6,
+        parallaxScale = (layer1Config and layer1Config.parallaxScale) or 0.012,
+        useShaders = (layer1Config and layer1Config.useShaders) or true
+    }
+    ss1.generationSeed = tonumber(worldSeed) or 0
+    ss1.img = img
+    ss1.batch = love.graphics.newSpriteBatch(ss1.img, ss1.config.maxCount)
+    ss1.initialized = true
+    ss1.dirty = true
+    ss1.lastW, ss1.lastH, ss1.lastCount = nil, nil, nil
+
+    -- Capa 2: Estrellas medianas
+    MapRenderer._smallStars2 = { initialized = false }
+    local ss2 = MapRenderer._smallStars2
+    local layer2Config = MapConfig.stars and MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer2
+    ss2.config = {
+        showBelowZoom = (layer2Config and layer2Config.showBelowZoom) or 0.7,
+        densityPerPixel = (layer2Config and layer2Config.densityPerPixel) or 0.00008,
+        maxCount = (layer2Config and layer2Config.maxCount) or 400,
+        sizeMin = (layer2Config and layer2Config.sizeMin) or 1.8,
+        sizeMax = (layer2Config and layer2Config.sizeMax) or 2.8,
+        alphaMin = (layer2Config and layer2Config.alphaMin) or 0.5,
+        alphaMax = (layer2Config and layer2Config.alphaMax) or 0.8,
+        parallaxScale = (layer2Config and layer2Config.parallaxScale) or 0.020,
+        useShaders = (layer2Config and layer2Config.useShaders) or true
+    }
+    ss2.generationSeed = tonumber(worldSeed) or 0
+    ss2.img = img
+    ss2.batch = love.graphics.newSpriteBatch(ss2.img, ss2.config.maxCount)
+    ss2.initialized = true
+    ss2.dirty = true
+    ss2.lastW, ss2.lastH, ss2.lastCount = nil, nil, nil
 end
 -- Calcular alpha de fade para objetos cerca del borde de pantalla
 function MapRenderer.calculateEdgeFade(screenX, screenY, size, camera)
@@ -226,11 +271,12 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     -- Obtener la posición de la cámara en el espacio de juego
     local cameraX, cameraY = camera.x, camera.y
     local parallaxStrength = starConfig.parallaxStrength or 0.2
-    -- Config profunda (3 capas) - usar la clave correcta 'deepLayers'
+    -- Config profunda (4 capas) - usar la clave correcta 'deepLayers'
     local deepLayers = (starConfig and starConfig.deepLayers) or {
-        { threshold = 0.90,  parallaxScale = 0.60, sizeScale = 0.55 },
-        { threshold = 0.945, parallaxScale = 0.35, sizeScale = 0.40 },
-        { threshold = 0.980, parallaxScale = 0.15, sizeScale = 0.30 }
+        { threshold = 0.90,  parallaxScale = 0.08, sizeScale = 0.25 },
+        { threshold = 0.945, parallaxScale = 0.15, sizeScale = 0.35 },
+        { threshold = 0.980, parallaxScale = 0.20, sizeScale = 0.45 },
+        { threshold = 0.995, parallaxScale = 0.30, sizeScale = 0.60 }
     }
     -- NUEVO: escala global de tamaño para todas las estrellas
     local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
@@ -347,18 +393,22 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                     local sizeScaleExtra = 1.0
 
                     if star.depth then
-                        if deepLayers[3] and star.depth >= deepLayers[3].threshold then
+                        if deepLayers[4] and star.depth >= deepLayers[4].threshold then
+                            layerId = -4
+                            localParallaxStrength = parallaxStrength * (deepLayers[4].parallaxScale or 0.30)
+                            sizeScaleExtra = deepLayers[4].sizeScale or 0.60
+                        elseif deepLayers[3] and star.depth >= deepLayers[3].threshold then
                             layerId = -3
-                            localParallaxStrength = parallaxStrength * (deepLayers[3].parallaxScale or 0.15)
-                            sizeScaleExtra = deepLayers[3].sizeScale or 0.30
+                            localParallaxStrength = parallaxStrength * (deepLayers[3].parallaxScale or 0.20)
+                            sizeScaleExtra = deepLayers[3].sizeScale or 0.45
                         elseif deepLayers[2] and star.depth >= deepLayers[2].threshold then
                             layerId = -2
-                            localParallaxStrength = parallaxStrength * (deepLayers[2].parallaxScale or 0.35)
-                            sizeScaleExtra = deepLayers[2].sizeScale or 0.40
+                            localParallaxStrength = parallaxStrength * (deepLayers[2].parallaxScale or 0.15)
+                            sizeScaleExtra = deepLayers[2].sizeScale or 0.35
                         elseif deepLayers[1] and star.depth >= deepLayers[1].threshold then
                             layerId = -1
-                            localParallaxStrength = parallaxStrength * (deepLayers[1].parallaxScale or 0.60)
-                            sizeScaleExtra = deepLayers[1].sizeScale or 0.55
+                            localParallaxStrength = parallaxStrength * (deepLayers[1].parallaxScale or 0.08)
+                            sizeScaleExtra = deepLayers[1].sizeScale or 0.25
                         end
                     end
 
@@ -636,20 +686,34 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     end
 
     -- Dibujar capas profundas primero
-    for _, layer in ipairs({-3, -2, -1}) do
+    for _, layer in ipairs({-4, -3, -2, -1}) do
         if visibleStars[layer] then
             drawLayerGroupedByType(visibleStars[layer])
         end
     end
 
-    -- Capas existentes (1..6)
+    -- Capas existentes (1..6) - Filtrar solo estrellas tipo 1 (las más pequeñas)
     for layer = 1, 6 do
         if visibleStars[layer] then
-            drawLayerGroupedByType(visibleStars[layer])
-            if starsRendered >= maxStarsPerFrame then break end
+            -- Filtrar estrellas tipo 1 (las más pequeñas) antes de renderizar
+            local filteredStars = {}
+            for i = 1, #visibleStars[layer] do
+                local starInfo = visibleStars[layer][i]
+                local starType = starInfo.star.type or 1
+                -- Solo mantener estrellas tipo 2-6 (eliminar tipo 1)
+                if starType > 1 then
+                    filteredStars[#filteredStars + 1] = starInfo
+                end
+            end
+            
+            -- Solo renderizar si quedan estrellas después del filtro
+            if #filteredStars > 0 then
+                drawLayerGroupedByType(filteredStars)
+                if starsRendered >= maxStarsPerFrame then break end
+            end
         end
     end
-
+    
     if usingStarShader and StarShader.finish then
         StarShader.finish()
     end
@@ -1477,6 +1541,220 @@ function MapRenderer.drawMicroStars(camera)
     love.graphics.setColor(r, g, b, a)
 
     return ms.lastCount or 0
+end
+function MapRenderer.drawSmallStars1(camera)
+    local ss = MapRenderer._smallStars1
+    if not ss or not ss.initialized then return 0 end
+
+    local zoom = (camera and camera.zoom or 1.0)
+    if zoom > (ss.config.showBelowZoom or 2.0) then
+        return 0
+    end
+
+    if ss.config.useShaders and StarShader and StarShader.begin then
+        StarShader.begin()
+        StarShader.setType(2)  -- Cambiado de 1 a 2 (estrella mediana más visible)
+    end
+    
+    local count = MapRenderer.drawSmallStarsLayer(ss, camera)
+    
+    if ss.config.useShaders and StarShader and StarShader.finish then
+        StarShader.finish()
+    end
+    
+    return count
+end
+
+-- NUEVO: Dibujo de estrellas intermedias (capa 2) - Reemplaza estrellas cercanas medianas
+function MapRenderer.drawSmallStars2(camera)
+    local ss = MapRenderer._smallStars2
+    if not ss or not ss.initialized then return 0 end
+
+    local zoom = (camera and camera.zoom or 1.0)
+    if zoom > (ss.config.showBelowZoom or 1.8) then
+        return 0
+    end
+
+    if ss.config.useShaders and StarShader and StarShader.begin then
+        StarShader.begin()
+        StarShader.setType(3)  -- Cambiado de 2 a 3 (estrella grande más visible)
+    end
+    
+    local count = MapRenderer.drawSmallStarsLayer(ss, camera)
+    
+    if ss.config.useShaders and StarShader and StarShader.finish then
+        StarShader.finish()
+    end
+    
+    return count
+end
+
+-- Función auxiliar para renderizar una capa de estrellas (mejorada)
+function MapRenderer.drawSmallStarsLayer(ss, camera)
+    local zoom = camera and camera.zoom or 1.0
+    
+    -- NUEVO: Verificar rango de zoom (superior e inferior)
+    local showBelow = ss.config.showBelowZoom or 0.9
+    local showAbove = ss.config.showAboveZoom or 0.0
+    
+    if zoom > showBelow or zoom < showAbove then
+        return 0
+    end
+    
+    local screenW, screenH = love.graphics.getWidth(), love.graphics.getHeight()
+    local pixels = screenW * screenH
+    local desired = math.min(ss.config.maxCount, math.floor(pixels * (ss.config.densityPerPixel or 0.00010) + 0.5))
+
+    -- NUEVO: Calcular escalado inverso por zoom
+    local zoomScale = 1.0
+    if ss.config.inverseZoomScaling and ss.config.inverseZoomScaling.enabled then
+        local izs = ss.config.inverseZoomScaling
+        local baseZoom = izs.baseZoom or 1.0
+        local minScale = izs.minScale or 0.3
+        local maxScale = izs.maxScale or 2.0
+        
+        -- Escalado inverso: cuando zoom aumenta, tamaño disminuye
+        zoomScale = baseZoom / zoom
+        zoomScale = math.max(minScale, math.min(maxScale, zoomScale))
+    end
+
+    -- Reconstruir si cambia resolución/densidad/zoom
+    local needsRebuild = ss.dirty or (not ss.batch) or (ss.batch and ss.batch:getCount() == 0)
+        or (ss.lastW ~= screenW) or (ss.lastH ~= screenH) or (ss.lastCount ~= desired)
+        or (ss.lastZoomScale ~= zoomScale)  -- NUEVO: rebuild si cambia zoom scale
+
+    if needsRebuild then
+        if not ss.batch then
+            ss.batch = love.graphics.newSpriteBatch(ss.img, ss.config.maxCount)
+        else
+            ss.batch:clear()
+        end
+        
+        -- RNG determinista con offset para diferenciación
+        local m = 2147483647
+        local offset = (ss == MapRenderer._smallStars1) and 1000 or 2000
+        local seedBase = ((screenW * 73856093) + (screenH * 19349663) + ((ss.generationSeed or 0) * 2654435761) + offset) % m
+        if seedBase == 0 then seedBase = 12345 end
+        local seed = seedBase
+        local function lcg()
+            seed = (1103515245 * seed + 12345) % m
+            return seed / m
+        end
+
+        for i = 1, desired do
+            local x = math.floor(lcg() * screenW + 0.5)
+            local y = math.floor(lcg() * screenH + 0.5)
+            local rs = lcg()
+            
+            local sizeMin = ss.config.sizeMin or 1.0
+            local sizeMax = ss.config.sizeMax or 1.8
+            local size = sizeMin + rs * (sizeMax - sizeMin)
+            
+            -- NUEVO: Aplicar escalado inverso por zoom
+            size = size * zoomScale
+
+            local iw, ih = ss.img:getWidth(), ss.img:getHeight()
+            local s = size / math.max(1, iw)
+            ss.batch:add(x, y, 0, s, s, 0, 0)
+        end
+        ss.lastW, ss.lastH, ss.lastCount = screenW, screenH, desired
+        ss.lastZoomScale = zoomScale  -- NUEVO: guardar zoom scale
+        ss.dirty = nil
+    end
+
+    -- Alpha con fade por zoom (mejorado)
+    local aMin = ss.config.alphaMin or 0.3
+    local aMax = ss.config.alphaMax or 0.6
+    
+    -- NUEVO: Fade más suave en los extremos
+    local fadeStart = showAbove + (showBelow - showAbove) * 0.1
+    local fadeEnd = showBelow - (showBelow - showAbove) * 0.1
+    
+    local alpha = aMax
+    if zoom < fadeStart then
+        local t = math.max(0, math.min(1, (zoom - showAbove) / (fadeStart - showAbove)))
+        alpha = aMin + (aMax - aMin) * t
+    elseif zoom > fadeEnd then
+        local t = math.max(0, math.min(1, (showBelow - zoom) / (showBelow - fadeEnd)))
+        alpha = aMin + (aMax - aMin) * t
+    end
+
+    -- Parallax con wrapping
+    local px, py = 0, 0
+    local ps = ss.config.parallaxScale or 0.012
+    if camera then
+        px = - (camera.x or 0) * ps
+        py = - (camera.y or 0) * ps
+    end
+    local ox = ((px % screenW) + screenW) % screenW
+    local oy = ((py % screenH) + screenH) % screenH
+    ox = math.floor(ox + 0.5)
+    oy = math.floor(oy + 0.5)
+
+    local r, g, b, a = love.graphics.getColor()
+    love.graphics.push()
+    love.graphics.origin()
+    
+    love.graphics.setColor(1, 1, 1, alpha)
+    love.graphics.draw(ss.batch, ox, oy)
+    love.graphics.draw(ss.batch, ox - screenW, oy)
+    love.graphics.draw(ss.batch, ox, oy - screenH)
+    love.graphics.draw(ss.batch, ox - screenW, oy - screenH)
+    
+    love.graphics.pop()
+    love.graphics.setColor(r, g, b, a)
+
+    return ss.lastCount or 0
+end
+
+-- Función combinada optimizada para dibujar ambas capas intermedias
+function MapRenderer.drawSmallStars(camera)
+    local ss1 = MapRenderer._smallStars1
+    local ss2 = MapRenderer._smallStars2
+    
+    if not ss1 or not ss1.initialized or not ss2 or not ss2.initialized then
+        return 0
+    end
+    
+    -- Verificar zoom para culling temprano (rangos actualizados)
+    local zoom = camera and camera.zoom or 1.0
+    
+    local layer1Visible = zoom <= (ss1.config.showBelowZoom or 2.0) and zoom >= (ss1.config.showAboveZoom or 0.2)
+    local layer2Visible = zoom <= (ss2.config.showBelowZoom or 1.8) and zoom >= (ss2.config.showAboveZoom or 0.3)
+    
+    if not layer1Visible and not layer2Visible then
+        return 0
+    end
+    
+    -- Iniciar shader una sola vez
+    if (layer1Visible or layer2Visible) and ss1.config.useShaders and StarShader and StarShader.begin then
+        StarShader.begin()
+    end
+    
+    local count1, count2 = 0, 0
+    
+    -- Renderizar layer1 si está visible (tipo 2 - estrella mediana)
+    if layer1Visible then
+        if StarShader and StarShader.setType then
+            StarShader.setType(2)  -- Cambiado de 1 a 2
+        end
+        count1 = MapRenderer.drawSmallStarsLayer(ss1, camera)
+    end
+    
+    -- Renderizar layer2 si está visible (tipo 3 - estrella grande)
+    if layer2Visible then
+        if StarShader and StarShader.setType then
+            StarShader.setType(3)  -- Cambiado de 2 a 3
+        end
+        count2 = MapRenderer.drawSmallStarsLayer(ss2, camera)
+    end
+    
+    -- Finalizar shader una sola vez
+    if (layer1Visible or layer2Visible) and ss1.config.useShaders and StarShader and StarShader.finish then
+        StarShader.finish()
+    end
+    
+    return count1 + count2
 end
 
 -- Initialize the renderer
