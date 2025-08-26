@@ -530,4 +530,3 @@ function Player:toggleHyperTravel(targetMaxSpeed)
     return self.hyperTravelEnabled
 end
 return Player
-

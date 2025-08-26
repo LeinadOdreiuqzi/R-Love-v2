@@ -1,8 +1,6 @@
 -- src/ui/loading_screen.lua
--- Sistema de pantalla de carga con animación y generación asíncrona
-
 local LoadingScreen = {}
-
+local ShaderManager = require 'src.shaders.shader_manager'
 -- Configuración
 LoadingScreen.config = {
     -- Tiempos
@@ -22,8 +20,8 @@ LoadingScreen.config = {
     
     -- Animación
     animation = {
-        starCount = 100,
-        nebulaCount = 3,
+        starCount = 200,
+        nebulaCount = 8,
         rotationSpeed = 0.5,
         pulseSpeed = 2,
         waveSpeed = 3
@@ -89,10 +87,12 @@ function LoadingScreen.init()
     
     -- Generar nebulosas
     LoadingScreen.generateNebulae()
-    
+    -- Inicializar ShaderManager para usar shaders en la pantalla de carga (evita doble-init)
+    if ShaderManager and (not ShaderManager.state or not ShaderManager.state.initialized) then
+        ShaderManager.init()
+    end
     -- Inicializar anillo de carga
     LoadingScreen.initLoadingRing()
-    
     -- Crear fuentes
     LoadingScreen.fonts = {
         title = love.graphics.newFont(36),
@@ -415,13 +415,39 @@ function LoadingScreen.drawNebulae(alpha)
         love.graphics.translate(nebula.x, nebula.y)
         love.graphics.rotate(nebula.rotation)
         
-        -- Dibujar gradiente de nebulosa
-        for i = 10, 1, -1 do
-            local scale = i / 10
-            local alphaScale = (1 - scale) * 0.5
-            love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], 
-                                  nebula.color[4] * alphaScale * alpha)
-            love.graphics.circle("fill", 0, 0, nebula.size * scale)
+        -- Intentar usar el shader actual de nebulosa
+        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
+        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
+        
+        if shader and img then
+            -- Seed persistente por nebulosa
+            nebula.seed = nebula.seed or (math.random() * 1000)
+            
+            love.graphics.setShader(shader)
+            shader:send("u_time", love.timer.getTime())
+            shader:send("u_seed", nebula.seed)
+            shader:send("u_parallax", 0.0)
+            shader:send("u_sparkleStrength", 0.0)
+            -- Mantener intensidad/brillo en defaults (configurados en ShaderManager),
+            -- el fade lo manejamos vía setColor
+            
+            -- Color + fade del loading
+            love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], nebula.color[4] * alpha)
+            
+            -- Dibujar textura base centrada y escalada
+            local scale = (nebula.size * 2) / img:getWidth()
+            love.graphics.draw(img, 0, 0, 0, scale, scale, img:getWidth() / 2, img:getHeight() / 2)
+            
+            love.graphics.setShader()
+        else
+            -- Fallback: gradiente de círculos (modo anterior)
+            for i = 10, 1, -1 do
+                local scale = i / 10
+                local alphaScale = (1 - scale) * 0.5
+                love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3],
+                                       nebula.color[4] * alphaScale * alpha)
+                love.graphics.circle("fill", 0, 0, nebula.size * scale)
+            end
         end
         
         love.graphics.pop()

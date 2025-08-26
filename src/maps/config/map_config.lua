@@ -18,7 +18,11 @@ MapConfig.stars = {
     twinkleEnabled = true,
     enhancedEffects = true,
     -- NUEVO: escala global de tamaño para todas las estrellas
-    sizeScaleGlobal = 1.35,
+    sizeScaleGlobal = 1.80,
+    -- Activar el shader instanced (override por-estrella sin buffer todavía)
+    useInstancedShader = true,
+    -- Aumento global del tamaño en modo instanced 
+    instancedSizeScale = 5.0,
     -- Capas profundas para paralaje: estrellas más pequeñas y movimiento más lento
     deepLayers = {
         { threshold = 0.90,  parallaxScale = 0.25, sizeScale = 0.60 }, -- subido de 0.55

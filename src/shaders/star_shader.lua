@@ -104,6 +104,9 @@ function StarShader.getShader()
 end
 
 function StarShader.getWhiteImage()
+    if whiteImage and whiteImage.setFilter then
+        whiteImage:setFilter("linear", "linear")
+    end
     return whiteImage
 end
 
@@ -130,6 +133,64 @@ function StarShader.setType(starType)
     local crossSharpness = 9.0
     local corePower = 0.95
     local haloPower = 0.33
+    local quadMul = 2.8
+
+    -- MEJORADO: Diferencias más marcadas entre tipos
+    if starType == 1 then
+        -- Estrella pequeña básica
+        haloSize = 1.1
+        coreSize = 0.7
+        flareStrength = 0.05
+        crossSharpness = 15.0
+        corePower = 0.8
+        haloPower = 0.25
+        quadMul = 2.2
+    elseif starType == 2 then
+        -- Estrella mediana
+        haloSize = 1.25
+        coreSize = 0.65
+        flareStrength = 0.12
+        crossSharpness = 12.0
+        corePower = 0.9
+        haloPower = 0.30
+        quadMul = 2.6
+    elseif starType == 3 then
+        -- Estrella grande
+        haloSize = 1.4
+        coreSize = 0.6
+        flareStrength = 0.25
+        crossSharpness = 8.0
+        corePower = 1.0
+        haloPower = 0.40
+        quadMul = 3.2
+    elseif starType == 4 then
+        -- Estrella super brillante con flares marcados
+        haloSize = 1.6
+        coreSize = 0.5
+        flareStrength = 0.55
+        crossSharpness = 3.5
+        corePower = 1.2
+        haloPower = 0.55
+        quadMul = 4.5
+    elseif starType == 5 then
+        -- Estrella gigante
+        haloSize = 1.5
+        coreSize = 0.55
+        flareStrength = 0.35
+        crossSharpness = 6.0
+        corePower = 1.1
+        haloPower = 0.45
+        quadMul = 3.8
+    elseif starType == 6 then
+        -- Estrella masiva
+        haloSize = 1.7
+        coreSize = 0.45
+        flareStrength = 0.45
+        crossSharpness = 4.0
+        corePower = 1.3
+        haloPower = 0.60
+        quadMul = 4.2
+    end
 
     local quadMul = 2.8 -- no se envía al shader; lo usa el CPU para el tamaño del quad
 

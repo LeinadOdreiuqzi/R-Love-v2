@@ -8,6 +8,7 @@ local MapConfig = require 'src.maps.config.map_config'
 local StarShader = require 'src.shaders.star_shader'
 local ShaderManager = require 'src.shaders.shader_manager'
 local NebulaRenderer = require 'src.maps.systems.nebula_renderer'
+local StarfieldInstanced = require 'src.shaders.starfield_instanced'
 
 -- Variables de estado para optimización
 MapRenderer.sinTable = {}
@@ -683,6 +684,30 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
     local size = (star.size * localSizeScale) * zoom * globalSizeScale
 
+    -- NUEVO: usar StarfieldInstanced por índice si hay buffer y el star tiene índice
+    if starConfig and starConfig.useInstancedShader and StarfieldInstanced and StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
+        local screenRadius = size
+        if StarfieldInstanced.setGlobals then
+            StarfieldInstanced.setGlobals({
+                time = love.timer.getTime(),
+                twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) or true,
+                enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
+            })
+        end
+        -- Preferir buffer + índice si está disponible
+        if StarfieldInstanced.hasStarData and StarfieldInstanced.hasStarData() and star._sfIndex ~= nil then
+            -- s ~ 4 * radio_en_pantalla; la escala global se aplica en StarfieldInstanced
+            local s = math.max(2, (screenRadius or 8) * 4.0)
+            StarfieldInstanced.drawStarQuad(star._sfIndex, screenX, screenY, s)
+            return
+        end
+        -- Fallback: uniforms por estrella (override)
+        if StarfieldInstanced.drawStarWithUniforms then
+            StarfieldInstanced.drawStarWithUniforms(screenX, screenY, screenRadius, star, starConfig)
+            return
+        end
+    end
+
     -- Ruta con shader: no cambiar color ni shader aquí, solo dibujar y salir
     if starConfig.enhancedEffects and StarShader and StarShader.getShader then
         local starShader = StarShader.getShader and StarShader.getShader() or nil
@@ -1092,6 +1117,7 @@ end
 -- Dibujar wormhole (en coordenadas de pantalla con fade)
 function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
     if not wormhole then return end
+    
     local r, g, b, a = love.graphics.getColor()
     local time = love.timer.getTime()
     local timeIndex = math.floor((time * 2 + wormhole.pulsePhase) * 57.29) % 360
@@ -1102,51 +1128,55 @@ function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
     local screenX, screenY = camera:worldToScreen(worldX, worldY)
     local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, wormhole.size * pulse, camera)
     local segments = sizePx < 20 and 8 or (sizePx > 40 and 16 or 12)
-    
+
     love.graphics.push()
     love.graphics.origin()
-    
-    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
-    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
-    if shader and img then
-        -- Desactiva sparkle y parallax del shader de nebulosa para el Wormhole (mantener diseño original)
-        pcall(function()
-            shader:send("u_sparkleStrength", 0.0)
-            shader:send("u_parallax", 0.0)
-        end)
-        love.graphics.setShader(shader)
-        -- Capa externa (aura)
-        love.graphics.setColor(0.1, 0.1, 0.4, 0.8 * alpha)
-        local iw, ih = img:getWidth(), img:getHeight()
-        local scaleOuter = (sizePx * 1.6 * 2) / math.max(1, iw)
-        love.graphics.draw(img, screenX, screenY, 0, scaleOuter, scaleOuter, iw * 0.5, ih * 0.5)
 
-        -- Anillo principal
-        love.graphics.setColor(0.3, 0.1, 0.8, 0.9 * alpha)
-        local scaleMain = (sizePx * 1.0 * 2) / iw
-        love.graphics.draw(img, screenX, screenY, 0, scaleMain, scaleMain, iw * 0.5, ih * 0.5)
+    -- Intentar usar shader dedicado de wormhole
+    local wormholeShader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("wormhole") or nil
+    if (not wormholeShader) and ShaderManager and ShaderManager.init then
+        -- Asegurar inicialización (idempotente)
+        if not ShaderManager.state or not ShaderManager.state.initialized then
+            ShaderManager.init()
+        end
+        wormholeShader = ShaderManager.getShader and ShaderManager.getShader("wormhole") or nil
+        if not wormholeShader then
+            print("⚠ Wormhole shader no disponible tras init; usando fallback")
+        end
+    end
 
-        -- Núcleo
-        love.graphics.setColor(0.6, 0.3, 1.0, 0.7 * alpha)
-        local scaleInner = (sizePx * 0.6 * 2) / iw
-        love.graphics.draw(img, screenX, screenY, 0, scaleInner, scaleInner, iw * 0.5, ih * 0.5)
+    if wormholeShader then
+        love.graphics.setShader(wormholeShader)
 
-        -- Centro brillante
-        love.graphics.setColor(1, 1, 1, 0.9 * alpha)
-        local scaleCenter = (sizePx * 0.2 * 2) / iw
-        love.graphics.draw(img, screenX, screenY, 0, scaleCenter, scaleCenter, iw * 0.5, ih * 0.5)
+        wormholeShader:send("u_time", time)
+        wormholeShader:send("u_intensity", 1.8)
+
+        wormholeShader:send("u_color", {0.2, 0.6, 1.0})
+        wormholeShader:send("u_pulsePhase", wormhole.pulsePhase or 0)
+        
+        -- Parallax
+        wormholeShader:send("u_playerPos", {camera.x or 0, camera.y or 0})
+        wormholeShader:send("u_wormholePos", {worldX, worldY})
+        wormholeShader:send("u_parallaxStrength", 0.15)
+        wormholeShader:send("u_cameraZoom", camera and camera.zoom or 1.0)
+
+        local img = ShaderManager.getBaseImage("circle")
+        if img then
+            love.graphics.setColor(1, 1, 1, 0.95 * alpha)
+            local scale = (sizePx * 2) / img:getWidth()
+            love.graphics.draw(img, screenX, screenY, 0, scale, scale, img:getWidth()/2, img:getHeight()/2)
+        end
 
         love.graphics.setShader()
     else
-        -- Fallback sin shader (círculos)
-        local segments = sizePx < 20 and 8 or (sizePx > 40 and 16 or 12)
+        -- Fallback sin shaders (círculos simples)
         love.graphics.setColor(0.1, 0.1, 0.4, 0.8 * alpha)
         love.graphics.circle("fill", screenX, screenY, sizePx * 1.5, segments)
 
         love.graphics.setColor(0.3, 0.1, 0.8, 0.9 * alpha)
         love.graphics.circle("fill", screenX, screenY, sizePx, segments)
 
-        love.graphics.setColor(0.6, 0.3, 1, 0.7 * alpha)
+        love.graphics.setColor(0.6, 0.3, 1.0, 0.7 * alpha)
         love.graphics.circle("fill", screenX, screenY, sizePx * 0.6, segments)
 
         love.graphics.setColor(1, 1, 1, 0.9 * alpha)
@@ -1155,6 +1185,30 @@ function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
 
     love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
+end
+-- Función para aplicar efectos de anomalía gravitatoria
+function MapRenderer.applyGravityAnomalyEffect(chunk, camera)
+    -- Pipeline en blanco: no aplicar efecto ni activar shader
+    return false
+end
+
+-- NUEVO: Función para aplicar efectos de anomalía gravitacional a múltiples chunks
+function MapRenderer.applyGravityAnomalyEffectMultiple(chunkInfo, camera, getChunkFunc)
+    local BiomeSystem = require 'src.maps.biome_system'
+    local anomalyChunks = {}
+    
+    -- Encontrar todos los chunks con anomalía gravitacional
+    for chunkY = chunkInfo.startY, chunkInfo.endY do
+        for chunkX = chunkInfo.startX, chunkInfo.endX do
+            local chunk = getChunkFunc(chunkX, chunkY)
+            if chunk and chunk.biome and chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
+                table.insert(anomalyChunks, chunk)
+            end
+        end
+    end
+    
+    -- Pipeline en blanco: no inicializar ni aplicar shader aunque existan anomalías
+    return false
 end
 
 -- Dibujar características de biomas

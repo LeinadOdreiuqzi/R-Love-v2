@@ -3,6 +3,7 @@
 
 local ShaderManager = {}
 local StarShader = require 'src.shaders.star_shader'
+local StarfieldInstanced = require 'src.shaders.starfield_instanced'
 
 -- Estado del gestor de shaders
 ShaderManager.state = {
@@ -11,7 +12,9 @@ ShaderManager.state = {
         star = nil,
         asteroid = nil,
         nebula = nil,
-        station = nil
+        station = nil,
+        wormhole = nil,
+        star_instanced = nil
     },
     
     -- Status de precarga
@@ -19,7 +22,9 @@ ShaderManager.state = {
         star = false,
         asteroid = false,
         nebula = false,
-        station = false
+        station = false,
+        wormhole = false,
+        star_instanced = false
     },
     
     -- Imágenes base para batching
@@ -32,7 +37,7 @@ ShaderManager.state = {
     config = {
         preloadIncrementally = true,
         maxPreloadTimePerFrame = 0.002, -- 2ms max por frame
-        preloadPriority = {"star", "asteroid", "nebula", "station"}
+        preloadPriority = {"star", "star_instanced", "asteroid", "nebula", "station", "wormhole"}
     }
 }
 
@@ -56,6 +61,17 @@ function ShaderManager.init()
         ShaderManager.state.preloadStatus.star = true
         print("✓ StarShader preloaded")
     end
+    -- Inicializar StarfieldInstanced
+    if StarfieldInstanced and StarfieldInstanced.init then
+        StarfieldInstanced.init()
+        ShaderManager.state.shaders.star_instanced = StarfieldInstanced.getShader()
+        ShaderManager.state.preloadStatus.star_instanced = ShaderManager.state.shaders.star_instanced and true or false
+        if ShaderManager.state.preloadStatus.star_instanced then
+            print("✓ StarfieldInstanced shader preloaded")
+        else
+            print("✗ StarfieldInstanced shader failed to preload")
+        end
+    end
     
     -- Crear shaders básicos para otros objetos
     ShaderManager.createBasicShaders()
@@ -72,7 +88,12 @@ function ShaderManager.createBaseImages()
     -- Imagen blanca 1x1 para shaders
     local whiteData = love.image.newImageData(1, 1)
     whiteData:setPixel(0, 0, 1, 1, 1, 1)
-    ShaderManager.state.baseImages.white = love.graphics.newImage(whiteData)
+    if not ShaderManager.state.baseImages.white and love.graphics and love.image then
+        ShaderManager.state.baseImages.white = love.graphics.newImage(whiteData)
+        if ShaderManager.state.baseImages.white.setFilter then
+            ShaderManager.state.baseImages.white:setFilter("linear", "linear")
+        end
+    end
     -- Crear white si aplica (no mostrado)
     -- Crear/forzar circle a 512 con alpha radial y filtro lineal
     local circleSize = 512
@@ -96,7 +117,126 @@ function ShaderManager.createBaseImages()
         tostring(ShaderManager.state.baseImages.circle:getWidth()) .. "x" ..
         tostring(ShaderManager.state.baseImages.circle:getHeight()))
 end
-
+-- Shader de wormhole con efectos 3D y parallax
+local wormholeShaderCode = [[
+    extern float u_time;
+    extern float u_intensity;
+    extern float u_size;
+    extern vec3 u_color;
+    extern float u_pulsePhase;
+    extern vec2 u_playerPos;     // Posición del jugador
+    extern vec2 u_wormholePos;   // Posición del wormhole
+    extern float u_parallaxStrength; // Fuerza del efecto parallax
+    extern float u_cameraZoom;   // Zoom de la cámara
+    
+    // Función para crear efecto parallax 3D
+    vec2 calculateParallax(vec2 uv, vec2 playerOffset, float depth) {
+        // Normalizar la distancia del jugador
+        float distance = length(playerOffset);
+        vec2 direction = normalize(playerOffset);
+        
+        // Calcular desplazamiento parallax basado en profundidad
+        float parallaxAmount = u_parallaxStrength * depth / (distance * 0.001 + 1.0);
+        
+        // Aplicar desplazamiento parallax
+        return uv + direction * parallaxAmount;
+    }
+    
+    // Función para crear esfera 3D con parallax
+    float create3DSphereWithParallax(vec2 uv, float radius, vec2 playerOffset) {
+        // Calcular ángulo de vista y distancia
+        float viewAngle = atan(playerOffset.y, playerOffset.x);
+        float distance = length(playerOffset);
+        
+        // Perspectiva 3D mejorada
+        float perspective = 0.2 + 0.8 * (1.0 - min(1.0, distance * 0.0005));
+        
+        // Rotación de la esfera según el ángulo de vista
+        mat2 rotation = mat2(
+            cos(viewAngle), -sin(viewAngle),
+            sin(viewAngle), cos(viewAngle)
+        );
+        
+        float sphere = 0.0;
+        
+        // Capa externa con parallax
+        vec2 outerParallax = calculateParallax(uv, playerOffset, 0.3);
+        vec2 outerRotated = rotation * outerParallax;
+        vec2 outerScale = vec2(radius, radius * (0.3 + perspective * 0.5));
+        float outerDist = length(outerRotated / outerScale);
+        sphere += smoothstep(1.0, 0.6, outerDist) * 0.15;
+        
+        // Capa media con parallax más fuerte
+        vec2 midParallax = calculateParallax(uv, playerOffset, 0.6);
+        vec2 midRotated = rotation * midParallax;
+        vec2 midScale = vec2(radius * 0.7, radius * (0.2 + perspective * 0.4));
+        float midDist = length(midRotated / midScale);
+        sphere += smoothstep(1.0, 0.4, midDist) * 0.35;
+        
+        // Núcleo con parallax máximo
+        vec2 coreParallax = calculateParallax(uv, playerOffset, 1.0);
+        vec2 coreRotated = rotation * coreParallax;
+        vec2 coreScale = vec2(radius * 0.4, radius * (0.1 + perspective * 0.3));
+        float coreDist = length(coreRotated / coreScale);
+        sphere += smoothstep(1.0, 0.1, coreDist) * 0.7;
+        
+        // Iluminación 3D con parallax
+        vec3 normal = normalize(vec3(coreRotated, sqrt(max(0.0, 1.0 - dot(coreRotated, coreRotated)))));
+        vec3 lightDir = normalize(vec3(cos(viewAngle), sin(viewAngle), 0.8));
+        float lighting = 0.5 + 0.5 * max(0.0, dot(normal, lightDir));
+        sphere *= lighting;
+        
+        // Vórtice rotatorio con efecto parallax
+        float spiralAngle = atan(coreRotated.y, coreRotated.x) + u_time * (1.5 + perspective * 2.0);
+        float spiral = sin(spiralAngle * 6.0 + length(coreRotated) * 8.0) * 0.5 + 0.5;
+        sphere *= (0.7 + spiral * 0.3);
+        
+        // Efecto de profundidad con zoom
+        float depthFactor = 1.0 + 0.3 * sin(distance * 0.005 + u_time) / u_cameraZoom;
+        sphere *= depthFactor;
+        
+        return sphere;
+    }
+    
+    vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+        vec2 uv = texture_coords * 2.0 - 1.0;
+        
+        // Calcular offset del jugador relativo al wormhole
+        vec2 playerOffset = u_playerPos - u_wormholePos;
+        
+        // Crear la esfera 3D con parallax
+        float sphereIntensity = create3DSphereWithParallax(uv, 1.0, playerOffset);
+        
+        // Pulso temporal más dinámico con parallax
+        float pulse = 0.6 + 0.4 * sin(u_time * 2.0 + u_pulsePhase + length(playerOffset) * 0.001);
+        sphereIntensity *= pulse;
+        
+        // Distorsión espacial con efecto parallax
+        float distortion = 1.0 + 0.2 * sin(u_time * 2.5 + length(uv) * 5.0 + length(playerOffset) * 0.002);
+        sphereIntensity *= distortion;
+        
+        // Efecto de refracción en los bordes
+        float edgeRefraction = 1.0 + 0.1 * sin(u_time * 4.0 + atan(uv.y, uv.x) * 3.0);
+        sphereIntensity *= edgeRefraction;
+        
+        // Color final con gradiente 3D mejorado
+        vec3 baseColor = u_color;
+        vec3 highlightColor = u_color * 1.8;
+        vec3 edgeColor = u_color * 0.6;
+        
+        float edgeFactor = smoothstep(0.2, 0.8, length(uv));
+        vec3 finalColor = mix(
+            mix(highlightColor, baseColor, sphereIntensity * 0.5),
+            edgeColor,
+            edgeFactor
+        ) * u_intensity;
+        
+        // Alpha con falloff 3D más realista
+        float alpha = sphereIntensity * smoothstep(1.8, 0.4, length(uv));
+        
+        return vec4(finalColor, alpha * color.a);
+    }
+]];
 -- Crear shaders básicos para objetos
 function ShaderManager.createBasicShaders()
     -- Shader básico para asteroides (efecto rocoso simple)
@@ -271,7 +411,7 @@ function ShaderManager.createBasicShaders()
                 shader:send("u_intensity", 0.6)
                 shader:send("u_brightness", 1.20)
                 shader:send("u_parallax", 0.85)
-                shader:send("u_sparkleStrength", 0.0) -- por defecto desactivado (evita afectar Wormhole si no se envía)
+                shader:send("u_sparkleStrength", 0.0)
                 shader:send("u_time", love.timer.getTime())
             end)
         end
@@ -281,6 +421,27 @@ function ShaderManager.createBasicShaders()
         if success then
             ShaderManager.state.shaders.station = shader
             ShaderManager.state.preloadStatus.station = true
+        end
+
+        -- Wormhole shader (AÑADIDO AQUÍ PARA QUE NO SE PIERDA EN ESTA SEGUNDA DEFINICIÓN)
+        success, shader = pcall(love.graphics.newShader, wormholeShaderCode)
+        if success then
+            ShaderManager.state.shaders.wormhole = shader
+            ShaderManager.state.preloadStatus.wormhole = true
+            -- Defaults seguros para uniforms
+            pcall(function()
+                shader:send("u_time", 0)
+                shader:send("u_intensity", 1.0)
+                shader:send("u_color", {0.5, 0.8, 1.0})
+                shader:send("u_pulsePhase", 0)
+                shader:send("u_playerPos", {0, 0})
+                shader:send("u_wormholePos", {0, 0})
+                shader:send("u_parallaxStrength", 1.0)
+                shader:send("u_cameraZoom", 1.0)
+            end)
+            print("✓ Wormhole shader loaded successfully (from second createBasicShaders)")
+        else
+            print("✗ Failed to load Wormhole shader (second createBasicShaders): " .. tostring(shader))
         end
     end
 end
@@ -293,9 +454,12 @@ function ShaderManager.update(dt)
     local maxTime = ShaderManager.state.config.maxPreloadTimePerFrame
     
     -- Actualizar tiempo en shaders que lo necesiten
+    local currentTime = love.timer.getTime()
     if ShaderManager.state.shaders.nebula then
-        local currentTime = love.timer.getTime()
         ShaderManager.state.shaders.nebula:send("u_time", currentTime)
+    end
+    if ShaderManager.state.shaders.wormhole then
+        ShaderManager.state.shaders.wormhole:send("u_time", currentTime)
     end
     
     -- Verificar que todos los shaders estén cargados
@@ -321,7 +485,36 @@ function ShaderManager.ensureShaderLoaded(shaderType)
             ShaderManager.state.preloadStatus.star = true
         end
     end
-    
+    -- cargar on-demand el instanced si fuera necesario
+    if shaderType == "star_instanced" and StarfieldInstanced then
+        if not ShaderManager.state.shaders.star_instanced and StarfieldInstanced.init then
+            StarfieldInstanced.init()
+            ShaderManager.state.shaders.star_instanced = StarfieldInstanced.getShader()
+            ShaderManager.state.preloadStatus.star_instanced = ShaderManager.state.shaders.star_instanced and true or false
+        end
+        return ShaderManager.state.preloadStatus.star_instanced
+    end
+    if shaderType == "wormhole" and love.graphics and love.graphics.newShader and wormholeShaderCode then
+        local ok, shader = pcall(love.graphics.newShader, wormholeShaderCode)
+        if ok then
+            ShaderManager.state.shaders.wormhole = shader
+            ShaderManager.state.preloadStatus.wormhole = true
+            pcall(function()
+                shader:send("u_time", love.timer.getTime() or 0)
+                shader:send("u_intensity", 1.0)
+                -- shader:send("u_size", 1.0) -- eliminado: el shader no usa u_size
+                shader:send("u_color", {0.5, 0.8, 1.0})
+                shader:send("u_pulsePhase", 0)
+                shader:send("u_playerPos", {0, 0})
+                shader:send("u_wormholePos", {0, 0})
+                shader:send("u_parallaxStrength", 1.0)
+                shader:send("u_cameraZoom", 1.0)
+            end)
+            print("✓ Wormhole shader ensured on-demand")
+        else
+            print("✗ ensureShaderLoaded(wormhole) failed: " .. tostring(shader))
+        end
+    end
     return ShaderManager.state.preloadStatus[shaderType]
 end
 

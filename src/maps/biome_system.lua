@@ -179,7 +179,12 @@ BiomeSystem.biomeConfigs = {
             visibility = 0.8,
             mobility = 0.4,
             radiation = 0.2,
-            gravity = 2.5
+            gravity = 2.5,
+            -- NUEVO: Propiedades para el shader de anomalía gravitatoria
+            anomalyStrength = 2.0,    -- Fuerza de la distorsión
+            anomalyRadius = 800.0,    -- Radio de influencia
+            distortionIntensity = 1.5, -- Intensidad de la distorsión
+            chromaticAberration = 0.02 -- Aberración cromática
         }
     },
     

@@ -184,9 +184,15 @@ function Map.draw(camera)
     MapStats.updateFrameStats(frameStart)
 end
 
--- Renderizado principal mejorado
--- function Map.drawTraditionalImproved(camera, chunkInfo)
+-- Renderizado principal mejorado (versión optimizada)
 function Map.drawTraditionalImproved(camera, chunkInfo)
+    local MapRenderer = require 'src.maps.systems.map_renderer'
+    
+    -- Aplicar shader de anomalía gravitacional si hay chunks con este bioma
+    local gravityAnomalyActive = MapRenderer.applyGravityAnomalyEffectMultiple(
+        chunkInfo, camera, Map.getChunkNonBlocking
+    )
+    
     -- 1. Dibujar estrellas con efectos mejorados
     local starsRendered, starsTotal = MapRenderer.drawEnhancedStars(
         chunkInfo, camera, Map.getChunkNonBlocking, Map.starConfig
@@ -205,9 +211,15 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     local specialRendered = MapRenderer.drawSpecialObjects(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(specialRendered, specialRendered, 0)
     
-    -- 5. Dibujar características de biomas
+    -- 5. Dibujar características de biomas (ahora también bajo distorsión si está activa)
     local featuresRendered = MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(featuresRendered, featuresRendered, 0)
+
+    -- Desactivar shader de anomalía gravitacional si estaba activo (al final, para que afecte “por encima”)
+    if gravityAnomalyActive then
+        local GravitationalAnomalyShader = require 'src.shaders.gravity_anomaly'
+        GravitationalAnomalyShader.disable()
+    end
 end
 
 -- Utilidad unificada: calcular bounds de chunks visibles con margen de pantalla (px)

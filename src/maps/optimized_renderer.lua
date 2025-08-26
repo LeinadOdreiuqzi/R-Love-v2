@@ -18,7 +18,28 @@ OptimizedRenderer.config = {
             [2] = {distance = 1600, name = "Low",    detail = 0.4},   -- Bajo detalle
             [3] = {distance = 3200, name = "Minimal", detail = 0.2}   -- Detalle mínimo
         },
-        transitionSmoothing = true
+        transitionSmoothing = true,
+        
+        -- NUEVO: LOD inteligente basado en propiedades de estrella
+        intelligentLOD = {
+            enabled = true,
+            -- Factores de importancia visual
+            sizeImportance = 2.0,      -- Estrellas grandes mantienen calidad
+            typeImportance = {
+                [1] = 1.0,  -- Estrella básica
+                [2] = 1.2,  -- Estrella media
+                [3] = 1.4,  -- Estrella grande
+                [4] = 2.0   -- Estrella super brillante
+            },
+            brightnessImportance = 1.5, -- Factor de brillo
+            -- Multiplicadores de distancia por importancia
+            distanceMultipliers = {
+                veryHigh = 2.5,  -- Estrellas muy importantes
+                high = 2.0,      -- Estrellas importantes
+                medium = 1.5,    -- Estrellas medianas
+                low = 1.0        -- Estrellas normales
+            }
+        }
     },
     
     -- Frustum culling
@@ -250,6 +271,27 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera)
     -- Ajustar por zoom
     local adjustedDistance = distance / (camera.zoom or 1)
     
+    -- NUEVO: Ajustar distancia por importancia de la estrella
+    if star and OptimizedRenderer.config.lod.intelligentLOD.enabled then
+        local importance = OptimizedRenderer.calculateStarImportance(star)
+        local config = OptimizedRenderer.config.lod.intelligentLOD
+        
+        -- Determinar multiplicador de distancia
+        local distanceMultiplier = 1.0
+        if importance >= 3.0 then
+            distanceMultiplier = config.distanceMultipliers.veryHigh
+        elseif importance >= 2.5 then
+            distanceMultiplier = config.distanceMultipliers.high
+        elseif importance >= 2.0 then
+            distanceMultiplier = config.distanceMultipliers.medium
+        else
+            distanceMultiplier = config.distanceMultipliers.low
+        end
+        
+        -- Aplicar multiplicador (estrellas importantes "parecen" más cerca)
+        adjustedDistance = adjustedDistance / distanceMultiplier
+    end
+    
     -- Determinar nivel de LOD
     for level = #OptimizedRenderer.config.lod.levels - 1, 0, -1 do
         if adjustedDistance >= OptimizedRenderer.config.lod.levels[level].distance then
@@ -277,8 +319,28 @@ function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera)
     -- Calcular tamaño en pantalla
     local screenSize = objectSize * camera.zoom
     
-    -- Verificar bounds con margen
+    -- NUEVO: Calcular margen dinámico basado en importancia
     local margin = OptimizedRenderer.config.culling.margin
+    if star and OptimizedRenderer.config.intelligentCulling.enabled then
+        local importance = OptimizedRenderer.calculateStarImportance(star)
+        local config = OptimizedRenderer.config.intelligentCulling
+        
+        -- Determinar multiplicador de margen
+        local marginMultiplier = 1.0
+        if importance >= 3.0 then
+            marginMultiplier = config.dynamicMargin.multipliers.critical
+        elseif importance >= 2.5 then
+            marginMultiplier = config.dynamicMargin.multipliers.high
+        elseif importance >= 2.0 then
+            marginMultiplier = config.dynamicMargin.multipliers.medium
+        else
+            marginMultiplier = config.dynamicMargin.multipliers.low
+        end
+        
+        margin = config.dynamicMargin.base * marginMultiplier
+    end
+    
+    -- Verificar bounds con margen dinámico
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
@@ -345,11 +407,13 @@ function OptimizedRenderer.updateVisibilityCache(camera)
 end
 
 -- Renderizar objetos con LOD y culling
-function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, chunkY)
+-- MEJORADO: Renderizar objetos con LOD y culling inteligente
+function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, chunkY, playerVelocity)
     if not objects or not camera then return 0 end
     
     local renderedCount = 0
     local culledCount = 0
+    playerVelocity = playerVelocity or {x = 0, y = 0}
     
     for _, obj in ipairs(objects) do
         -- Calcular posición mundial del objeto (unidades de mundo escaladas)
@@ -362,16 +426,37 @@ function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, ch
         local worldX = baseX + (obj.x or 0) * ws
         local worldY = baseY + (obj.y or 0) * ws
         
-        -- Frustum culling (usar tamaño escalado)
+        -- NUEVO: Calcular prioridad direccional
+        local directionalPriority = 1.0
+        if objectType == "stars" then
+            directionalPriority = OptimizedRenderer.calculateDirectionalPriority(worldX, worldY, camera, playerVelocity)
+        end
+        
+        -- Frustum culling inteligente (usar tamaño escalado)
         local objSize = ((obj.size or 10)) * ws
-        if OptimizedRenderer.isObjectVisible(worldX, worldY, objSize, camera) then
-            -- Calcular LOD
-            local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera)
+        if OptimizedRenderer.isObjectVisible(worldX, worldY, objSize, camera, obj) then
+            -- Calcular LOD inteligente
+            local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera, obj)
             obj.lodLevel = lodLevel  -- Guardar para estadísticas
+            obj.directionalPriority = directionalPriority -- Guardar prioridad
             
-            -- Renderizar según el tipo y LOD
-            OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, lodLevel, camera)
-            renderedCount = renderedCount + 1
+            -- MEJORADO: No saltear estrellas importantes en LOD 3
+            local shouldRender = true
+            if lodLevel >= 3 and objectType == "stars" then
+                local importance = OptimizedRenderer.calculateStarImportance(obj)
+                -- Solo saltear si la importancia es muy baja
+                if importance < 2.0 then
+                    shouldRender = false
+                end
+            end
+            
+            if shouldRender then
+                -- Renderizar según el tipo y LOD
+                OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, lodLevel, camera)
+                renderedCount = renderedCount + 1
+            else
+                culledCount = culledCount + 1
+            end
             
             -- Actualizar estadísticas de LOD
             OptimizedRenderer.state.stats.lodDistribution[lodLevel] = 
@@ -420,10 +505,16 @@ function OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, l
 end
 
 -- Renderizar estrella con batching mejorado
+-- MEJORADO: Renderizar estrella con batching inteligente
 function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
+    -- MEJORADO: No saltear automáticamente en LOD 3, considerar importancia
     if lodLevel >= 3 then
-        -- LOD mínimo - saltear para performance
-        return
+        local importance = OptimizedRenderer.calculateStarImportance(star)
+        if importance < 2.0 then
+            return -- Solo saltear estrellas poco importantes
+        end
+        -- Estrellas importantes se renderizan con calidad reducida pero visible
+        size = size * 0.3 -- Reducir tamaño pero mantener visible
     end
     
     local batch = OptimizedRenderer.state.batches.stars
@@ -463,7 +554,15 @@ end
 
 -- Renderizar nebulosa con batching
 function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
-    if lodLevel >= 3 then return end
+    if lodLevel >= 3 then
+        -- Para nebulosas grandes, renderizar con calidad reducida en lugar de eliminar
+        local nebulaSize = nebula.size or 140
+        if nebulaSize < 300 then
+            return -- Solo eliminar nebulosas pequeñas en LOD 3
+        end
+        -- Nebulosas grandes se renderizan con menor detalle pero siguen visibles
+        size = size * 0.6
+    end
     
     local batch = OptimizedRenderer.state.batches.nebulae
     if not batch then
@@ -483,12 +582,9 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
     local color = nebula.color or {1, 1, 1, 0.7}
     local r, g, b, a = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 0.7
 
-    -- Brillo base por-nebulosa (sin flicker CPU-side)
+    -- UNIFICADO: Usar función centralizada de brillo
+    local brightness = OptimizedRenderer.calculateNebulaBrightness(nebula, love.timer.getTime())
     local par = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
-    local baseBrightness = nebula.brightness or (par > 0.85 and 1.30 or (par > 0.7 and 1.15 or 1.0))
-    local brightness = baseBrightness
-    local t = love.timer.getTime()
-    local seed = (nebula.seed or 0)
 
     -- Enviar uniforms por nebulosa (incluye u_parallax y sparkle)
     shader:send("u_seed", (nebula.seed or 0) * 0.001)
@@ -497,9 +593,10 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
     shader:send("u_warpFreq", nebula.warpFreq or 1.25)
     shader:send("u_softness", nebula.softness or 0.28)
     shader:send("u_brightness", brightness)
+    shader:send("u_intensity", (nebula.intensity or 0.6) * 1.3) -- Aumentar intensidad
     shader:send("u_parallax", par)
-    shader:send("u_sparkleStrength", 1.3) -- subir temporalmente para validar que se ve
-    shader:send("u_time", t)
+    shader:send("u_sparkleStrength", 1.3)
+    shader:send("u_time", love.timer.getTime())
 
     -- Dibujar
     love.graphics.setShader(shader)
@@ -738,5 +835,209 @@ function OptimizedRenderer.getStats()
         }
     }
 end
+-- NUEVO: Calcular importancia visual de una estrella
+function OptimizedRenderer.calculateStarImportance(star)
+    if not star then return 1.0 end
+    
+    local config = OptimizedRenderer.config.lod.intelligentLOD
+    if not config.enabled then return 1.0 end
+    
+    local importance = 1.0
+    
+    -- Factor de tamaño
+    local size = star.size or 10
+    local sizeNormalized = math.min(size / 20, 2.0) -- Normalizar a 0-2
+    importance = importance + (sizeNormalized * config.sizeImportance)
+    
+    -- Factor de tipo
+    local starType = star.type or 1
+    local typeMultiplier = config.typeImportance[starType] or 1.0
+    importance = importance * typeMultiplier
+    
+    -- Factor de brillo
+    local brightness = star.brightness or 1.0
+    importance = importance + (brightness * config.brightnessImportance)
+    
+    return math.max(importance, 0.1) -- Mínimo 0.1
+end
 
+-- MEJORADO: Calcular nivel de LOD basado en distancia, zoom y propiedades de estrella
+function OptimizedRenderer.calculateLOD(objectX, objectY, camera, star)
+    if not camera then return 0 end
+    
+    -- Convertir coordenadas del mundo a relativas para precisión
+    local relX, relY = CoordinateSystem.worldToRelative(objectX, objectY)
+    local camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
+    
+    -- Calcular distancia relativa
+    local dx = relX - camRelX
+    local dy = relY - camRelY
+    local distance = math.sqrt(dx * dx + dy * dy)
+    
+    -- Ajustar por zoom
+    local adjustedDistance = distance / (camera.zoom or 1)
+    
+    -- NUEVO: Ajustar distancia por importancia de la estrella
+    if star and OptimizedRenderer.config.lod.intelligentLOD.enabled then
+        local importance = OptimizedRenderer.calculateStarImportance(star)
+        local config = OptimizedRenderer.config.lod.intelligentLOD
+        
+        -- Determinar multiplicador de distancia
+        local distanceMultiplier = 1.0
+        if importance >= 3.0 then
+            distanceMultiplier = config.distanceMultipliers.veryHigh
+        elseif importance >= 2.5 then
+            distanceMultiplier = config.distanceMultipliers.high
+        elseif importance >= 2.0 then
+            distanceMultiplier = config.distanceMultipliers.medium
+        else
+            distanceMultiplier = config.distanceMultipliers.low
+        end
+        
+        -- Aplicar multiplicador (estrellas importantes "parecen" más cerca)
+        adjustedDistance = adjustedDistance / distanceMultiplier
+    end
+    
+    -- Determinar nivel de LOD
+    for level = #OptimizedRenderer.config.lod.levels - 1, 0, -1 do
+        if adjustedDistance >= OptimizedRenderer.config.lod.levels[level].distance then
+            return level
+        end
+    end
+    
+    return 0
+end
+
+-- MEJORADO: Verificar si un objeto está visible con culling inteligente
+function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera, star)
+    if not camera or not OptimizedRenderer.config.culling.enabled then
+        return true
+    end
+    
+    -- Convertir a coordenadas relativas
+    local relX, relY = CoordinateSystem.worldToRelative(objectX, objectY)
+    local camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
+    
+    -- Calcular posición en pantalla
+    local screenX = (relX - camRelX) * camera.zoom + love.graphics.getWidth() / 2
+    local screenY = (relY - camRelY) * camera.zoom + love.graphics.getHeight() / 2
+    
+    -- Calcular tamaño en pantalla
+    local screenSize = objectSize * camera.zoom
+    
+    -- NUEVO: Calcular margen dinámico basado en importancia
+    local margin = OptimizedRenderer.config.culling.margin
+    if star and OptimizedRenderer.config.intelligentCulling.enabled then
+        local importance = OptimizedRenderer.calculateStarImportance(star)
+        local config = OptimizedRenderer.config.intelligentCulling
+        
+        -- Determinar multiplicador de margen
+        local marginMultiplier = 1.0
+        if importance >= 3.0 then
+            marginMultiplier = config.dynamicMargin.multipliers.critical
+        elseif importance >= 2.5 then
+            marginMultiplier = config.dynamicMargin.multipliers.high
+        elseif importance >= 2.0 then
+            marginMultiplier = config.dynamicMargin.multipliers.medium
+        else
+            marginMultiplier = config.dynamicMargin.multipliers.low
+        end
+        
+        margin = config.dynamicMargin.base * marginMultiplier
+    end
+    
+    -- Verificar bounds con margen dinámico
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    
+    return screenX + screenSize >= -margin and
+           screenX - screenSize <= screenWidth + margin and
+           screenY + screenSize >= -margin and
+           screenY - screenSize <= screenHeight + margin
+end
+
+-- NUEVO: Calcular prioridad de precarga direccional
+function OptimizedRenderer.calculateDirectionalPriority(objectX, objectY, camera, playerVelocity)
+    if not OptimizedRenderer.config.directionalPreload.enabled then
+        return 1.0
+    end
+    
+    local config = OptimizedRenderer.config.directionalPreload
+    
+    -- Verificar si hay suficiente velocidad
+    local velocityMagnitude = math.sqrt(playerVelocity.x^2 + playerVelocity.y^2)
+    if velocityMagnitude < config.velocityThreshold then
+        return 1.0
+    end
+    
+    -- Calcular vector hacia el objeto
+    local dx = objectX - camera.x
+    local dy = objectY - camera.y
+    local distance = math.sqrt(dx^2 + dy^2)
+    
+    if distance == 0 then return 1.0 end
+    
+    -- Normalizar vectores
+    local objDirX = dx / distance
+    local objDirY = dy / distance
+    local velDirX = playerVelocity.x / velocityMagnitude
+    local velDirY = playerVelocity.y / velocityMagnitude
+    
+    -- Calcular ángulo entre dirección de movimiento y objeto
+    local dotProduct = objDirX * velDirX + objDirY * velDirY
+    local angle = math.acos(math.max(-1, math.min(1, dotProduct)))
+    local angleDegrees = math.deg(angle)
+    
+    -- Verificar si está dentro del cono de precarga
+    if angleDegrees <= config.angleSpread then
+        -- Calcular boost de prioridad basado en alineación
+        local alignment = 1.0 - (angleDegrees / config.angleSpread)
+        local priorityBoost = 1.0 + (config.priorityBoost * alignment)
+        
+        -- Ajustar por distancia si está habilitado
+        if config.adaptiveDistance then
+            local distanceFactor = math.min(distance / config.lookAheadDistance, 1.0)
+            priorityBoost = priorityBoost * (1.0 + distanceFactor)
+        end
+        
+        return priorityBoost
+    end
+    
+    return 1.0
+end
+
+-- NUEVO: Sistema unificado de brillo de nebulosas
+function OptimizedRenderer.calculateNebulaBrightness(nebula, timeNow)
+    if not nebula then return 1.0 end
+    
+    -- Parallax normalizado
+    local par = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
+    
+    -- Brillo base según propiedades de la nebulosa
+    local baseBrightness
+    if nebula.brightness then
+        baseBrightness = nebula.brightness
+    else
+        -- Brillo por bioma y parallax
+        if nebula.biomeType == BiomeSystem.BiomeType.NEBULA_FIELD then
+            baseBrightness = 1.60  -- Nebulosas en campos de nebulosa más brillantes
+        elseif par > 0.85 then
+            baseBrightness = 1.45  -- Nebulosas de fondo brillantes
+        elseif par > 0.7 then
+            baseBrightness = 1.30  -- Nebulosas medias
+        else
+            baseBrightness = 1.15  -- Nebulosas de primer plano
+        end
+    end
+    
+    -- Pulso senoidal suave basado en tiempo y seed
+    local freq = 0.15 + 0.25 * par  -- Frecuencia dependiente de parallax
+    local phase = (nebula.seed or 0) * 0.15
+    local pulse = 1.0 + 0.04 * math.sin((timeNow or love.timer.getTime()) * freq + phase)
+    
+    -- Multiplicador global de brillo unificado
+    local globalBrightnessMultiplier = 1.4
+    
+    return baseBrightness * pulse * globalBrightnessMultiplier
+end
 return OptimizedRenderer

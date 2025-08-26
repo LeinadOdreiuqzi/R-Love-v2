@@ -142,12 +142,21 @@ function loadWorld(updateProgress)
     
     table.insert(loadSteps, function()
         -- Paso 7: Preparar renderizador
-        updateProgress("renderer", "Optimizing rendering systems...")
+        updateProgress("renderer", "Preparing renderer and shaders...")
         
-        -- OptimizedRenderer ya se inicializa en Map.init
-        if OptimizedRenderer then
-            updateProgress("renderer", "Setting up LOD system... 50%")
+        -- Inicializar OptimizedRenderer (que inicializa ShaderManager)
+        local rendererSuccess, rendererErr = pcall(function()
+            OptimizedRenderer.init()
+        end)
+        
+        if not rendererSuccess then
+            print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr))
         end
+        
+        -- Inicializar shader de anomalía gravitacional
+        local GravitationalAnomalyShader = require 'src.shaders.gravity_anomaly'
+        GravitationalAnomalyShader.init()
+        
         return true
     end)
     
@@ -232,6 +241,7 @@ function loadWorld(updateProgress)
 end
 
 function love.load()
+    love.graphics.setDefaultFilter("nearest", "nearest")
     -- Inicializar pantalla de carga
     LoadingScreen.init()
     
@@ -822,6 +832,20 @@ function love.keypressed(key)
         if player and player.toggleHyperTravel then
             local enabled = player:toggleHyperTravel(100000)
             print("Hyper travel (100k): " .. (enabled and "ON" or "OFF"))
+        end
+    elseif key == "k" then
+        -- Toggle entre shaders de estrellas: Legacy (StarShader) vs Instanced (StarfieldInstanced)
+        if Map and Map.starConfig then
+            Map.starConfig.useInstancedShader = not Map.starConfig.useInstancedShader
+            local modeName = Map.starConfig.useInstancedShader and "INSTANCED" or "LEGACY"
+            print("Star rendering mode: " .. modeName)
+            if Map.starConfig.useInstancedShader then
+                -- Asegurar que el shader instanced esté inicializado
+                local StarfieldInstanced = require 'src.shaders.starfield_instanced'
+                if StarfieldInstanced and StarfieldInstanced.init then
+                    StarfieldInstanced.init()
+                end
+            end
         end
     end
 end

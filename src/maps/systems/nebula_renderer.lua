@@ -123,23 +123,9 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                         v = math.max(0.0, math.min(1.0, v * valAdj))
                         local cr, cg, cb = hsv2rgb(h, s, v)
 
-                        -- Brillo base por-nebulosa (sin flicker ni destellos)
-                        local baseBrightness
-                        if n.brightness then
-                            baseBrightness = n.brightness
-                        else
-                            if n.biomeType == BiomeSystem.BiomeType.NEBULA_FIELD then
-                                baseBrightness = 1.30
-                            else
-                                baseBrightness = 1.15
-                            end
-                        end
-
-                        -- Pulso senoidal suave, integrado con shader via u_brightness
-                        local freq  = 0.15 + 0.25 * par            -- más lento y dependiente de parallax
-                        local phase = (n.seed or 0) * 0.15
-                        local pulse = 1.0 + 0.04 * math.sin(timeNow * freq + phase) -- amplitud sutil
-                        local brightness = baseBrightness * pulse
+                        -- UNIFICADO: Usar función centralizada de brillo
+                        local OptimizedRenderer = require 'src.maps.optimized_renderer'
+                        local brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
 
                         -- Enviar uniforms (incluye u_parallax)
                         love.graphics.setColor(cr, cg, cb, ba)
@@ -149,7 +135,6 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                             shader:send("u_warpAmp", n.warpAmp or 0.65)
                             shader:send("u_warpFreq", n.warpFreq or 1.25)
                             shader:send("u_softness", n.softness or 0.28)
-                            shader:send("u_intensity", math.max(0.1, (n.intensity or 0.6) * 0.85))
                             shader:send("u_brightness", brightness)
                             shader:send("u_parallax", par)
                             -- Destellos desactivados
