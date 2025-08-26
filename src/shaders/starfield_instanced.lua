@@ -97,15 +97,39 @@ float circleFill(float dist, float radius) {
     return 1.0 - t;
 }
 
-// Flare tipo cruz (para type 4)
+// Flare tipo cruz mejorado (para type 4) - más nítido y brillante
 float crossFlare(vec2 p, vec2 center, float width, float intensity) {
     vec2 d = abs(p - center);
-    float flareH = exp(-pow(d.y / width, 2.0)) * exp(-d.x * 0.05);
-    float flareV = exp(-pow(d.x / width, 2.0)) * exp(-d.y * 0.05);
-    return (flareH + flareV) * intensity;
+    // Flares más nítidos con mejor falloff
+    float flareH = exp(-pow(d.y / (width * 0.8), 1.8)) * exp(-d.x * 0.03);
+    float flareV = exp(-pow(d.x / (width * 0.8), 1.8)) * exp(-d.y * 0.03);
+    return (flareH + flareV) * intensity * 1.4; // Aumentar brillo
 }
 
-// Helpers de color y perfiles suaves para no-flare
+// Nuevo: Flare de 6 puntas (para type 5)
+float sixPointFlare(vec2 p, vec2 center, float width, float intensity) {
+    vec2 d = p - center;
+    float angle = atan(d.y, d.x);
+    float dist = length(d);
+    
+    // Crear 6 rayos rotados 60 grados entre sí
+    float flare = 0.0;
+    for (int i = 0; i < 6; i++) {
+        float rayAngle = float(i) * PI / 3.0; // 60 grados en radianes
+        float angleDiff = abs(angle - rayAngle);
+        // Manejar wrap-around del ángulo
+        angleDiff = min(angleDiff, abs(angleDiff - 2.0 * PI));
+        angleDiff = min(angleDiff, abs(angleDiff + 2.0 * PI));
+        
+        // Crear rayo con falloff angular y radial
+        float rayIntensity = exp(-pow(angleDiff / 0.15, 2.0)) * exp(-dist / (width * 1.2));
+        flare += rayIntensity;
+    }
+    
+    return flare * intensity * 1.2;
+}
+
+// Sistema de colores equilibrado y armónico
 float baseProfile(float dist, float radius) {
     // Perfil gaussiano suave, agradable
     float x = clamp(dist / max(1.0, radius), 0.0, 1.0);
@@ -117,14 +141,33 @@ vec3 desaturate(vec3 color, float amount) {
     return mix(color, vec3(g), clamp(amount, 0.0, 1.0));
 }
 
-vec3 coreTint(vec3 base) {
-    // Núcleo ligeramente hacia blanco, pero muy sutil (evita blancos máximos)
-    return mix(base, vec3(1.0), 0.12);
+// Sistema de colores mejorado para evitar blancos cegadores
+vec3 enhanceColor(vec3 base, float intensity) {
+    // Aumentar saturación y brillo sin llegar al blanco puro
+    vec3 enhanced = base * intensity;
+    // Limitar componentes individuales para evitar blancos absolutos
+    enhanced = min(enhanced, vec3(0.95));
+    // Aumentar saturación ligeramente
+    float luminance = dot(enhanced, vec3(0.299, 0.587, 0.114));
+    enhanced = mix(vec3(luminance), enhanced, 1.15);
+    return enhanced;
 }
 
-vec3 haloTint(vec3 base) {
-    // Halo un poco desaturado para evitar fatiga visual
-    return desaturate(base, 0.35);
+vec3 coreTint(vec3 base, float brightness) {
+    // Núcleo más cálido y saturado, evitando blancos puros
+    vec3 warmTint = mix(base, vec3(1.0, 0.9, 0.8), 0.2);
+    return enhanceColor(warmTint, min(brightness * 0.8, 0.9));
+}
+
+vec3 haloTint(vec3 base, float brightness) {
+    // Halo más suave y colorido
+    vec3 softened = desaturate(base, 0.2);
+    return enhanceColor(softened, min(brightness * 0.4, 0.6));
+}
+
+vec3 bodyTint(vec3 base, float brightness) {
+    // Cuerpo principal con colores ricos
+    return enhanceColor(base, min(brightness * 0.9, 0.85));
 }
 
 vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
@@ -190,39 +233,45 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
 
         vec3 accum = vec3(0.0);
 
-        // Calcular halo mejorado una sola vez
+        // Sistema de renderizado equilibrado
         if (u_enhancedEffects > 0.5) {
-            float halo = haloFalloff(dist, screenRadius * 2.0, 0.75);
-            vec3 haloCol = c * (starBrightness * 0.5); // Aumentado de 0.3 a 0.5
-            accum += halo * haloCol * 0.25; // Aumentado de 0.12 a 0.25
+            float halo = haloFalloff(dist, screenRadius * 2.2, 0.8);
+            vec3 haloCol = haloTint(c, starBrightness);
+            accum += halo * haloCol;
         }
 
-        float body = circleFill(dist, screenRadius * (isType4 ? 0.8 : 1.0));
-        // Mejorar el cuerpo principal (sin redefinir bodyCol)
-        vec3 bodyCol = c * starBrightness * 1.2; // Aumentar intensidad
+        float body = circleFill(dist, screenRadius * (isType4 ? 0.85 : 1.0));
+        vec3 bodyCol = bodyTint(c, starBrightness);
 
-        float core = circleFill(dist, screenRadius * 0.3);
-        vec3 coreCol = mix(c, vec3(1.0), 0.3) * min(1.0, starBrightness * 0.9);
+        float core = circleFill(dist, screenRadius * 0.25);
+        vec3 coreCol = coreTint(c, starBrightness);
         
-        // Reducir el pulso para evitar blancos extremos
+        // Pulso más suave y controlado
         if (abs(type - 4.0) < 0.5) {
-            float pulse = sin(float(u_time) * 6.0 + pulsePhase);
-            pulseMul = (1.0 + 0.1 * pulse); // Reducido de 0.15 a 0.1
+            float pulse = sin(float(u_time) * 5.0 + pulsePhase);
+            pulseMul = (1.0 + 0.08 * pulse); // Pulso muy sutil
         }
 
-        // Usar isType4 para consistencia
-        if (u_enhancedEffects > 0.5 && isType4) {
-            float width = max(1.5, screenRadius * 0.3);
-            float flare = crossFlare(screenCoord, center, width, 1.0);
-            float flareTerm = flare * (starBrightness * 0.6);
-            accum += flareTerm * c;
-        }
+        // Efectos especiales controlados
+    if (u_enhancedEffects > 0.5 && isType4) {
+        float width = max(1.8, screenRadius * 0.35);
+        float flare = crossFlare(screenCoord, center, width, 0.8);
+        vec3 flareCol = enhanceColor(c, starBrightness * 0.4);
+        accum += flare * flareCol;
+    } else if (u_enhancedEffects > 0.5 && abs(type - 5.0) < 0.5) {
+        float width = max(1.8, screenRadius * 0.3);
+        float flare = sixPointFlare(screenCoord, center, width, 0.9);
+        vec3 flareCol = enhanceColor(c, starBrightness * 0.5);
+        accum += flare * flareCol;
+    }
 
+        // Composición final equilibrada
         accum += body * bodyCol * finalMul;
-        accum += core * coreCol; // Sin finalMul para el núcleo
+        accum += core * coreCol * 0.9; // Núcleo ligeramente reducido
 
-        // Alpha según intensidad (luminancia aprox) premultiplicado por 'a' del color base
-        float outAlpha = min(1.0, max(max(accum.r, accum.g), accum.b)) * a;
+        // Alpha suave y controlado
+        float luminance = dot(accum, vec3(0.299, 0.587, 0.114));
+        float outAlpha = min(0.95, luminance) * a;
         return vec4(accum, outAlpha);
     }
 
@@ -261,10 +310,12 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     }
     float starBrightness = brightness * twinkle;
 
+    bool isType4Main = abs(type - 4.0) < 0.5;
+    
     float pulseMul = 1.0;
-    if (abs(type - 4.0) < 0.5) {
-        float pulse = sin(float(u_time) * 6.0 + pulsePhase);
-        pulseMul = (1.1 + 0.15 * pulse); // Reducido para evitar blancos absolutos
+    if (isType4Main) {
+        float pulse = sin(float(u_time) * 5.0 + pulsePhase);
+        pulseMul = (1.0 + 0.08 * pulse); // Pulso muy sutil
     }
 
     vec3 c = starColor.rgb;
@@ -272,33 +323,41 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
 
     vec3 accum = vec3(0.0);
 
+    // Sistema de renderizado equilibrado (ruta principal)
     if (u_enhancedEffects > 0.5) {
-        float halo = haloFalloff(dist, screenRadius * 2.0, 0.75);
-        vec3 haloCol = c * (starBrightness * 0.3);
-        // Reducir brillo del halo para que se vea más sutil y deje ver el núcleo
-        accum += halo * haloCol * 0.12;
+        float halo = haloFalloff(dist, screenRadius * 2.2, 0.8);
+        vec3 haloCol = haloTint(c, starBrightness);
+        accum += halo * haloCol;
     }
 
-    float body = circleFill(dist, screenRadius * (abs(type - 4.0) < 0.5 ? 0.8 : 1.0));
-    vec3 bodyCol = c * starBrightness;
+    float body = circleFill(dist, screenRadius * (isType4Main ? 0.85 : 1.0));
+    vec3 bodyCol = bodyTint(c, starBrightness);
 
-    float core = circleFill(dist, screenRadius * 0.3);
-    vec3 coreCol = vec3(1.0) * min(1.0, starBrightness * 0.9);
+    float core = circleFill(dist, screenRadius * 0.25);
+    vec3 coreCol = coreTint(c, starBrightness);
 
-    if (u_enhancedEffects > 0.5 && abs(type - 4.0) < 0.5) {
-        float width = max(1.5, screenRadius * 0.3);
-        float flare = crossFlare(screenCoord, center, width, 1.0);
-        float flareTerm = flare * (starBrightness * 0.6);
-        accum += flareTerm * c;
+    // Efectos especiales controlados (ruta principal)
+    if (u_enhancedEffects > 0.5 && isType4Main) {
+        float width = max(1.8, screenRadius * 0.35);
+        float flare = crossFlare(screenCoord, center, width, 0.8);
+        vec3 flareCol = enhanceColor(c, starBrightness * 0.4);
+        accum += flare * flareCol;
+    } else if (u_enhancedEffects > 0.5 && abs(type - 5.0) < 0.5) {
+        float width = max(1.8, screenRadius * 0.3);
+        float flare = sixPointFlare(screenCoord, center, width, 0.9);
+        vec3 flareCol = enhanceColor(c, starBrightness * 0.5);
+        accum += flare * flareCol;
     }
 
-    float finalMul = (abs(type - 4.0) < 0.5) ? pulseMul : 1.0;
+    float finalMul = isType4Main ? pulseMul : 1.0;
 
+    // Composición final equilibrada (ruta principal)
     accum += body * bodyCol * finalMul;
-    accum += core * coreCol * finalMul;
+    accum += core * coreCol * 0.9;
 
-    // Alpha según intensidad también en la ruta con buffer
-    float outAlpha = min(1.0, max(max(accum.r, accum.g), accum.b)) * a;
+    // Alpha suave y controlado (ruta principal)
+    float luminance = dot(accum, vec3(0.299, 0.587, 0.114));
+    float outAlpha = min(0.95, luminance) * a;
     return vec4(accum, outAlpha);
 }
 

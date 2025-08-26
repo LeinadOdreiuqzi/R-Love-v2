@@ -387,26 +387,23 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                     local worldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
                     local worldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
 
-                    -- Determinar capa y escalados según profundidad
+                    -- Usar el tipo de estrella como capa (NO sobrescribir con depth)
                     local layerId = star.type or 1
                     local localParallaxStrength = parallaxStrength
                     local sizeScaleExtra = 1.0
 
+                    -- Aplicar escalados basados en profundidad SIN cambiar la capa
                     if star.depth then
                         if deepLayers[4] and star.depth >= deepLayers[4].threshold then
-                            layerId = -4
                             localParallaxStrength = parallaxStrength * (deepLayers[4].parallaxScale or 0.30)
                             sizeScaleExtra = deepLayers[4].sizeScale or 0.60
                         elseif deepLayers[3] and star.depth >= deepLayers[3].threshold then
-                            layerId = -3
                             localParallaxStrength = parallaxStrength * (deepLayers[3].parallaxScale or 0.20)
                             sizeScaleExtra = deepLayers[3].sizeScale or 0.45
                         elseif deepLayers[2] and star.depth >= deepLayers[2].threshold then
-                            layerId = -2
                             localParallaxStrength = parallaxStrength * (deepLayers[2].parallaxScale or 0.15)
                             sizeScaleExtra = deepLayers[2].sizeScale or 0.35
                         elseif deepLayers[1] and star.depth >= deepLayers[1].threshold then
-                            layerId = -1
                             localParallaxStrength = parallaxStrength * (deepLayers[1].parallaxScale or 0.08)
                             sizeScaleExtra = deepLayers[1].sizeScale or 0.25
                         end
@@ -685,26 +682,25 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
         end
     end
 
-    -- Dibujar capas profundas primero
-    for _, layer in ipairs({-4, -3, -2, -1}) do
-        if visibleStars[layer] then
-            drawLayerGroupedByType(visibleStars[layer])
-        end
-    end
-
     -- Capas existentes (1..6) - Filtrar solo estrellas tipo 1 (las más pequeñas)
     for layer = 1, 6 do
         if visibleStars[layer] then
             -- Filtrar estrellas tipo 1 (las más pequeñas) antes de renderizar
             local filteredStars = {}
+            local type5Count = 0
             for i = 1, #visibleStars[layer] do
                 local starInfo = visibleStars[layer][i]
                 local starType = starInfo.star.type or 1
                 -- Solo mantener estrellas tipo 2-6 (eliminar tipo 1)
                 if starType > 1 then
                     filteredStars[#filteredStars + 1] = starInfo
+                    if starType == 5 then
+                        type5Count = type5Count + 1
+                    end
                 end
             end
+            
+
             
             -- Solo renderizar si quedan estrellas después del filtro
             if #filteredStars > 0 then

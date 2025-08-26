@@ -17,7 +17,7 @@ MapConfig.stars = {
     parallaxStrength = 0.15,
     twinkleEnabled = true,
     enhancedEffects = true,
-    sizeScaleGlobal = 1.80,
+    sizeScaleGlobal = 0.9,
     useInstancedShader = true,
     instancedSizeScale = 5.0,
     -- Capas profundas ajustadas (removiendo niveles menos profundos para la nueva capa intermedia)

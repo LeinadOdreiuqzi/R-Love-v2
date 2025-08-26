@@ -68,6 +68,15 @@ local shaderCode = [[
         float angY = abs(centered.y);
         float flare = max(0.0, 1.0 - (angX * u_crossSharpness)) + 
                      max(0.0, 1.0 - (angY * u_crossSharpness));
+        
+        // Efecto de rombo sutil para crossSharpness muy bajo (tipo 3)
+        if (u_crossSharpness < 3.0) {
+            // Crear patrón de rombo usando distancia Manhattan
+            float diamond = 1.0 - (angX + angY) * 4.0;
+            diamond = max(0.0, diamond);
+            flare = mix(flare, diamond * 0.8, 0.7);
+        }
+        
         flare *= u_flareStrength; // controlable
 
         // Calcular alpha final
@@ -146,23 +155,23 @@ function StarShader.setType(starType)
         haloPower = 0.25
         quadMul = 2.2
     elseif starType == 2 then
-        -- Estrella mediana
-        haloSize = 1.25
-        coreSize = 0.65
-        flareStrength = 0.12
-        crossSharpness = 12.0
-        corePower = 0.9
-        haloPower = 0.30
-        quadMul = 2.6
+        -- Estrella mediana con efecto pulsante
+        haloSize = 1.35
+        coreSize = 0.5
+        flareStrength = 0.08
+        crossSharpness = 20.0
+        corePower = 1.2
+        haloPower = 0.45
+        quadMul = 2.8
     elseif starType == 3 then
-        -- Estrella grande
-        haloSize = 1.4
-        coreSize = 0.6
-        flareStrength = 0.25
-        crossSharpness = 8.0
-        corePower = 1.0
-        haloPower = 0.40
-        quadMul = 3.2
+        -- Estrella con patrón de rombo sutil
+        haloSize = 1.2
+        coreSize = 0.7
+        flareStrength = 0.35
+        crossSharpness = 2.5
+        corePower = 0.85
+        haloPower = 0.25
+        quadMul = 3.0
     elseif starType == 4 then
         -- Estrella super brillante con flares marcados
         haloSize = 1.6
@@ -210,6 +219,24 @@ function StarShader.setType(starType)
         corePower = 0.9
         haloPower = 0.30
         quadMul = 2.6
+    elseif starType == 2 then
+        -- Estrella mediana con efecto pulsante
+        haloSize = 1.35
+        coreSize = 0.5
+        flareStrength = 0.08
+        crossSharpness = 20.0
+        corePower = 1.2
+        haloPower = 0.45
+        quadMul = 2.8
+    elseif starType == 3 then
+        -- Estrella con patrón de rombo sutil
+        haloSize = 1.2
+        coreSize = 0.7
+        flareStrength = 0.35
+        crossSharpness = 2.5
+        corePower = 0.85
+        haloPower = 0.25
+        quadMul = 3.0
     else
         haloSize = 1.3
         coreSize = 0.58
@@ -243,6 +270,10 @@ function StarShader.drawStarBatchedNoUniforms(x, y, size, color, brightness, twi
         quadMul = 4.0
     elseif starType == 1 then
         quadMul = 2.6
+    elseif starType == 2 then
+        quadMul = 2.8
+    elseif starType == 3 then
+        quadMul = 3.0
     else
         quadMul = 3.0
     end
@@ -296,6 +327,24 @@ function StarShader.drawStarBatched(x, y, size, color, brightness, twinkleIntens
         corePower = 0.9
         haloPower = 0.30
         quadMul = 2.6
+    elseif starType == 2 then
+        -- Estrella mediana con efecto pulsante
+        haloSize = 1.35
+        coreSize = 0.5
+        flareStrength = 0.08
+        crossSharpness = 20.0
+        corePower = 1.2
+        haloPower = 0.45
+        quadMul = 2.8
+    elseif starType == 3 then
+        -- Estrella con patrón de rombo sutil
+        haloSize = 1.2
+        coreSize = 0.7
+        flareStrength = 0.35
+        crossSharpness = 2.5
+        corePower = 0.85
+        haloPower = 0.25
+        quadMul = 3.0
     else
         -- Otros tipos: valores intermedios
         haloSize = 1.3
