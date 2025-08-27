@@ -247,14 +247,14 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
         love.graphics.setColor(cr, cg, cb, ca)
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
     else
-        -- Solo Deep Space visible: usar velo sutil si es realmente dominante
-        local totalChunks = math.max(1, sumCount)
-        local deepSpaceRatio = (biomeCounts[BiomeSystem.BiomeType.DEEP_SPACE] or 0) / totalChunks
-
-        if deepSpaceRatio > 0.7 then
-            love.graphics.setColor(0.02, 0.02, 0.05, 0.3)
-            love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
-        end
+        -- Solo Deep Space visible: NO dibujar fondo para permitir que el fondo galáctico sea visible
+        -- El fondo galáctico procedural se renderiza desde BackgroundManager
+        -- local totalChunks = math.max(1, sumCount)
+        -- local deepSpaceRatio = (biomeCounts[BiomeSystem.BiomeType.DEEP_SPACE] or 0) / totalChunks
+        -- if deepSpaceRatio > 0.7 then
+        --     love.graphics.setColor(0.02, 0.02, 0.05, 0.3)
+        --     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+        -- end
     end
 
     love.graphics.pop()

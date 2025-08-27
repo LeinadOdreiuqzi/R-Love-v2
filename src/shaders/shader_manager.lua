@@ -4,6 +4,7 @@
 local ShaderManager = {}
 local StarShader = require 'src.shaders.star_shader'
 local StarfieldInstanced = require 'src.shaders.starfield_instanced'
+local BackgroundManager = require 'src.shaders.background_manager'
 
 -- Estado del gestor de shaders
 ShaderManager.state = {
@@ -14,7 +15,8 @@ ShaderManager.state = {
         nebula = nil,
         station = nil,
         wormhole = nil,
-        star_instanced = nil
+        star_instanced = nil,
+        galactic_background = nil
     },
     
     -- Status de precarga
@@ -24,7 +26,8 @@ ShaderManager.state = {
         nebula = false,
         station = false,
         wormhole = false,
-        star_instanced = false
+        star_instanced = false,
+        galactic_background = false
     },
     
     -- Imágenes base para batching
@@ -37,7 +40,7 @@ ShaderManager.state = {
     config = {
         preloadIncrementally = true,
         maxPreloadTimePerFrame = 0.002, -- 2ms max por frame
-        preloadPriority = {"star", "star_instanced", "asteroid", "nebula", "station", "wormhole"}
+        preloadPriority = {"galactic_background", "star", "star_instanced", "asteroid", "nebula", "station", "wormhole"}
     }
 }
 
@@ -443,6 +446,17 @@ function ShaderManager.createBasicShaders()
         else
             print("✗ Failed to load Wormhole shader (second createBasicShaders): " .. tostring(shader))
         end
+        
+        -- Galactic Background shader
+        if BackgroundManager and BackgroundManager.init then
+            BackgroundManager.init()
+            local GalacticBackground = require 'src.shaders.galactic_background'
+            ShaderManager.state.shaders.galactic_background = GalacticBackground.getShader()
+            ShaderManager.state.preloadStatus.galactic_background = true
+            print("✓ Galactic Background shader loaded successfully")
+        else
+            print("✗ Failed to load Galactic Background shader")
+        end
     end
 end
 
@@ -513,6 +527,15 @@ function ShaderManager.ensureShaderLoaded(shaderType)
             print("✓ Wormhole shader ensured on-demand")
         else
             print("✗ ensureShaderLoaded(wormhole) failed: " .. tostring(shader))
+        end
+    end
+    if shaderType == "galactic_background" and BackgroundManager then
+        if not ShaderManager.state.shaders.galactic_background and BackgroundManager.init then
+            BackgroundManager.init()
+            local GalacticBackground = require 'src.shaders.galactic_background'
+            ShaderManager.state.shaders.galactic_background = GalacticBackground.getShader()
+            ShaderManager.state.preloadStatus.galactic_background = true
+            print("✓ Galactic Background shader ensured on-demand")
         end
     end
     return ShaderManager.state.preloadStatus[shaderType]

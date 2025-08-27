@@ -966,9 +966,6 @@ function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities, rn
                     pulsePhase = rng:random() * math.pi * 2,
                     biomeType = chunk.biome.type
                 }
-                
-
-                
                 table.insert(stars, star)
             end
         end

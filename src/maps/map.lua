@@ -91,6 +91,16 @@ function Map.init(seed)
         print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr))
     end
     
+    -- Inicializar BackgroundManager
+    local backgroundSuccess, backgroundErr = pcall(function()
+        local BackgroundManager = require 'src.shaders.background_manager'
+        BackgroundManager.init()
+        BackgroundManager.setSeed(Map.numericSeed)
+    end)
+    if not backgroundSuccess then
+        print("Warning: BackgroundManager not available:", backgroundErr)
+    end
+    
     -- Inicializar estructuras tradicionales
     Map.chunks = {}
     Map.loadedChunks = {}
@@ -161,6 +171,10 @@ function Map.draw(camera)
     
     -- Calcular chunks visibles
     local chunkInfo = Map.calculateVisibleChunksTraditional(camera)
+    
+    -- Renderizar fondo galáctico procedural (capa más profunda)
+    local BackgroundManager = require 'src.shaders.background_manager'
+    BackgroundManager.render(camera)
     
     -- Dibujar fondo según bioma dominante
     local biomesActive = MapRenderer.drawBiomeBackground(chunkInfo, Map.getChunkNonBlocking)

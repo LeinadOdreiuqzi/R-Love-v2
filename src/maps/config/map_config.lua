@@ -191,4 +191,89 @@ MapConfig.stars.smartCulling = {
         distanceMultiplier = 2.0
     }
 }
+
+-- Configuración del fondo galáctico procedural
+MapConfig.galacticBackground = {
+    -- Configuración de renderizado
+    rendering = {
+        enabled = true,
+        renderBehindStars = true,  -- Renderizar en la capa más profunda
+        fadeWithZoom = true,
+        minZoomVisibility = 0.1,
+        maxZoomVisibility = 3.0
+    },
+    
+    -- Configuración de performance
+    performance = {
+        adaptiveQuality = true,
+        targetFrameTime = 0.016,  -- 60 FPS
+        currentQuality = "medium",
+        qualityLevels = {
+            low = {
+                intensity = 0.3,
+                detailLevel = 0.6,
+                updateFrequency = 0.1
+            },
+            medium = {
+                intensity = 0.5,
+                detailLevel = 0.8,
+                updateFrequency = 0.05
+            },
+            high = {
+                intensity = 0.7,
+                detailLevel = 1.0,
+                updateFrequency = 0.02
+            }
+        }
+    },
+    
+    -- Configuración visual
+    visual = {
+        baseIntensity = 0.6,
+        detailLevel = 1.0,
+        movementSpeed = 0.1,
+        colorVariation = 0.3,
+        
+        -- Paletas de colores predefinidas
+        colorPalettes = {
+            default = {
+                base = {0.05, 0.08, 0.15},
+                dust = {0.12, 0.15, 0.25},
+                gas = {0.08, 0.12, 0.20},
+                nebula = {0.15, 0.10, 0.25}
+            },
+            warm = {
+                base = {0.08, 0.06, 0.12},
+                dust = {0.18, 0.12, 0.20},
+                gas = {0.15, 0.10, 0.15},
+                nebula = {0.20, 0.08, 0.18}
+            },
+            cold = {
+                base = {0.03, 0.06, 0.18},
+                dust = {0.08, 0.12, 0.28},
+                gas = {0.05, 0.10, 0.25},
+                nebula = {0.10, 0.08, 0.30}
+            },
+            alien = {
+                base = {0.06, 0.12, 0.08},
+                dust = {0.12, 0.25, 0.15},
+                gas = {0.08, 0.20, 0.12},
+                nebula = {0.15, 0.25, 0.10}
+            }
+        },
+        
+        -- Paleta activa (se puede cambiar dinámicamente)
+        activePalette = "default"
+    },
+    
+    -- Configuración de variaciones por semilla
+    seedVariation = {
+        enabled = true,
+        intensityRange = {0.4, 0.8},
+        detailRange = {0.8, 1.2},
+        speedRange = {0.05, 0.15},
+        colorVariationRange = {0.1, 0.5}
+    }
+}
+
 return MapConfig
