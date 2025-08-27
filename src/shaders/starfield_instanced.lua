@@ -129,6 +129,19 @@ float sixPointFlare(vec2 p, vec2 center, float width, float intensity) {
     return flare * intensity * 1.2;
 }
 
+// Nuevo: Efecto diamante sutil (para type 3)
+float diamondFlare(vec2 p, vec2 center, float width, float intensity) {
+    vec2 d = abs(p - center);
+    // Distancia Manhattan para crear forma de diamante
+    float manhattanDist = d.x + d.y;
+    // Crear patrón de diamante con falloff suave
+    float diamond = exp(-pow(manhattanDist / (width * 0.8), 1.5));
+    // Agregar un poco de variación angular para más interés visual
+    float angle = atan(d.y, d.x);
+    float angleVar = 1.0 + 0.1 * sin(angle * 4.0);
+    return diamond * intensity * angleVar * 0.7;
+}
+
 // Sistema de colores equilibrado y armónico
 float baseProfile(float dist, float radius) {
     // Perfil gaussiano suave, agradable
@@ -263,6 +276,11 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
         float flare = sixPointFlare(screenCoord, center, width, 0.9);
         vec3 flareCol = enhanceColor(c, starBrightness * 0.5);
         accum += flare * flareCol;
+    } else if (u_enhancedEffects > 0.5 && abs(type - 3.0) < 0.5) {
+        float width = max(1.8, screenRadius * 0.4);
+        float flare = diamondFlare(screenCoord, center, width, 0.8);
+        vec3 flareCol = enhanceColor(c, starBrightness * 0.45);
+        accum += flare * flareCol;
     }
 
         // Composición final equilibrada
@@ -346,6 +364,11 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
         float width = max(1.8, screenRadius * 0.3);
         float flare = sixPointFlare(screenCoord, center, width, 0.9);
         vec3 flareCol = enhanceColor(c, starBrightness * 0.5);
+        accum += flare * flareCol;
+    } else if (u_enhancedEffects > 0.5 && abs(type - 3.0) < 0.5) {
+        float width = max(1.8, screenRadius * 0.4);
+        float flare = diamondFlare(screenCoord, center, width, 0.8);
+        vec3 flareCol = enhanceColor(c, starBrightness * 0.45);
         accum += flare * flareCol;
     }
 
