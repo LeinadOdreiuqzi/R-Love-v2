@@ -13,7 +13,7 @@ MapConfig.chunk = {
 
 -- Configuración de estrellas
 MapConfig.stars = {
-    maxStarsPerFrame = 6550,
+    maxStarsPerFrame = 6000,
     parallaxStrength = 0.15,
     twinkleEnabled = true,
     enhancedEffects = true,
@@ -149,7 +149,7 @@ MapConfig.nebulae = {
 
 -- Configuración de renderizado
 MapConfig.rendering = {
-    maxStarsPerFrame = 6550,
+    maxStarsPerFrame = 6000,
     enhancedEffects = true,
     lodEnabled = true,
     cullingEnabled = true
