@@ -12,10 +12,21 @@ ChunkManager.config = {
     chunkSize = 48,
     tileSize = 32,
     
-    -- Gestión de memoria
+    -- Gestión de memoria (optimizada para pantalla completa)
     maxActiveChunks = 120,      -- Aumentado de 100 a 120
     maxCachedChunks = 250,      -- Aumentado de 200 a 250
     poolSize = 60,              -- Aumentado de 50 a 60
+    
+    -- NUEVO: Configuración específica para pantalla completa
+    fullscreenOptimizations = {
+        enabled = true,
+        aggressiveUnload = true,          -- Descarga más agresiva fuera de viewport
+        reduceActiveChunks = true,        -- Reducir chunks activos en fullscreen
+        smartCaching = true,              -- Cache inteligente basado en viewport
+        maxActiveFullscreen = 90,         -- Chunks activos máximos en pantalla completa
+        viewportMargin = 1.5,             -- Margen del viewport para optimización
+        unloadDelay = 2.0,                -- Delay antes de descargar chunks (segundos)
+    },
     
     -- Distancias de carga/descarga (aumentadas para mejor precarga)
     loadDistance = 4,           -- Aumentado de 3 a 4
@@ -74,6 +85,15 @@ ChunkManager.state = {
     lastPlayerChunkX = 0,
     lastPlayerChunkY = 0,
     
+    -- NUEVO: Estado de optimizaciones de pantalla completa
+    fullscreenState = {
+        isFullscreen = false,
+        lastModeChange = 0,
+        viewportBounds = {},
+        chunksMarkedForUnload = {},
+        unloadTimer = {}
+    },
+    
     -- Estadísticas
     stats = {
         activeCount = 0,
@@ -84,7 +104,8 @@ ChunkManager.state = {
         cacheHits = 0,
         cacheMisses = 0,
         generationTime = 0,
-        lastFrameTime = 0
+        lastFrameTime = 0,
+        fullscreenOptimizations = 0  -- NUEVO: contador de optimizaciones aplicadas
     }
 }
 
@@ -637,35 +658,236 @@ function ChunkManager.pruneLoadQueue(playerChunkX, playerChunkY, velX, velY)
 
     ChunkManager.state.loadQueue = kept
 end
+
+-- ===== NUEVAS FUNCIONES DE OPTIMIZACIÓN PARA PANTALLA COMPLETA =====
+
+-- Detectar cambio a modo pantalla completa
+function ChunkManager.updateFullscreenState(isFullscreen)
+    local fsState = ChunkManager.state.fullscreenState
+    local wasFullscreen = fsState.isFullscreen
+    
+    if wasFullscreen ~= isFullscreen then
+        fsState.isFullscreen = isFullscreen
+        fsState.lastModeChange = love.timer.getTime()
+        
+        if isFullscreen then
+            print("ChunkManager: Activando optimizaciones de pantalla completa")
+            ChunkManager.applyFullscreenOptimizations()
+        else
+            print("ChunkManager: Desactivando optimizaciones de pantalla completa") 
+            ChunkManager.restoreNormalMode()
+        end
+    end
+end
+
+-- Aplicar optimizaciones específicas para pantalla completa
+function ChunkManager.applyFullscreenOptimizations()
+    local config = ChunkManager.config.fullscreenOptimizations
+    if not config.enabled then return end
+    
+    local fsState = ChunkManager.state.fullscreenState
+    local stats = ChunkManager.state.stats
+    
+    -- Reducir límite de chunks activos en pantalla completa
+    if config.reduceActiveChunks then
+        local originalLimit = ChunkManager.config.maxActiveChunks
+        local newLimit = config.maxActiveFullscreen
+        
+        if ChunkManager.countActiveChunks() > newLimit then
+            ChunkManager.aggressiveUnloadForFullscreen(newLimit)
+            stats.fullscreenOptimizations = stats.fullscreenOptimizations + 1
+        end
+    end
+    
+    print(string.format("ChunkManager: Optimizaciones aplicadas. Límite activo: %d", 
+          config.maxActiveFullscreen))
+end
+
+-- Descarga agresiva para pantalla completa
+function ChunkManager.aggressiveUnloadForFullscreen(targetLimit)
+    local config = ChunkManager.config.fullscreenOptimizations
+    if not config.aggressiveUnload then return end
+    
+    local activeChunks = {}
+    local playerChunkX = ChunkManager.state.lastPlayerChunkX or 0
+    local playerChunkY = ChunkManager.state.lastPlayerChunkY or 0
+    
+    -- Recopilar chunks activos con prioridad
+    for id, chunk in pairs(ChunkManager.state.activeChunks) do
+        local dx = math.abs(chunk.x - playerChunkX)
+        local dy = math.abs(chunk.y - playerChunkY)
+        local distance = math.max(dx, dy)
+        
+        table.insert(activeChunks, {
+            id = id,
+            chunk = chunk,
+            distance = distance,
+            lastAccess = chunk.lastAccess or 0
+        })
+    end
+    
+    -- Ordenar por distancia (más lejanos primero) y último acceso
+    table.sort(activeChunks, function(a, b)
+        if a.distance ~= b.distance then
+            return a.distance > b.distance  -- Más lejanos primero
+        end
+        return a.lastAccess < b.lastAccess  -- Menos usados primero
+    end)
+    
+    -- Descargar los excedentes
+    local currentCount = #activeChunks
+    local toUnload = currentCount - targetLimit
+    
+    for i = 1, math.min(toUnload, #activeChunks) do
+        local item = activeChunks[i]
+        local chunk = item.chunk
+        
+        -- Mover a caché
+        ChunkManager.state.activeChunks[item.id] = nil
+        chunk.visible = false
+        ChunkManager.state.cachedChunks[item.id] = chunk
+        
+        ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + 1
+    end
+    
+    print(string.format("ChunkManager: Descargados %d chunks para pantalla completa", 
+          math.min(toUnload, #activeChunks)))
+end
+
+-- Optimización inteligente basada en viewport
+function ChunkManager.optimizeForViewport(camera)
+    local config = ChunkManager.config.fullscreenOptimizations
+    if not config.enabled or not config.smartCaching then return end
+    
+    local fsState = ChunkManager.state.fullscreenState
+    
+    -- Calcular bounds del viewport con margen
+    local bounds = VisibilityUtils.getVisibleChunkBounds(camera, 0, 0)
+    local margin = config.viewportMargin
+    
+    fsState.viewportBounds = {
+        startX = bounds.startX - margin,
+        endX = bounds.endX + margin,
+        startY = bounds.startY - margin,
+        endY = bounds.endY + margin
+    }
+    
+    -- Marcar chunks fuera del viewport expandido para descarga
+    local currentTime = love.timer.getTime()
+    
+    for id, chunk in pairs(ChunkManager.state.activeChunks) do
+        local isOutsideViewport = (
+            chunk.x < fsState.viewportBounds.startX or
+            chunk.x > fsState.viewportBounds.endX or
+            chunk.y < fsState.viewportBounds.startY or
+            chunk.y > fsState.viewportBounds.endY
+        )
+        
+        if isOutsideViewport then
+            if not fsState.chunksMarkedForUnload[id] then
+                -- Marcar para descarga con delay
+                fsState.chunksMarkedForUnload[id] = currentTime + config.unloadDelay
+                fsState.unloadTimer[id] = currentTime
+            elseif currentTime >= fsState.chunksMarkedForUnload[id] then
+                -- Tiempo cumplido, descargar
+                ChunkManager.state.activeChunks[id] = nil
+                chunk.visible = false
+                ChunkManager.state.cachedChunks[id] = chunk
+                
+                fsState.chunksMarkedForUnload[id] = nil
+                fsState.unloadTimer[id] = nil
+                
+                ChunkManager.state.stats.fullscreenOptimizations = 
+                    ChunkManager.state.stats.fullscreenOptimizations + 1
+            end
+        else
+            -- Chunk volvió al viewport, cancelar descarga
+            if fsState.chunksMarkedForUnload[id] then
+                fsState.chunksMarkedForUnload[id] = nil
+                fsState.unloadTimer[id] = nil
+            end
+        end
+    end
+end
+
+-- Restaurar modo normal (salir de pantalla completa)
+function ChunkManager.restoreNormalMode()
+    local fsState = ChunkManager.state.fullscreenState
+    
+    -- Limpiar marcadores de descarga pendientes
+    fsState.chunksMarkedForUnload = {}
+    fsState.unloadTimer = {}
+    fsState.viewportBounds = {}
+    
+    print("ChunkManager: Modo normal restaurado")
+end
+
+-- Función principal de actualización para optimizaciones de pantalla completa
+function ChunkManager.updateFullscreenOptimizations(camera, dt)
+    local fsState = ChunkManager.state.fullscreenState
+    
+    if fsState.isFullscreen then
+        -- Aplicar optimizaciones basadas en viewport
+        ChunkManager.optimizeForViewport(camera)
+        
+        -- Verificar límites de chunks activos
+        local config = ChunkManager.config.fullscreenOptimizations
+        if config.reduceActiveChunks then
+            local currentActive = ChunkManager.countActiveChunks()
+            if currentActive > config.maxActiveFullscreen then
+                ChunkManager.aggressiveUnloadForFullscreen(config.maxActiveFullscreen)
+            end
+        end
+    end
+end
+
+-- Obtener estadísticas de optimizaciones de pantalla completa
+function ChunkManager.getFullscreenStats()
+    local fsState = ChunkManager.state.fullscreenState
+    local config = ChunkManager.config.fullscreenOptimizations
+    
+    return {
+        isFullscreen = fsState.isFullscreen,
+        optimizationsApplied = ChunkManager.state.stats.fullscreenOptimizations,
+        chunksMarkedForUnload = 0, -- contar elementos en fsState.chunksMarkedForUnload
+        maxActiveInFullscreen = config.maxActiveFullscreen,
+        currentActive = ChunkManager.countActiveChunks(),
+        viewportOptimized = fsState.viewportBounds and true or false
+    }
+end
+
+-- ===== FIN DE FUNCIONES DE OPTIMIZACIÓN PARA PANTALLA COMPLETA =====
+
     -- Obtener estadísticas del gestor
     function ChunkManager.getStats()
-        -- Actualizar contadores actuales
-        ChunkManager.state.stats.activeCount = 0
-        ChunkManager.state.stats.cachedCount = 0
-        
-        for _ in pairs(ChunkManager.state.activeChunks) do
-            ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount + 1
-        end
-        
-        for _ in pairs(ChunkManager.state.cachedChunks) do
-            ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount + 1
-        end
-        
-        ChunkManager.state.stats.poolCount = #ChunkManager.state.chunkPool
-        
-        return {
-            active = ChunkManager.state.stats.activeCount,
-            cached = ChunkManager.state.stats.cachedCount,
-            pooled = ChunkManager.state.stats.poolCount,
-            loadQueue = #ChunkManager.state.loadQueue,
-            unloadQueue = #ChunkManager.state.unloadQueue,
-            cacheHitRatio = ChunkManager.state.stats.cacheHits /
-                           math.max(1, ChunkManager.state.stats.cacheHits + ChunkManager.state.stats.cacheMisses),
-            generationTime = ChunkManager.state.stats.generationTime,
-            lastFrameTime = ChunkManager.state.stats.lastFrameTime,
-            generationBudget = ChunkManager.state.stats.generationBudget,
-        }
+
+    -- Actualizar contadores actuales
+    ChunkManager.state.stats.activeCount = 0
+    ChunkManager.state.stats.cachedCount = 0
+    
+    for _ in pairs(ChunkManager.state.activeChunks) do
+        ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount + 1
     end
+    
+    for _ in pairs(ChunkManager.state.cachedChunks) do
+        ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount + 1
+    end
+    
+    ChunkManager.state.stats.poolCount = #ChunkManager.state.chunkPool
+    
+    return {
+        active = ChunkManager.state.stats.activeCount,
+        cached = ChunkManager.state.stats.cachedCount,
+        pooled = ChunkManager.state.stats.poolCount,
+        loadQueue = #ChunkManager.state.loadQueue,
+        unloadQueue = #ChunkManager.state.unloadQueue,
+        cacheHitRatio = ChunkManager.state.stats.cacheHits /
+                       math.max(1, ChunkManager.state.stats.cacheHits + ChunkManager.state.stats.cacheMisses),
+        generationTime = ChunkManager.state.stats.generationTime,
+        lastFrameTime = ChunkManager.state.stats.lastFrameTime,
+        generationBudget = ChunkManager.state.stats.generationBudget,
+    }
+end
     
     -- Reset estadísticas
     function ChunkManager.resetStats()

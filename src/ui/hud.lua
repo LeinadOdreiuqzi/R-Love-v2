@@ -2,6 +2,7 @@
 
 local HUD = {}
 local SeedSystem = require 'src.utils.seed_system'
+local ChunkManager = require 'src.maps.chunk_manager'
 
 -- Estado del HUD unificado
 local hudState = {
@@ -292,6 +293,18 @@ function HUD.getSafeStats()
             -- Copiar estadísticas disponibles de forma segura
             if mapStats.chunks then
                 stats.chunks = mapStats.chunks
+                
+                -- Agregar estadísticas de optimizaciones de pantalla completa
+                local fsSuccess, fsStats = pcall(function()
+                    if ChunkManager and ChunkManager.getFullscreenStats then
+                        return ChunkManager.getFullscreenStats()
+                    end
+                    return nil
+                end)
+                
+                if fsSuccess and fsStats then
+                    stats.chunks.fullscreenOptimizations = fsStats
+                end
             elseif mapStats.loadedChunks then
                 stats.loadedChunks = mapStats.loadedChunks
             end
@@ -743,6 +756,32 @@ function HUD.drawUnifiedInfoPanel()
         if stats.coordinates and stats.coordinates.relocations then
             love.graphics.print("Coord Relocations: " .. stats.coordinates.relocations, x + 15, infoY)
             infoY = infoY + lineHeight
+        end
+        
+        -- Información de optimizaciones de pantalla completa
+        if stats.chunks and stats.chunks.fullscreenOptimizations then
+            local fsStats = stats.chunks.fullscreenOptimizations
+            local modeText = fsStats.isFullscreen and "Fullscreen" or "Windowed"
+            local optimizationColor = fsStats.isFullscreen and {0.8, 1, 0.8, 1} or {0.8, 0.8, 0.8, 1}
+            
+            love.graphics.setColor(optimizationColor)
+            love.graphics.print("Mode: " .. modeText, x + 15, infoY)
+            infoY = infoY + lineHeight
+            
+            if fsStats.isFullscreen then
+                love.graphics.print("FS Optimizations: " .. fsStats.optimizationsApplied, x + 15, infoY)
+                infoY = infoY + lineHeight
+                
+                if fsStats.aggressiveUnloads and fsStats.aggressiveUnloads > 0 then
+                    love.graphics.print("Chunks Unloaded: " .. fsStats.aggressiveUnloads, x + 15, infoY)
+                    infoY = infoY + lineHeight
+                end
+                
+                if fsStats.maxActiveReduced then
+                    love.graphics.print("Active Limit: Reduced", x + 15, infoY)
+                    infoY = infoY + lineHeight
+                end
+            end
         end
         
         infoY = infoY + 5

@@ -10,6 +10,7 @@ local ChunkManager = require 'src.maps.chunk_manager'
 local OptimizedRenderer = require 'src.maps.optimized_renderer'
 local SeedSystem = require 'src.utils.seed_system'
 local LoadingScreen = require 'src.ui.loading_screen'
+local FullscreenManager = require 'src.utils.fullscreen_manager'
 
 -- Estado del juego con semilla alfanumérica
 local gameState = {
@@ -242,6 +243,12 @@ end
 
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
+    
+    -- Inicializar FullscreenManager después de configurar los filtros
+    if FullscreenManager and FullscreenManager.init then
+        FullscreenManager.init()
+    end
+    
     -- Inicializar pantalla de carga
     LoadingScreen.init()
     
@@ -298,6 +305,15 @@ function love.update(dt)
     -- Actualizar sistema de mapas mejorado con velocidad
     if player and player.x and player.y then
         Map.update(dt, player.x, player.y, playerVelX, playerVelY)
+    end
+    
+    -- Actualizar optimizaciones de pantalla completa en ChunkManager
+    if ChunkManager and ChunkManager.updateFullscreenOptimizations then
+        local isFullscreen = false
+        if FullscreenManager and FullscreenManager.isFullscreen then
+            isFullscreen = FullscreenManager.isFullscreen()
+        end
+        ChunkManager.updateFullscreenOptimizations(isFullscreen, _G.camera)
     end
     
     -- Actualizar OptimizedRenderer con precarga incremental
@@ -724,9 +740,33 @@ function love.keypressed(key)
         if key == "escape" then
             love.event.quit()
         end
+        -- Permitir también toggle de pantalla completa durante la carga
+        if key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
+            if FullscreenManager and FullscreenManager.toggle then
+                FullscreenManager.toggle()
+            end
+        elseif key == "f11" then
+            if FullscreenManager and FullscreenManager.toggle then
+                FullscreenManager.toggle()
+            end
+        end
         return
     end
-    
+
+    -- Atajos globales para pantalla completa
+    if key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
+        if FullscreenManager and FullscreenManager.toggle then
+            FullscreenManager.toggle()
+            return
+        end
+    elseif key == "f11" then
+        -- Reasignamos F11 al toggle de pantalla completa; movemos la función previa a F10+Shift
+        if FullscreenManager and FullscreenManager.toggle then
+            FullscreenManager.toggle()
+            return
+        end
+    end
+
     -- Manejar input de semilla si el HUD lo está mostrando
     if HUD.isSeedInputVisible() then
         local newSeed, seedType = HUD.handleSeedInput(key)
@@ -790,11 +830,12 @@ function love.keypressed(key)
             local enabled = player.stats:toggleInfiniteFuel()
             print("Infinite fuel: " .. (enabled and "ON" or "OFF"))
         end
-    elseif key == "f11" then
-        if player and player.stats then
-            local enabled = player.stats:toggleFastRegen()
-            print("Fast shield regen: " .. (enabled and "ON" or "OFF"))
-        end
+    -- NOTE: F11 ahora se usa para alternar pantalla completa. Si se requiere el antiguo 'Fast shield regen', reasignarlo a otra tecla.
+    -- elseif key == "f11" then
+    --     if player and player.stats then
+    --         local enabled = player.stats:toggleFastRegen()
+    --         print("Fast shield regen: " .. (enabled and "ON" or "OFF"))
+    --     end
     elseif key == "f12" then
         HUD.toggleBiomeInfo()
     elseif key == "r" then
@@ -937,15 +978,20 @@ function regenerateMap(seed)
 end
 
 function love.resize(w, h)
+    -- Notificar al FullscreenManager sobre el redimensionamiento
+    if FullscreenManager and FullscreenManager.handleResize then
+        FullscreenManager.handleResize(w, h)
+    end
+    
     if _G.camera then
         _G.camera:updateScreenDimensions()
     end
-    
+
     -- Actualizar dimensiones de pantalla para el culling optimizado
     if Map and Map.updateScreenDimensions then
         Map.updateScreenDimensions()
     end
-    
+
     -- Actualizar pantalla de carga si está activa
     if LoadingScreen then
         LoadingScreen.resize(w, h)
