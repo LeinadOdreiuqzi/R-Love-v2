@@ -5,6 +5,7 @@ local MapGenerator = {}
 local PerlinNoise = require 'src.maps.perlin_noise'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
+local ColorHarmony = require 'src.utils.color_harmony'
 local SeedSystem = require 'src.utils.seed_system'
 
 MapGenerator.debugLogs = false
@@ -707,7 +708,14 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
                 -- Tamaño según tier (reemplaza al tamaño fijo anterior)
                 size = finalSize,
                 sizeTier = tierName,
-                color = MapConfig.colors.nebulae[rng:randomInt(1, #MapConfig.colors.nebulae)],
+                -- NUEVO: color armónico y vibrante por nebulosa
+                color = (function()
+                    local ok, nebColor = pcall(ColorHarmony.generateNebulaColor, rng, chunk.biome.type, math.floor((nebula and nebula.seed or rng:random()*100000)))
+                    if ok and type(nebColor) == "table" then
+                        return nebColor
+                    end
+                    return {0.8, 0.6, 0.2, 0.35}
+                end)(),
                 intensity = rng:randomRange(0.30, 0.70),
                 biomeType = chunk.biome.type,
                 globalX = globalX,
@@ -739,7 +747,13 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
                 nebula.size = nebula.size * rng:randomRange(0.80, 1.30)
                 nebula.intensity = nebula.intensity * rng:randomRange(1.20, 1.60)
-                nebula.color = {0.8, 0.6, 0.2, 0.5}
+                -- En zonas radioactivas preferimos verdes/ámbar intensos
+                local ok, c = pcall(ColorHarmony.generateHarmonicPalette, rng, "analogous", {0.2, 0.9, 0.2}, 1)
+                if ok and type(c) == "table" and c[1] then
+                    nebula.color = c[1]
+                else
+                    nebula.color = {0.8, 0.6, 0.2, 0.5}
+                end
                 -- Un poco más finas
                 nebula.softness = math.max(0.15, (nebula.softness or rng:randomRange(0.18, 0.40)) - 0.05)
             end
@@ -756,7 +770,14 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             type = MapConfig.ObjectType.NEBULA,
             x = cx, y = cy,
             size = rng:randomInt(120, 220) * MapConfig.chunk.worldScale * baseScale,
-            color = MapConfig.colors.nebulae[rng:randomInt(1, #MapConfig.colors.nebulae)],
+            -- Color armónico para el fallback central en NEBULA_FIELD
+            color = (function()
+                local ok, palette = pcall(ColorHarmony.generateRandomCoherentPalette, rng, 1)
+                if ok and type(palette) == "table" and palette[1] then
+                    return palette[1]
+                end
+                return {0.6, 0.4, 0.9, 0.35}
+            end)(),
             intensity = rng:randomRange(0.25, 0.55),
             biomeType = chunk.biome.type,
             globalX = chunkX * MapConfig.chunk.size + math.floor(MapConfig.chunk.size * 0.5),
