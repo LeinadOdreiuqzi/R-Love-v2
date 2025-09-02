@@ -701,6 +701,9 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             local sizeBasePx = rng:randomInt(tdef.min, tdef.max)
             local finalSize = sizeBasePx * MapConfig.chunk.worldScale * baseScale
 
+            -- CORRECCIÓN: Generar seed primero para evitar error lógico
+            local nebulaSeed = rng:randomRange(0.0, 10000.0)
+            
             local nebula = {
                 type = MapConfig.ObjectType.NEBULA,
                 x = x * MapConfig.chunk.tileSize,
@@ -708,9 +711,14 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
                 -- Tamaño según tier (reemplaza al tamaño fijo anterior)
                 size = finalSize,
                 sizeTier = tierName,
-                -- NUEVO: color armónico y vibrante por nebulosa
+                -- SECCIÓN DE DETERMINACIÓN DE COLOR DE NEBULOSAS:
+                -- Esta sección utiliza el sistema de armonía cromática para generar
+                -- colores vibrantes y coherentes basados en:
+                -- 1. El tipo de bioma del chunk
+                -- 2. Una semilla específica para la nebulosa
+                -- 3. Paletas astronómicas predefinidas o armonías procedurales
                 color = (function()
-                    local ok, nebColor = pcall(ColorHarmony.generateNebulaColor, rng, chunk.biome.type, math.floor((nebula and nebula.seed or rng:random()*100000)))
+                    local ok, nebColor = pcall(ColorHarmony.generateNebulaColor, rng, chunk.biome.type, math.floor(nebulaSeed))
                     if ok and type(nebColor) == "table" then
                         return nebColor
                     end
@@ -723,7 +731,7 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             }
 
             -- NUEVO: parámetros aleatorios para el shader de domain warping + parallax
-            nebula.seed       = rng:randomRange(0.0, 10000.0)
+            nebula.seed       = nebulaSeed
             nebula.noiseScale = rng:randomRange(1.6, 3.6)
             nebula.warpAmp    = rng:randomRange(0.35, 1.00)
             nebula.warpFreq   = rng:randomRange(0.7,  2.0)

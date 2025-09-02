@@ -3,6 +3,7 @@ local NebulaRenderer = {}
 
 local MapConfig = require 'src.maps.config.map_config'
 local ShaderManager = require 'src.shaders.shader_manager'
+local NebulasShaders = require 'src.shaders.nebulas_shaders'
 local BiomeSystem = require 'src.maps.biome_system'
 
 local SIZE_PIXELS = MapConfig.chunk.size * MapConfig.chunk.tileSize
@@ -58,16 +59,15 @@ local function isOnScreen(screenX, screenY, radiusPx, margin)
 end
 
 function NebulaRenderer.update(dt)
-    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
-    if shader then
-        pcall(function()
-            shader:send("u_time", love.timer.getTime())
-        end)
+    -- Actualizar tiempo en el shader de nebulosas
+    if NebulasShaders and NebulasShaders.updateTime then
+        NebulasShaders.updateTime(love.timer.getTime())
     end
 end
 
 function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
-    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
+    -- Usar el nuevo sistema de shaders de nebulosas
+    local shader = NebulasShaders and NebulasShaders.getShader and NebulasShaders.getShader() or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
     -- DEBUG: imprimir una sola vez el tamaño del círculo y existencia de shader
     if not NebulaRenderer._debugOnce then
@@ -111,8 +111,9 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                         love.graphics.push()
                         love.graphics.origin()
 
-                        -- Color base
+                        -- Color base con alpha aumentado para mayor visibilidad
                         local br, bg, bb, ba = (n.color and n.color[1] or 1), (n.color and n.color[2] or 1), (n.color and n.color[3] or 1), (n.color and n.color[4] or 1)
+                        ba = ba * 1.25  -- Aumentar opacidad base
                         -- Variación armónica según parallax: matiz análogo y ligera variación de saturación/valor
                         local h, s, v = rgb2hsv(br, bg, bb)
                         local hueShift = (par - 0.5) * 0.12         -- ±0.06
@@ -127,36 +128,42 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                         local OptimizedRenderer = require 'src.maps.optimized_renderer'
                         local brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
 
-                        -- Enviar uniforms (incluye u_parallax)
+                        -- Configurar uniforms usando el nuevo sistema
                         love.graphics.setColor(cr, cg, cb, ba)
-                        pcall(function()
-                            shader:send("u_seed", (n.seed or 0) * 0.001)
-                            shader:send("u_noiseScale", n.noiseScale or 2.5)
-                            shader:send("u_warpAmp", n.warpAmp or 0.65)
-                            shader:send("u_warpFreq", n.warpFreq or 1.25)
-                            shader:send("u_softness", n.softness or 0.28)
-                            shader:send("u_brightness", brightness)
-                            shader:send("u_parallax", par)
-                            -- Destellos desactivados
-                            shader:send("u_sparkleStrength", 0.0)
-                        end)
-                        love.graphics.setShader(shader)
+                        if NebulasShaders and NebulasShaders.configureForNebula then
+                            NebulasShaders.configureForNebula({
+                                seed = (n.seed or 0) * 0.001,
+                                noiseScale = n.noiseScale or 2.5,
+                                warpAmp = n.warpAmp or 0.65,
+                                warpFreq = n.warpFreq or 1.25,
+                                softness = n.softness or 0.28,
+                                brightness = brightness,
+                                parallax = par,
+                                sparkleStrength = 0.0  -- Destellos desactivados
+                            })
+                        end
+                        NebulasShaders.setShader()
                         local iw, ih = img:getWidth(), img:getHeight()
                         local scale = (radiusPx * 2) / math.max(1, iw)
                         love.graphics.draw(img, screenX, screenY, 0, scale, scale, iw * 0.5, ih * 0.5)
-                        love.graphics.setShader()
+                        NebulasShaders.unsetShader()
 
-                        -- NUEVO: superponer niebla suave (fog-of-war) para baja visibilidad
+                        -- NUEVO: superponer niebla suave (fog-of-war) para contraste mejorado
                         do
-                            -- Oscurecer levemente con alpha; más intenso según intensidad de la nebulosa y parallax
-                            local fogAlpha = math.max(0.0, math.min(1.0, 0.10 + 0.30 * (n.intensity or 0.6) * (0.7 + 0.3 * par)))
+                            -- Niebla oscura sutil para realzar contraste con colores procedurales
+                            local baseIntensity = n.intensity or 0.6
+                            local fogAlpha = math.max(0.0, math.min(1.0, 0.08 + 0.18 * baseIntensity * (0.75 + 0.25 * par)))
+                            
                             if fogAlpha > 0.01 then
                                 local prevBlend, prevAlpha = love.graphics.getBlendMode()
                                 love.graphics.setBlendMode("alpha", "alphamultiply")
-                                love.graphics.setColor(0, 0, 0, fogAlpha)
-                                -- un poco más grande que la nebulosa para sensación de velo
-                                local fogScale = scale * 1.08
+                                
+                                -- Niebla oscura principal con tinte sutil
+                                local fogTint = 0.05 + 0.03 * par  -- Ligero tinte según parallax
+                                love.graphics.setColor(fogTint, fogTint * 0.8, fogTint * 0.6, fogAlpha)
+                                local fogScale = scale * 1.12  -- Ligeramente más grande para mejor cobertura
                                 love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, iw * 0.5, ih * 0.5)
+                                
                                 love.graphics.setBlendMode(prevBlend or "add", prevAlpha)
                             end
                         end

@@ -5,6 +5,7 @@ local ShaderManager = {}
 local StarShader = require 'src.shaders.star_shader'
 local StarfieldInstanced = require 'src.shaders.starfield_instanced'
 local BackgroundManager = require 'src.shaders.background_manager'
+local NebulasShaders = require 'src.shaders.nebulas_shaders'
 
 -- Estado del gestor de shaders
 ShaderManager.state = {
@@ -64,6 +65,7 @@ function ShaderManager.init()
         ShaderManager.state.preloadStatus.star = true
         print("✓ StarShader preloaded")
     end
+    
     -- Inicializar StarfieldInstanced
     if StarfieldInstanced and StarfieldInstanced.init then
         StarfieldInstanced.init()
@@ -73,6 +75,18 @@ function ShaderManager.init()
             print("✓ StarfieldInstanced shader preloaded")
         else
             print("✗ StarfieldInstanced shader failed to preload")
+        end
+    end
+    
+    -- Inicializar NebulasShaders
+    if NebulasShaders and NebulasShaders.init then
+        local success = NebulasShaders.init()
+        if success then
+            ShaderManager.state.shaders.nebula = NebulasShaders.getShader()
+            ShaderManager.state.preloadStatus.nebula = true
+            print("✓ NebulasShaders preloaded")
+        else
+            print("✗ NebulasShaders failed to preload")
         end
     end
     
@@ -276,97 +290,7 @@ function ShaderManager.createBasicShaders()
         }
     ]]
     
-    -- Shader básico para nebulosas (efecto difuso)
-    local nebulaShaderCode = [[
-        extern float u_time;
-        extern float u_seed;
-        extern float u_noiseScale;
-        extern float u_warpAmp;
-        extern float u_warpFreq;
-        extern float u_softness;
-        extern float u_intensity;
-        extern float u_brightness;
-        extern float u_parallax;        // NUEVO: parallax por-nebulosa
-        extern float u_sparkleStrength; // NUEVO: control de intensidad de destellos locales
-
-        float hash(vec2 p) {
-            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-        }
-        float noise(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            float a = hash(i);
-            float b = hash(i + vec2(1.0, 0.0));
-            float c = hash(i + vec2(0.0, 1.0));
-            float d = hash(i + vec2(1.0, 1.0));
-            vec2 u = f * f * (3.0 - 2.0 * f);
-            return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
-        }
-        float fbm(vec2 p) {
-            float v = 0.0;
-            float a = 0.5;
-            for (int i = 0; i < 5; i++) {
-                v += a * noise(p);
-                p *= 2.0;
-                a *= 0.5;
-            }
-            return v;
-        }
-        vec2 domainWarp(vec2 p, float t) {
-            float f = max(0.0001, u_warpFreq);
-            vec2 q = vec2(
-                fbm(p * f + t + u_seed),
-                fbm(p * f - t + u_seed + 13.37)
-            );
-            q = (q - 0.5) * 2.0;
-            return p + q * u_warpAmp;
-        }
-        vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords) {
-            vec2 uv = texcoord * 2.0 - 1.0;
-            float r = length(uv);
-            float s = clamp(u_softness, 0.0, 0.95);
-            float mask = 1.0 - smoothstep(1.0 - s, 1.0, r);
-            if (mask <= 0.0001) {
-                return vec4(0.0);
-            }
-
-            // Movimiento más sutil y dependiente de parallax
-            float par = clamp(u_parallax, 0.0, 1.0);
-            float t = u_time * mix(0.015, 0.035, par);
-
-            float ns = max(0.0001, u_noiseScale);
-            vec2 p = uv * ns;
-            p = domainWarp(p, t);
-            float n = fbm(p);
-
-            float cloud = smoothstep(0.30, 0.95, n);
-            float centerBoost = smoothstep(1.0, 0.0, r);
-            float density = cloud * (0.65 + 0.35 * centerBoost);
-
-            // Destellos locales (“sparkle”) — se mantienen pero controlados por u_sparkleStrength (0.0 = OFF)
-            // float par = clamp(u_parallax, 0.0, 1.0);  // <- eliminado: ya definido arriba
-            float sparkScale = 2.5 + par * 4.0;
-            vec2 sp = p * sparkScale;
-
-            float s1 = noise(sp + vec2(u_time * (1.6 + par * 0.8) + u_seed, -u_time * (1.1 + par * 0.5) + u_seed * 0.7));
-            float s2 = noise(sp * 1.3 + vec2(-u_time * (1.4 + par * 0.6) + u_seed * 1.3, u_time * (0.9 + 0.4 * par)));
-            float smax = max(s1, s2);
-
-            float sparkMask = smoothstep(0.88, 1.0, smax) * mask;
-            float sparkStrength = clamp(u_sparkleStrength, 0.0, 3.0) * (0.9 + 0.6 * par);
-
-            vec4 texel = Texel(tex, texcoord);
-            vec3 baseColor = color.rgb * texel.rgb * u_brightness;
-            vec3 finalColor = baseColor * (1.0 + sparkStrength * sparkMask);
-
-            float a = mask * density * clamp(u_intensity, 0.0, 2.0) * texel.a;
-            // El boost de alpha depende de sparkStrength (si es 0, no hay boost)
-            float normalizedSpark = clamp(sparkStrength / 3.0, 0.0, 1.0);
-            a *= (1.0 + 0.30 * sparkMask * normalizedSpark);
-
-            return vec4(finalColor, color.a * a);
-        }
-    ]]
+    -- Nebulosas ahora manejadas por NebulasShaders (código movido a nebulas_shaders.lua)
     
     -- Shader básico para estaciones (efecto metálico)
     local stationShaderCode = [[
@@ -400,24 +324,7 @@ function ShaderManager.createBasicShaders()
             end)
         end
         
-        -- Nebulosa shader
-        success, shader = pcall(love.graphics.newShader, nebulaShaderCode)
-        if success then
-            ShaderManager.state.shaders.nebula = shader
-            ShaderManager.state.preloadStatus.nebula = true
-            pcall(function()
-                shader:send("u_seed", 0.0)
-                shader:send("u_noiseScale", 2.5)
-                shader:send("u_warpAmp", 0.65)
-                shader:send("u_warpFreq", 1.25)
-                shader:send("u_softness", 0.28)
-                shader:send("u_intensity", 0.6)
-                shader:send("u_brightness", 1.20)
-                shader:send("u_parallax", 0.85)
-                shader:send("u_sparkleStrength", 0.0)
-                shader:send("u_time", love.timer.getTime())
-            end)
-        end
+        -- Nebulosa shader ahora manejado por NebulasShaders
         
         -- Estación shader
         success, shader = pcall(love.graphics.newShader, stationShaderCode)
@@ -469,9 +376,12 @@ function ShaderManager.update(dt)
     
     -- Actualizar tiempo en shaders que lo necesiten
     local currentTime = love.timer.getTime()
-    if ShaderManager.state.shaders.nebula then
-        ShaderManager.state.shaders.nebula:send("u_time", currentTime)
+    
+    -- Usar NebulasShaders para actualizar nebulosas
+    if NebulasShaders and NebulasShaders.update then
+        NebulasShaders.update(dt)
     end
+    
     if ShaderManager.state.shaders.wormhole then
         ShaderManager.state.shaders.wormhole:send("u_time", currentTime)
     end
@@ -499,6 +409,22 @@ function ShaderManager.ensureShaderLoaded(shaderType)
             ShaderManager.state.preloadStatus.star = true
         end
     end
+    
+    -- Cargar nebulosas usando NebulasShaders
+    if shaderType == "nebula" and NebulasShaders then
+        if not ShaderManager.state.shaders.nebula then
+            local success = NebulasShaders.init()
+            if success then
+                ShaderManager.state.shaders.nebula = NebulasShaders.getShader()
+                ShaderManager.state.preloadStatus.nebula = true
+                print("✓ Nebula shader ensured on-demand")
+            else
+                print("✗ ensureShaderLoaded(nebula) failed")
+            end
+        end
+        return ShaderManager.state.preloadStatus.nebula
+    end
+    
     -- cargar on-demand el instanced si fuera necesario
     if shaderType == "star_instanced" and StarfieldInstanced then
         if not ShaderManager.state.shaders.star_instanced and StarfieldInstanced.init then

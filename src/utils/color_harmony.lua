@@ -38,88 +38,9 @@ local function hsv2rgb(h, s, v)
     else return v, p, q end
 end
 
--- Paletas de colores base de nebulosas astronómicas reales
-local ASTRONOMICAL_PALETTES = {
-    -- Nebulosa del Cangrejo: azules y blancos brillantes
-    crab = {
-        base = {h = 0.6, s = 0.8, v = 0.9},  -- Azul brillante
-        harmonics = {
-            {h = 0.65, s = 0.7, v = 0.95}, -- Azul-cian
-            {h = 0.55, s = 0.9, v = 0.85}, -- Azul profundo
-            {h = 0.0, s = 0.0, v = 1.0}    -- Blanco puro
-        }
-    },
-    
-    -- Nebulosa de Orión: rojos, magentas y azules
-    orion = {
-        base = {h = 0.95, s = 0.9, v = 0.8}, -- Rojo-magenta
-        harmonics = {
-            {h = 0.0, s = 0.85, v = 0.9},   -- Rojo brillante
-            {h = 0.85, s = 0.8, v = 0.7},   -- Magenta
-            {h = 0.6, s = 0.6, v = 0.4}     -- Azul tenue
-        }
-    },
-    
-    -- Nebulosa del Águila: naranjas y rojos
-    eagle = {
-        base = {h = 0.08, s = 0.9, v = 0.85}, -- Naranja brillante
-        harmonics = {
-            {h = 0.05, s = 0.95, v = 0.9},  -- Naranja-rojo
-            {h = 0.02, s = 0.8, v = 0.7},   -- Rojo
-            {h = 0.12, s = 0.7, v = 0.6}    -- Amarillo-naranja
-        }
-    },
-    
-    -- Nebulosa del Velo: verdes y azules
-    veil = {
-        base = {h = 0.3, s = 0.8, v = 0.75}, -- Verde brillante
-        harmonics = {
-            {h = 0.35, s = 0.9, v = 0.8},   -- Verde-azul
-            {h = 0.25, s = 0.7, v = 0.65},  -- Verde lima
-            {h = 0.5, s = 0.6, v = 0.5}     -- Azul-verde
-        }
-    },
-    
-    -- Nebulosa Roseta: rojos profundos y rosas
-    rosette = {
-        base = {h = 0.98, s = 0.9, v = 0.8}, -- Rosa-rojo
-        harmonics = {
-            {h = 0.02, s = 0.95, v = 0.85}, -- Rojo profundo
-            {h = 0.92, s = 0.7, v = 0.9},   -- Rosa brillante
-            {h = 0.08, s = 0.5, v = 0.6}    -- Naranja tenue
-        }
-    },
-    
-    -- Nebulosa del Corazón: rojos carmesí
-    heart = {
-        base = {h = 0.0, s = 0.95, v = 0.85}, -- Rojo puro
-        harmonics = {
-            {h = 0.98, s = 0.9, v = 0.9},   -- Rosa-rojo
-            {h = 0.02, s = 0.8, v = 0.7},   -- Rojo oscuro
-            {h = 0.95, s = 0.6, v = 0.6}    -- Rosa
-        }
-    },
-    
-    -- Nebulosa Helix: azules y verdes
-    helix = {
-        base = {h = 0.55, s = 0.8, v = 0.8}, -- Azul-verde
-        harmonics = {
-            {h = 0.6, s = 0.9, v = 0.85},   -- Azul brillante
-            {h = 0.4, s = 0.7, v = 0.7},    -- Verde-azul
-            {h = 0.65, s = 0.5, v = 0.5}    -- Azul tenue
-        }
-    },
-    
-    -- Nebulosa del Caballo: azules profundos con toques dorados
-    horsehead = {
-        base = {h = 0.65, s = 0.9, v = 0.6}, -- Azul profundo
-        harmonics = {
-            {h = 0.7, s = 0.8, v = 0.8},    -- Azul claro
-            {h = 0.15, s = 0.7, v = 0.9},   -- Dorado
-            {h = 0.6, s = 0.95, v = 0.4}    -- Azul muy oscuro
-        }
-    }
-}
+-- Sistema simplificado: solo armonías procedurales
+
+
 
 -- Tipos de armonía de color
 local HARMONY_TYPES = {
@@ -171,57 +92,76 @@ local HARMONY_TYPES = {
             colors[4] = (baseH + 0.17) % 1.0 -- 60 grados
         end
         return colors
+    end,
+    
+    tetradic = function(baseH, count)
+        -- Colores tetrádicos: rectángulo en el círculo cromático
+        local colors = {baseH}
+        if count > 1 then
+            colors[2] = (baseH + 0.25) % 1.0 -- 90 grados
+        end
+        if count > 2 then
+            colors[3] = (baseH + 0.5) % 1.0  -- 180 grados
+        end
+        if count > 3 then
+            colors[4] = (baseH + 0.75) % 1.0 -- 270 grados
+        end
+        return colors
+    end,
+    
+    monochromatic = function(baseH, count)
+        -- Monocromático: mismo matiz, diferentes saturaciones/valores
+        local colors = {}
+        for i = 1, count do
+            colors[i] = baseH -- Mismo matiz, variación en S/V se maneja después
+        end
+        return colors
+    end,
+    
+    compound = function(baseH, count)
+        -- Compuesto: base + análogos + complementario
+        local colors = {baseH}
+        if count > 1 then
+            colors[2] = (baseH + 0.083) % 1.0 -- Análogo +30°
+        end
+        if count > 2 then
+            colors[3] = (baseH - 0.083) % 1.0 -- Análogo -30°
+        end
+        if count > 3 then
+            colors[4] = (baseH + 0.5) % 1.0   -- Complementario
+        end
+        return colors
+    end,
+    
+    cosmic = function(baseH, count)
+        -- Armonía cósmica: inspirada en espectros estelares
+        local colors = {baseH}
+        if count > 1 then
+            colors[2] = (baseH + 0.15) % 1.0  -- Desplazamiento estelar
+        end
+        if count > 2 then
+            colors[3] = (baseH + 0.72) % 1.0  -- Emisión nebular
+        end
+        if count > 3 then
+            colors[4] = (baseH + 0.38) % 1.0  -- Línea de hidrógeno
+        end
+        return colors
+    end,
+    
+    stellar = function(baseH, count)
+        -- Secuencia estelar: del azul al rojo como las estrellas
+        local colors = {}
+        local blueStart = 0.6  -- Azul (estrellas calientes)
+        local redEnd = 0.0     -- Rojo (estrellas frías)
+        for i = 1, count do
+            local t = (i - 1) / math.max(1, count - 1)
+            colors[i] = (blueStart + t * (redEnd - blueStart + 1.0)) % 1.0
+        end
+        return colors
     end
 }
 
--- Generar paleta armónica basada en nebulosa astronómica
-function ColorHarmony.generateAstronomicalPalette(rng, paletteCount)
-    paletteCount = paletteCount or 4
-    
-    -- Seleccionar paleta astronómica base aleatoriamente
-    local paletteNames = {}
-    for name, _ in pairs(ASTRONOMICAL_PALETTES) do
-        table.insert(paletteNames, name)
-    end
-    
-    local selectedName = paletteNames[rng:randomInt(1, #paletteNames)]
-    local basePalette = ASTRONOMICAL_PALETTES[selectedName]
-    
-    -- Generar variaciones de la paleta base
-    local colors = {}
-    
-    -- Color base principal
-    local base = basePalette.base
-    colors[1] = {
-        hsv2rgb(base.h, base.s, base.v), 
-        rng:randomRange(0.25, 0.45) -- Alpha variable
-    }
-    
-    -- Agregar colores armónicos de la paleta
-    for i = 2, math.min(paletteCount, #basePalette.harmonics + 1) do
-        local harmonic = basePalette.harmonics[i - 1]
-        if harmonic then
-            local r, g, b = hsv2rgb(harmonic.h, harmonic.s, harmonic.v)
-            colors[i] = {r, g, b, rng:randomRange(0.20, 0.40)}
-        end
-    end
-    
-    -- Si necesitamos más colores, generar variaciones
-    while #colors < paletteCount do
-        local baseColor = colors[rng:randomInt(1, #colors)]
-        local h, s, v = rgb2hsv(baseColor[1], baseColor[2], baseColor[3])
-        
-        -- Variación sutil en HSV
-        h = (h + rng:randomRange(-0.05, 0.05)) % 1.0
-        s = math.max(0.6, math.min(1.0, s + rng:randomRange(-0.15, 0.15)))
-        v = math.max(0.4, math.min(1.0, v + rng:randomRange(-0.2, 0.2)))
-        
-        local r, g, b = hsv2rgb(h, s, v)
-        table.insert(colors, {r, g, b, rng:randomRange(0.20, 0.40)})
-    end
-    
-    return colors, selectedName
-end
+
 
 -- Generar paleta usando teoría de armonía de color
 function ColorHarmony.generateHarmonicPalette(rng, harmonyType, baseColor, paletteCount)
@@ -232,10 +172,10 @@ function ColorHarmony.generateHarmonicPalette(rng, harmonyType, baseColor, palet
     if baseColor then
         baseH, baseS, baseV = rgb2hsv(baseColor[1], baseColor[2], baseColor[3])
     else
-        -- Generar color base aleatorio con alta saturación y valor
+        -- Generar color base aleatorio con saturación muy alta y valor alto
         baseH = rng:random()
-        baseS = rng:randomRange(0.7, 0.95)
-        baseV = rng:randomRange(0.6, 0.9)
+        baseS = rng:randomRange(0.85, 1.0)
+        baseV = rng:randomRange(0.75, 0.95)
     end
     
     local harmonyFunc = HARMONY_TYPES[harmonyType] or HARMONY_TYPES.analogous
@@ -243,9 +183,26 @@ function ColorHarmony.generateHarmonicPalette(rng, harmonyType, baseColor, palet
     
     local colors = {}
     for i, h in ipairs(hues) do
-        -- Variación sutil en saturación y valor para cada color
-        local s = math.max(0.6, math.min(1.0, baseS + rng:randomRange(-0.1, 0.1)))
-        local v = math.max(0.5, math.min(1.0, baseV + rng:randomRange(-0.15, 0.15)))
+        local s, v
+        
+        -- Variaciones especiales según el tipo de armonía (saturación aumentada)
+        if harmonyType == "monochromatic" then
+            -- Para monocromático: variar saturación y valor dramáticamente
+            s = math.max(0.7, math.min(1.0, baseS + rng:randomRange(-0.2, 0.3)))
+            v = math.max(0.4, math.min(1.0, baseV + rng:randomRange(-0.3, 0.3)))
+        elseif harmonyType == "stellar" then
+            -- Para secuencia estelar: saturación muy alta, valor variable
+            s = math.max(0.9, math.min(1.0, baseS + rng:randomRange(-0.05, 0.1)))
+            v = math.max(0.5, math.min(1.0, 0.9 - (i - 1) * 0.12)) -- Degradado de brillo
+        elseif harmonyType == "cosmic" then
+            -- Para cósmico: saturación alta, valores altos
+            s = math.max(0.8, math.min(1.0, baseS + rng:randomRange(-0.1, 0.2)))
+            v = math.max(0.7, math.min(1.0, baseV + rng:randomRange(-0.1, 0.2)))
+        else
+            -- Variación estándar para otros tipos (saturación aumentada)
+            s = math.max(0.8, math.min(1.0, baseS + rng:randomRange(-0.05, 0.15)))
+            v = math.max(0.6, math.min(1.0, baseV + rng:randomRange(-0.1, 0.2)))
+        end
         
         local r, g, b = hsv2rgb(h, s, v)
         colors[i] = {r, g, b, rng:randomRange(0.25, 0.45)}
@@ -258,9 +215,36 @@ end
 function ColorHarmony.generateRandomCoherentPalette(rng, paletteCount)
     paletteCount = paletteCount or 4
     
-    -- Elegir tipo de armonía aleatoriamente
-    local harmonyTypes = {"analogous", "complementary", "triadic", "splitComplementary"}
-    local selectedHarmony = harmonyTypes[rng:randomInt(1, #harmonyTypes)]
+    -- Elegir tipo de armonía aleatoriamente con pesos
+    local harmonyTypes = {
+        {"analogous", 20},        -- Más común, suave
+        {"complementary", 15},    -- Contrastante
+        {"triadic", 12},          -- Vibrante
+        {"splitComplementary", 10}, -- Equilibrado
+        {"tetradic", 8},          -- Complejo
+        {"compound", 12},         -- Híbrido
+        {"cosmic", 15},           -- Espacial
+        {"stellar", 5},           -- Secuencial
+        {"monochromatic", 3}      -- Sutil
+    }
+    
+    -- Selección ponderada
+    local totalWeight = 0
+    for _, entry in ipairs(harmonyTypes) do
+        totalWeight = totalWeight + entry[2]
+    end
+    
+    local randomValue = rng:randomInt(1, totalWeight)
+    local currentWeight = 0
+    local selectedHarmony = "analogous" -- fallback
+    
+    for _, entry in ipairs(harmonyTypes) do
+        currentWeight = currentWeight + entry[2]
+        if randomValue <= currentWeight then
+            selectedHarmony = entry[1]
+            break
+        end
+    end
     
     return ColorHarmony.generateHarmonicPalette(rng, selectedHarmony, nil, paletteCount)
 end
@@ -272,28 +256,18 @@ function ColorHarmony.generateNebulaColor(rng, biomeType, seed)
         rng = rng or love.math.newRandomGenerator(seed)
     end
     
-    -- 70% probabilidad de usar paleta astronómica real, 30% armonía teórica
-    if rng:random() < 0.7 then
-        local colors, paletteName = ColorHarmony.generateAstronomicalPalette(rng, 1)
-        return colors[1], paletteName
-    else
-        local colors = ColorHarmony.generateRandomCoherentPalette(rng, 1)
-        return colors[1], "harmonic"
-    end
+    -- Usar solo armonías procedurales
+    local colors = ColorHarmony.generateRandomCoherentPalette(rng, 1)
+    return colors[1], "procedural"
 end
 
 -- Obtener paleta completa para un chunk (4-6 colores coherentes)
 function ColorHarmony.generateChunkPalette(rng, chunkSeed, biomeType)
     local paletteSize = rng:randomInt(4, 6)
     
-    -- 60% astronómica, 40% armónica
-    if rng:random() < 0.6 then
-        return ColorHarmony.generateAstronomicalPalette(rng, paletteSize)
-    else
-        local harmonyTypes = {"analogous", "complementary", "triadic"}
-        local selectedHarmony = harmonyTypes[rng:randomInt(1, #harmonyTypes)]
-        return ColorHarmony.generateHarmonicPalette(rng, selectedHarmony, nil, paletteSize), selectedHarmony
-    end
+    -- Usar solo armonías procedurales para máxima diversidad
+    local colors = ColorHarmony.generateRandomCoherentPalette(rng, paletteSize)
+    return colors, "procedural"
 end
 
 return ColorHarmony
