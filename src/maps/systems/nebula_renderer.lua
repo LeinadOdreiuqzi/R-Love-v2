@@ -114,11 +114,27 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                         -- Color base con alpha aumentado para mayor visibilidad
                         local br, bg, bb, ba = (n.color and n.color[1] or 1), (n.color and n.color[2] or 1), (n.color and n.color[3] or 1), (n.color and n.color[4] or 1)
                         ba = ba * 1.25  -- Aumentar opacidad base
-                        -- Variación armónica según parallax: matiz análogo y ligera variación de saturación/valor
+                        
+                        -- Armonización con nebulosas cercanas para coherencia visual
+                        local harmonyFactor = 1.0
+                        local neighborInfluence = 0.0
+                        for j = 1, #chunk.objects.nebulae do
+                            if j ~= i then
+                                local neighbor = chunk.objects.nebulae[j]
+                                local dist = math.sqrt((n.x - neighbor.x)^2 + (n.y - neighbor.y)^2)
+                                if dist < 300 then  -- Nebulosas cercanas
+                                    local influence = math.max(0, 1.0 - dist / 300)
+                                    neighborInfluence = neighborInfluence + influence * 0.15
+                                end
+                            end
+                        end
+                        harmonyFactor = math.max(0.7, math.min(1.3, 1.0 + neighborInfluence))
+                        
+                        -- Variación armónica mejorada según parallax y vecindad
                         local h, s, v = rgb2hsv(br, bg, bb)
-                        local hueShift = (par - 0.5) * 0.12         -- ±0.06
-                        local satAdj   = 0.90 + 0.20 * par          -- [0.90, 1.10]
-                        local valAdj   = 0.95 + 0.10 * (1.0 - par)  -- [0.95, 1.05] más suave en fondo
+                        local hueShift = (par - 0.5) * 0.12 * harmonyFactor         -- ±0.06 modulado
+                        local satAdj   = (0.90 + 0.20 * par) * harmonyFactor        -- [0.90, 1.10] modulado
+                        local valAdj   = (0.95 + 0.10 * (1.0 - par)) * harmonyFactor  -- [0.95, 1.05] modulado
                         h = (h + hueShift) % 1.0
                         s = math.max(0.0, math.min(1.0, s * satAdj))
                         v = math.max(0.0, math.min(1.0, v * valAdj))
@@ -150,22 +166,23 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 
                         -- NUEVO: superponer niebla suave (fog-of-war) para contraste mejorado
                         do
-                            -- Niebla oscura sutil para realzar contraste con colores procedurales
-                            local baseIntensity = n.intensity or 0.6
-                            local fogAlpha = math.max(0.0, math.min(1.0, 0.08 + 0.18 * baseIntensity * (0.75 + 0.25 * par)))
+                            -- Niebla oscura intensificada para mayor contraste
+                        local baseIntensity = n.intensity or 0.6
+                        local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par)))
+                        
+                        if fogAlpha > 0.01 then
+                            local prevBlend, prevAlpha = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("alpha", "alphamultiply")
                             
-                            if fogAlpha > 0.01 then
-                                local prevBlend, prevAlpha = love.graphics.getBlendMode()
-                                love.graphics.setBlendMode("alpha", "alphamultiply")
-                                
-                                -- Niebla oscura principal con tinte sutil
-                                local fogTint = 0.05 + 0.03 * par  -- Ligero tinte según parallax
-                                love.graphics.setColor(fogTint, fogTint * 0.8, fogTint * 0.6, fogAlpha)
-                                local fogScale = scale * 1.12  -- Ligeramente más grande para mejor cobertura
-                                love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, iw * 0.5, ih * 0.5)
-                                
-                                love.graphics.setBlendMode(prevBlend or "add", prevAlpha)
-                            end
+                            -- Niebla oscura principal con tinte armonizado
+                            local fogTint = 0.08 + 0.04 * par  -- Tinte más pronunciado
+                            local harmonyFactor = 0.85 + 0.15 * math.sin(timeNow * 0.3 + (n.seed or 0) * 0.1)
+                            love.graphics.setColor(fogTint * harmonyFactor, fogTint * 0.75 * harmonyFactor, fogTint * 0.55 * harmonyFactor, fogAlpha)
+                            local fogScale = scale * 1.18  -- Mayor cobertura para mejor integración
+                            love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, iw * 0.5, ih * 0.5)
+                            
+                            love.graphics.setBlendMode(prevBlend or "add", prevAlpha)
+                        end
                         end
 
                         love.graphics.pop()

@@ -93,10 +93,10 @@ local nebulaShaderCode = [[
         float centerBoost = smoothstep(1.0, 0.0, r);
         float density = cloud * (0.80 + 0.45 * centerBoost);
 
-        // Niebla oscura en zonas superiores para contraste
+        // Niebla oscura intensificada en zonas superiores para mayor contraste
         float darkFogNoise = fbm(p * 1.8 + vec2(t * 0.3, t * 0.2));
-        float darkFogMask = smoothstep(0.4, 0.8, darkFogNoise) * smoothstep(0.3, 0.7, -uv.y + 0.2);
-        float darkFogIntensity = darkFogMask * 0.25 * (1.0 - par * 0.3);
+        float darkFogMask = smoothstep(0.35, 0.85, darkFogNoise) * smoothstep(0.25, 0.75, -uv.y + 0.15);
+        float darkFogIntensity = darkFogMask * 0.42 * (1.0 - par * 0.2);
 
         // Niebla pálida en zonas centrales para profundidad
         float paleFogNoise = fbm(p * 0.9 + vec2(-t * 0.15, t * 0.25));
@@ -117,9 +117,14 @@ local nebulaShaderCode = [[
         vec4 texel = Texel(tex, texcoord);
         vec3 baseColor = color.rgb * texel.rgb * u_brightness;
         
-        // Aplicar efectos de niebla para contraste
-        vec3 darkFogColor = baseColor * (1.0 - darkFogIntensity * 0.7);
-        vec3 paleFogColor = mix(darkFogColor, vec3(1.0, 0.98, 0.95) * u_brightness * 0.6, paleFogIntensity);
+        // Aplicar efectos de niebla para contraste mejorado
+        vec3 darkFogColor = baseColor * (1.0 - darkFogIntensity * 0.85);
+        
+        // Armonización de colores para distribución coherente
+        float colorHarmony = smoothstep(0.2, 0.8, fbm(p * 0.7 + t * 0.1));
+        vec3 harmonizedBase = mix(darkFogColor, darkFogColor * vec3(1.1, 0.95, 1.05), colorHarmony * 0.3);
+        
+        vec3 paleFogColor = mix(harmonizedBase, vec3(1.0, 0.98, 0.95) * u_brightness * 0.65, paleFogIntensity);
         
         vec3 finalColor = paleFogColor * (1.0 + sparkStrength * sparkMask);
 
