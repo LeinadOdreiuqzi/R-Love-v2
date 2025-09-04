@@ -28,7 +28,7 @@ LoadingScreen.config = {
     }
 }
 
--- Estado
+-- Estado optimizado
 LoadingScreen.state = {
     active = false,
     progress = 0,
@@ -59,7 +59,23 @@ LoadingScreen.state = {
     
     -- Callbacks
     onComplete = nil,
-    loadFunction = nil
+    loadFunction = nil,
+    
+    -- Optimizaciones de carga asíncrona
+    asyncLoader = {
+        enabled = true,
+        maxTimePerFrame = 0.016, -- 16ms máximo por frame (60 FPS)
+        currentTask = nil,
+        taskQueue = {},
+        lastFrameTime = 0
+    },
+    
+    -- Cache de recursos
+    resourceCache = {
+        preloadedAssets = {},
+        memoryUsage = 0,
+        maxMemoryUsage = 50 * 1024 * 1024 -- 50MB
+    }
 }
 
 -- Iterador de carga
@@ -240,6 +256,12 @@ end
 -- Actualizar
 function LoadingScreen.update(dt)
     if not LoadingScreen.state.active then return false end
+    
+    -- Procesar tareas asíncronas
+    LoadingScreen.processAsyncTasks(dt)
+    
+    -- Limpiar cache de recursos si es necesario
+    LoadingScreen.cleanupResourceCache()
     
     LoadingScreen.state.elapsedTime = LoadingScreen.state.elapsedTime + dt
     LoadingScreen.state.animationTime = LoadingScreen.state.animationTime + dt
@@ -613,6 +635,93 @@ function LoadingScreen.drawTip(x, y, alpha)
                           LoadingScreen.config.colors.textDim[3],
                           alpha * 0.8)
     love.graphics.printf("TIP: " .. LoadingScreen.currentTip, 100, y, love.graphics.getWidth() - 200, "center")
+end
+
+-- Gestión de carga asíncrona
+function LoadingScreen.addAsyncTask(taskFunction, taskName)
+    table.insert(LoadingScreen.state.asyncLoader.taskQueue, {
+        func = taskFunction,
+        name = taskName or "Unknown Task",
+        startTime = love.timer.getTime()
+    })
+end
+
+function LoadingScreen.processAsyncTasks(dt)
+    if not LoadingScreen.state.asyncLoader.enabled then return end
+    
+    local startTime = love.timer.getTime()
+    local maxTime = LoadingScreen.state.asyncLoader.maxTimePerFrame
+    
+    while #LoadingScreen.state.asyncLoader.taskQueue > 0 do
+        local currentTime = love.timer.getTime()
+        if currentTime - startTime > maxTime then
+            break -- Evitar bloquear el frame
+        end
+        
+        local task = table.remove(LoadingScreen.state.asyncLoader.taskQueue, 1)
+        LoadingScreen.state.asyncLoader.currentTask = task
+        
+        -- Ejecutar tarea
+        local success, result = pcall(task.func)
+        if not success then
+            print("Error in async task '" .. task.name .. "': " .. tostring(result))
+        end
+        
+        LoadingScreen.state.asyncLoader.currentTask = nil
+    end
+    
+    LoadingScreen.state.asyncLoader.lastFrameTime = love.timer.getTime() - startTime
+end
+
+-- Gestión de cache de recursos
+function LoadingScreen.preloadAsset(assetPath, assetType)
+    if LoadingScreen.state.resourceCache.preloadedAssets[assetPath] then
+        return LoadingScreen.state.resourceCache.preloadedAssets[assetPath]
+    end
+    
+    local asset = nil
+    if assetType == "image" then
+        asset = love.graphics.newImage(assetPath)
+    elseif assetType == "sound" then
+        asset = love.audio.newSource(assetPath, "static")
+    elseif assetType == "font" then
+        asset = love.graphics.newFont(assetPath)
+    end
+    
+    if asset then
+        LoadingScreen.state.resourceCache.preloadedAssets[assetPath] = asset
+        -- Estimar uso de memoria (aproximado)
+        LoadingScreen.state.resourceCache.memoryUsage = LoadingScreen.state.resourceCache.memoryUsage + 1024
+    end
+    
+    return asset
+end
+
+function LoadingScreen.cleanupResourceCache()
+    local memoryUsage = LoadingScreen.state.resourceCache.memoryUsage
+    local maxMemory = LoadingScreen.state.resourceCache.maxMemoryUsage
+    
+    if memoryUsage > maxMemory then
+        -- Limpiar assets menos utilizados
+        LoadingScreen.state.resourceCache.preloadedAssets = {}
+        LoadingScreen.state.resourceCache.memoryUsage = 0
+        print("LoadingScreen: Resource cache cleaned due to memory limit")
+    end
+end
+
+-- Función para actualizar el progreso
+function LoadingScreen.setProgress(progress)
+    LoadingScreen.state.progress = math.max(0, math.min(1, progress))
+end
+
+function LoadingScreen.setStep(stepName)
+    for i, step in ipairs(LoadingScreen.gameLoadSteps) do
+        if step.name == stepName then
+            LoadingScreen.state.currentStepIndex = i
+            LoadingScreen.state.currentStep = step.name
+            break
+        end
+    end
 end
 
 -- Verificar si está activo

@@ -1,6 +1,7 @@
 -- src/utils/camera.lua
 
 local Camera = {}
+local OptimizedRenderer = require 'src.maps.optimized_renderer'
 
 function Camera:new()
     local camera = {}
@@ -15,6 +16,12 @@ function Camera:new()
     camera.minZoom = 0.2
     camera.maxZoom = 2.0
     camera.zoomSpeed = 0.1
+    
+    -- Optimización para zoom alto
+    camera.highZoomThreshold = 1.2  -- Sincronizado con OptimizedRenderer
+    camera.highZoomMode = false
+    camera.lastZoomCheck = 0
+    camera.zoomCheckInterval = 0.2 -- Verificar cada 200ms
     
     -- Auto zoom desactivado por defecto para no “volver” tras zoom manual
     camera.autoZoomEnabled = false
@@ -56,19 +63,52 @@ function Camera:updateScreenDimensions()
     self.targetZoom = self.targetZoom or 1
 end
 
+-- Actualizar estado de la cámara (optimizado para zoom alto)
+function Camera:update(dt)
+    -- Actualizar zoom suavemente
+    self.zoom = self.zoom + (self.targetZoom - self.zoom) * 0.1
+    
+    -- Verificar si estamos en modo de zoom alto (con intervalo para no hacerlo cada frame)
+    self.lastZoomCheck = self.lastZoomCheck + dt
+    if self.lastZoomCheck >= self.zoomCheckInterval then
+        local wasHighZoom = self.highZoomMode
+        self.highZoomMode = self.zoom > self.highZoomThreshold
+        
+        -- Si cambiamos de modo, notificar al sistema de renderizado
+        if wasHighZoom ~= self.highZoomMode and OptimizedRenderer then
+            if self.highZoomMode then
+                -- Activar optimizaciones para zoom alto
+                print(string.format("📈 ZOOM THRESHOLD EXCEEDED: %.2f > %.2f - Activating optimizations", self.zoom, self.highZoomThreshold))
+                if OptimizedRenderer.enableHighZoomOptimizations then
+                    OptimizedRenderer.enableHighZoomOptimizations()
+                end
+            else
+                -- Desactivar optimizaciones para zoom alto
+                print(string.format("📉 ZOOM BELOW THRESHOLD: %.2f <= %.2f - Deactivating optimizations", self.zoom, self.highZoomThreshold))
+                if OptimizedRenderer.disableHighZoomOptimizations then
+                    OptimizedRenderer.disableHighZoomOptimizations()
+                end
+            end
+        end
+        
+        self.lastZoomCheck = 0
+    end
+    
+    -- Actualizar efectos de cámara
+    if self.shake > 0 then
+        self.shake = math.max(0, self.shake - 1)
+    end
+end
+
 -- Apply camera transformation
 function Camera:apply()
     love.graphics.push()
-    
-    -- Smooth zoom
-    self.zoom = self.zoom + (self.targetZoom - self.zoom) * 0.1
     
     -- Calculate shake offset
     local shakeX, shakeY = 0, 0
     if self.shake > 0 then
         shakeX = math.random(-self.shakeIntensity, self.shakeIntensity)
         shakeY = math.random(-self.shakeIntensity, self.shakeIntensity)
-        self.shake = math.max(0, self.shake - 1)
     end
     
     -- Apply transformations

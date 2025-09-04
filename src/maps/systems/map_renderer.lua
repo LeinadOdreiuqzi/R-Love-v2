@@ -262,8 +262,150 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     return (sumCount > 0) and sumCount or 0
 end
 
+-- NUEVO: Construir buffer instanced con pre-filtrado agresivo
+function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, starConfig)
+    if not (starConfig and starConfig.useInstancedShader and StarfieldInstanced) then
+        return false
+    end
+    
+    local allStars = {}
+    local totalStars = 0
+    
+    -- Verificar que chunkInfo y visibleChunks existan
+    if not chunkInfo or not chunkInfo.visibleChunks then
+        return false
+    end
+    
+    -- Recopilar todas las estrellas visibles
+    for _, chunkData in ipairs(chunkInfo.visibleChunks) do
+        local chunk = getChunkFunc(chunkData.chunkX, chunkData.chunkY)
+        if chunk and chunk.stars and type(chunk.stars) == "table" then
+            for _, star in ipairs(chunk.stars) do
+                allStars[#allStars + 1] = star
+                totalStars = totalStars + 1
+            end
+        end
+    end
+    
+    -- Aplicar pre-filtrado agresivo
+    local filteredStars = StarfieldInstanced.preFilterStars(allStars, camera, {
+        maxStars = starConfig.maxStarsPerFrame or 5000,
+        aggressiveCulling = true,
+        importanceThreshold = 0.1
+    })
+    
+    if #filteredStars == 0 then
+        return false
+    end
+    
+    -- Construir buffer instanced
+    StarfieldInstanced.beginBuildStarData(#filteredStars)
+    
+    local time = love.timer.getTime()
+    
+    -- Limpiar cache automáticamente
+    if StarfieldInstanced.cleanupEffectsCache then
+        StarfieldInstanced.cleanupEffectsCache(time)
+    end
+    
+    for i, star in ipairs(filteredStars) do
+        -- Asegurar que la estrella tenga un ID único para el cache
+        if not star.id then
+            star.id = string.format("%d_%d_%d", star.x or 0, star.y or 0, star.type or 1)
+        end
+        
+        -- Calcular datos de la estrella
+        local worldX, worldY = star.x or 0, star.y or 0
+        local depth = star.depth or 0.5
+        local parallaxStrength = starConfig.parallaxStrength or 0.2
+        
+        -- Aplicar parallax
+        local parallaxX = worldX - camera.x * depth * parallaxStrength
+        local parallaxY = worldY - camera.y * depth * parallaxStrength
+        
+        -- Convertir a coordenadas de pantalla
+        local screenX = (parallaxX - camera.x) * camera.zoom + camera.screenWidth * 0.5
+        local screenY = (parallaxY - camera.y) * camera.zoom + camera.screenHeight * 0.5
+        
+        local size = (star.size or 1) * camera.zoom * (starConfig.sizeScaleGlobal or 1.0)
+        local starType = star.type or 1
+        
+        -- OPTIMIZADO: Usar cache de efectos
+        local twinkleIntensity = 0.6
+        local pulseIntensity = 1.0
+        local flareEffects = {1.0, 1.0, 1.0}
+        
+        if StarfieldInstanced.getCachedTwinkle then
+            twinkleIntensity = StarfieldInstanced.getCachedTwinkle(star, time)
+        else
+            -- Fallback tradicional
+            local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+            local angleIndex = math.floor(twinklePhase * 57.29) % 360
+            twinkleIntensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
+        end
+        
+        if StarfieldInstanced.getCachedPulse then
+            pulseIntensity = StarfieldInstanced.getCachedPulse(star, time, starType)
+        end
+        
+        if StarfieldInstanced.getCachedFlare then
+            flareEffects = StarfieldInstanced.getCachedFlare(star, time, size)
+        end
+        
+        -- Calcular color con efectos aplicados
+        local color = star.color or {1, 1, 1, 1}
+        local brightness = (star.brightness or 1) * twinkleIntensity * pulseIntensity
+        
+        -- Escribir datos al buffer con efectos optimizados
+        local d0 = {screenX, screenY, size, starType}
+        local d1 = {depth, brightness, time * (star.twinkleSpeed or 1), star.twinkleSpeed or 1}
+        local d2 = {color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1}
+        local d3 = {flareEffects[1], flareEffects[2], flareEffects[3], pulseIntensity} -- Efectos cacheados
+        
+        StarfieldInstanced.writeStarDataAt(i - 1, d0, d1, d2, d3)
+        star._sfIndex = i - 1 -- Guardar índice para referencia
+    end
+    
+    StarfieldInstanced.endBuildStarData()
+    return true, #filteredStars
+end
+
 -- Dibujar estrellas con efectos mejorados
 function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConfig)
+    -- NUEVO: Intentar usar buffer instanced primero
+    if starConfig and starConfig.useInstancedShader then
+        local bufferBuilt, starCount = MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, starConfig)
+        if bufferBuilt then
+            -- Renderizar usando buffer instanced
+            if StarfieldInstanced.setGlobals then
+                StarfieldInstanced.setGlobals({
+                    time = love.timer.getTime(),
+                    twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) or true,
+                    enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
+                })
+            end
+            
+            -- Dibujar todas las estrellas del buffer de una vez
+            love.graphics.push()
+            love.graphics.origin()
+            
+            if StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
+                love.graphics.setShader(StarfieldInstanced.getShader())
+                
+                -- Dibujar quad para cada estrella en el buffer
+                for i = 0, starCount - 1 do
+                    StarfieldInstanced.drawStarQuad(i, 0, 0, 1) -- Posición y tamaño ya están en el buffer
+                end
+                
+                love.graphics.setShader()
+            end
+            
+            love.graphics.pop()
+            return starCount, starCount
+        end
+    end
+    
+    -- Fallback: renderizado tradicional
     local time = love.timer.getTime()
     local starsRendered = 0
     -- Limitar por configuración (sin tope duro adicional)
@@ -727,9 +869,15 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     local starType = star.type or 1
 
     -- Calcular parpadeo individual (compartido para shader y fallback)
-    local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
-    local angleIndex = math.floor(twinklePhase * 57.29) % 360
-    local twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
+    -- OPTIMIZACIÓN: Usar cache de twinkle si está disponible (zoom alto)
+    local twinkleIntensity
+    if star._twinkleCache and camera and camera.zoom and camera.zoom > 1.2 then
+        twinkleIntensity = star._twinkleCache
+    else
+        local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+        local angleIndex = math.floor(twinklePhase * 57.29) % 360
+        twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
+    end
     local brightness = (star.brightness or 1)
 
     -- NUEVO: aplicar factor de atenuación por nebulosa
@@ -744,7 +892,7 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
     local size = (star.size * localSizeScale) * zoom * globalSizeScale
 
-    -- NUEVO: usar StarfieldInstanced por índice si hay buffer y el star tiene índice
+    -- OPTIMIZADO: usar StarfieldInstanced con batching mejorado
     if starConfig and starConfig.useInstancedShader and StarfieldInstanced and StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
         local screenRadius = size
         if StarfieldInstanced.setGlobals then
@@ -754,14 +902,13 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
                 enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
             })
         end
-        -- Preferir buffer + índice si está disponible
+        -- Preferir buffer + índice si está disponible (más eficiente)
         if StarfieldInstanced.hasStarData and StarfieldInstanced.hasStarData() and star._sfIndex ~= nil then
-            -- s ~ 4 * radio_en_pantalla; la escala global se aplica en StarfieldInstanced
             local s = math.max(2, (screenRadius or 8) * 4.0)
             StarfieldInstanced.drawStarQuad(star._sfIndex, screenX, screenY, s)
             return
         end
-        -- Fallback: uniforms por estrella (override)
+        -- Fallback optimizado: usar sistema de batching de uniforms
         if StarfieldInstanced.drawStarWithUniforms then
             StarfieldInstanced.drawStarWithUniforms(screenX, screenY, screenRadius, star, starConfig)
             return

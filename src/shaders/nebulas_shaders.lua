@@ -82,7 +82,7 @@ local nebulaShaderCode = [[
 
         // Movimiento más sutil y dependiente de parallax
         float par = clamp(u_parallax, 0.0, 1.0);
-        float t = u_time * mix(0.015, 0.035, par);
+        float t = u_time * mix(0.008, 0.018, par);
 
         float ns = max(0.0001, u_noiseScale);
         vec2 p = uv * ns;
@@ -94,21 +94,21 @@ local nebulaShaderCode = [[
         float density = cloud * (0.80 + 0.45 * centerBoost);
 
         // Niebla oscura intensificada en zonas superiores para mayor contraste
-        float darkFogNoise = fbm(p * 1.8 + vec2(t * 0.3, t * 0.2));
+        float darkFogNoise = fbm(p * 1.8 + vec2(t * 0.30, t * 0.15));
         float darkFogMask = smoothstep(0.35, 0.85, darkFogNoise) * smoothstep(0.25, 0.75, -uv.y + 0.15);
-        float darkFogIntensity = darkFogMask * 0.42 * (1.0 - par * 0.2);
+        float darkFogIntensity = darkFogMask * 0.80 * (0.8 + par * 0.4);
 
         // Niebla pálida en zonas centrales para profundidad
-        float paleFogNoise = fbm(p * 0.9 + vec2(-t * 0.15, t * 0.25));
+        float paleFogNoise = fbm(p * 0.9 + vec2(-t * 0.30, t * 0.50));
         float paleFogMask = smoothstep(0.3, 0.7, paleFogNoise) * centerBoost;
-        float paleFogIntensity = paleFogMask * 0.18 * (0.8 + par * 0.4);
+        float paleFogIntensity = paleFogMask * 0.18 * (0.16 + par * 0.8);
 
         // Destellos locales ("sparkle") controlados por u_sparkleStrength
         float sparkScale = 2.5 + par * 4.0;
         vec2 sp = p * sparkScale;
 
-        float s1 = noise(sp + vec2(u_time * (1.6 + par * 0.8) + u_seed, -u_time * (1.1 + par * 0.5) + u_seed * 0.7));
-        float s2 = noise(sp * 1.3 + vec2(-u_time * (1.4 + par * 0.6) + u_seed * 1.3, u_time * (0.9 + 0.4 * par)));
+        float s1 = noise(sp + vec2(u_time * (0.8 + par * 0.4) + u_seed, -u_time * (0.6 + par * 0.3) + u_seed * 0.7));
+        float s2 = noise(sp * 1.3 + vec2(-u_time * (0.7 + par * 0.3) + u_seed * 1.3, u_time * (0.5 + 0.2 * par)));
         float smax = max(s1, s2);
 
         float sparkMask = smoothstep(0.88, 1.0, smax) * mask;
@@ -121,7 +121,7 @@ local nebulaShaderCode = [[
         vec3 darkFogColor = baseColor * (1.0 - darkFogIntensity * 0.85);
         
         // Armonización de colores para distribución coherente
-        float colorHarmony = smoothstep(0.2, 0.8, fbm(p * 0.7 + t * 0.1));
+        float colorHarmony = smoothstep(0.2, 0.8, fbm(p * 0.7 + t * 0.05));
         vec3 harmonizedBase = mix(darkFogColor, darkFogColor * vec3(1.1, 0.95, 1.05), colorHarmony * 0.3);
         
         vec3 paleFogColor = mix(harmonizedBase, vec3(1.0, 0.98, 0.95) * u_brightness * 0.65, paleFogIntensity);

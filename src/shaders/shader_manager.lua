@@ -7,8 +7,20 @@ local StarfieldInstanced = require 'src.shaders.starfield_instanced'
 local BackgroundManager = require 'src.shaders.background_manager'
 local NebulasShaders = require 'src.shaders.nebulas_shaders'
 
+-- Cache de shaders optimizado
+local shaderCache = {
+    compiledShaders = {},
+    shaderSources = {},
+    lastCleanup = 0,
+    cleanupInterval = 300.0, -- Limpiar cada 5 minutos
+    maxCacheSize = 50,
+    accessTimes = {}
+}
+
 -- Estado del gestor de shaders
 ShaderManager.state = {
+    initialized = false,
+    
     -- Shaders precompilados
     shaders = {
         star = nil,
@@ -37,13 +49,123 @@ ShaderManager.state = {
         circle = nil
     },
     
+    -- Cache de texturas
+    textureCache = {
+        textures = {},
+        maxSize = 100 * 1024 * 1024, -- 100MB
+        currentSize = 0,
+        lastCleanup = 0
+    },
+    
+    -- OPTIMIZACIÓN: Cache de uniforms para evitar envíos redundantes
+    uniformCache = {},
+    lastActiveShader = nil,
+    
     -- Configuración
     config = {
         preloadIncrementally = true,
         maxPreloadTimePerFrame = 0.002, -- 2ms max por frame
         preloadPriority = {"galactic_background", "star", "star_instanced", "asteroid", "nebula", "station", "wormhole"}
+    },
+    
+    -- Estadísticas
+    stats = {
+        loaded = 0,
+        total = 0,
+        compilationTime = 0,
+        lastCompileTime = 0,
+        cacheHits = 0,
+        cacheMisses = 0,
+        memoryUsage = 0
     }
 }
+
+-- Gestión de cache de shaders
+function ShaderManager.getFromCache(shaderName, shaderCode)
+    local cacheKey = shaderName .. "_" .. love.data.hash("sha1", shaderCode)
+    
+    if shaderCache.compiledShaders[cacheKey] then
+        shaderCache.accessTimes[cacheKey] = love.timer.getTime()
+        ShaderManager.state.stats.cacheHits = ShaderManager.state.stats.cacheHits + 1
+        return shaderCache.compiledShaders[cacheKey]
+    end
+    
+    ShaderManager.state.stats.cacheMisses = ShaderManager.state.stats.cacheMisses + 1
+    return nil
+end
+
+function ShaderManager.addToCache(shaderName, shaderCode, shader)
+    local cacheKey = shaderName .. "_" .. love.data.hash("sha1", shaderCode)
+    
+    -- Limpiar cache si está lleno
+    if #shaderCache.compiledShaders >= shaderCache.maxCacheSize then
+        ShaderManager.cleanupShaderCache()
+    end
+    
+    shaderCache.compiledShaders[cacheKey] = shader
+    shaderCache.shaderSources[cacheKey] = shaderCode
+    shaderCache.accessTimes[cacheKey] = love.timer.getTime()
+end
+
+-- Limpiar cache de shaders
+function ShaderManager.cleanupShaderCache()
+    local currentTime = love.timer.getTime()
+    
+    -- Ordenar por tiempo de acceso
+    local cacheEntries = {}
+    for key, time in pairs(shaderCache.accessTimes) do
+        table.insert(cacheEntries, {key = key, time = time})
+    end
+    
+    table.sort(cacheEntries, function(a, b) return a.time < b.time end)
+    
+    -- Remover los más antiguos (25% del cache)
+    local toRemove = math.floor(#cacheEntries * 0.25)
+    for i = 1, toRemove do
+        local key = cacheEntries[i].key
+        shaderCache.compiledShaders[key] = nil
+        shaderCache.shaderSources[key] = nil
+        shaderCache.accessTimes[key] = nil
+    end
+    
+    print("ShaderManager: Cleaned " .. toRemove .. " shaders from cache")
+end
+
+-- Gestión de memoria de texturas
+function ShaderManager.updateTextureMemory()
+    local currentTime = love.timer.getTime()
+    if currentTime - ShaderManager.state.textureCache.lastCleanup < 60.0 then return end
+    
+    local memoryUsage = 0
+    for _, texture in pairs(ShaderManager.state.textureCache.textures) do
+        if texture.size then
+            memoryUsage = memoryUsage + texture.size
+        end
+    end
+    
+    ShaderManager.state.textureCache.currentSize = memoryUsage
+    ShaderManager.state.stats.memoryUsage = memoryUsage
+    
+    -- Limpiar si excede el límite
+    if memoryUsage > ShaderManager.state.textureCache.maxSize then
+        ShaderManager.cleanupTextureCache()
+    end
+    
+    ShaderManager.state.textureCache.lastCleanup = currentTime
+end
+
+function ShaderManager.cleanupTextureCache()
+    -- Implementar limpieza de texturas menos utilizadas
+    local cleaned = 0
+    for key, texture in pairs(ShaderManager.state.textureCache.textures) do
+        if texture.lastAccess and love.timer.getTime() - texture.lastAccess > 300 then
+            ShaderManager.state.textureCache.textures[key] = nil
+            cleaned = cleaned + 1
+        end
+    end
+    
+    print("ShaderManager: Cleaned " .. cleaned .. " textures from cache")
+end
 
 -- Inicializar el gestor de shaders
 function ShaderManager.init()
@@ -54,6 +176,9 @@ function ShaderManager.init()
         print("ShaderManager: init ya ejecutado, omitiendo re-inicialización")
         return
     end
+
+    -- Inicializar cache
+    shaderCache.lastCleanup = love.timer.getTime()
 
     -- Crear imágenes base para batching
     ShaderManager.createBaseImages()
@@ -95,6 +220,7 @@ function ShaderManager.init()
     -- Warmup de shaders para evitar stutter en primer uso
     ShaderManager.warmup()
     print("✓ ShaderManager initialized with " .. ShaderManager.getLoadedCount() .. " shaders")
+    print("✓ Shader cache enabled with max size: " .. shaderCache.maxCacheSize)
     ShaderManager.state.initialized = true
 end
 
@@ -565,19 +691,26 @@ function ShaderManager.getLoadedCount()
     return count
 end
 
--- Aplicar shader con fallback
+-- OPTIMIZACIÓN: Aplicar shader con cache para evitar cambios redundantes
 function ShaderManager.setShader(shaderType)
     local shader = ShaderManager.getShader(shaderType)
     if shader then
-        love.graphics.setShader(shader)
+        -- Solo cambiar si es diferente al actual
+        if ShaderManager.state.lastActiveShader ~= shader then
+            love.graphics.setShader(shader)
+            ShaderManager.state.lastActiveShader = shader
+        end
         return true
     end
     return false
 end
 
--- Remover shader actual
+-- OPTIMIZACIÓN: Remover shader actual con cache
 function ShaderManager.unsetShader()
-    love.graphics.setShader()
+    if ShaderManager.state.lastActiveShader then
+        love.graphics.setShader()
+        ShaderManager.state.lastActiveShader = nil
+    end
 end
 
 -- Debug: mostrar estado de shaders

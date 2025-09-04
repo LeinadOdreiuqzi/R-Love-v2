@@ -13,6 +13,17 @@ StarShader.settings = {
     coreMultiplier = 1.0
 }
 
+-- OPTIMIZACIÓN: Cache de uniforms para evitar envíos redundantes
+local uniformCache = {
+    lastStarType = nil,
+    lastHaloSize = nil,
+    lastCoreSize = nil,
+    lastFlareStrength = nil,
+    lastCrossSharpness = nil,
+    lastCorePower = nil,
+    lastHaloPower = nil
+}
+
 function StarShader.setVisualConfig(cfg)
     if not cfg then return end
     if cfg.haloMultiplier then StarShader.settings.haloMultiplier = cfg.haloMultiplier end
@@ -131,10 +142,14 @@ function StarShader.finish()
     love.graphics.setShader()
 end
 
--- Fijar uniforms según el tipo de estrella (llamar una vez por grupo)
+-- OPTIMIZACIÓN: Fijar uniforms según el tipo de estrella con cache
 function StarShader.setType(starType)
     if not shader then return end
     starType = starType or 1
+    
+    -- Evitar reenvío si es el mismo tipo
+    if uniformCache.lastStarType == starType then return end
+    uniformCache.lastStarType = starType
 
     local haloSize = 1.2
     local coreSize = 0.6
@@ -174,13 +189,13 @@ function StarShader.setType(starType)
         quadMul = 3.0
     elseif starType == 4 then
         -- Estrella super brillante con flares marcados
-        haloSize = 1.6
-        coreSize = 0.5
-        flareStrength = 0.55
-        crossSharpness = 3.5
-        corePower = 1.2
-        haloPower = 0.55
-        quadMul = 4.5
+        haloSize = 0.0
+        coreSize = 0.15
+        flareStrength = 0.6
+        crossSharpness = 3.0
+        corePower = 1.8
+        haloPower = 0.0
+        quadMul = 0.8
     elseif starType == 5 then
         -- Estrella gigante
         haloSize = 1.5
@@ -192,25 +207,25 @@ function StarShader.setType(starType)
         quadMul = 3.8
     elseif starType == 6 then
         -- Estrella masiva
-        haloSize = 1.7
-        coreSize = 0.45
-        flareStrength = 0.45
-        crossSharpness = 4.0
-        corePower = 1.3
-        haloPower = 0.60
-        quadMul = 4.2
+        haloSize = 0.0
+        coreSize = 0.25
+        flareStrength = 0.7
+        crossSharpness = 2.5
+        corePower = 2.2
+        haloPower = 0.0
+        quadMul = 0.9
     end
 
     local quadMul = 2.8 -- no se envía al shader; lo usa el CPU para el tamaño del quad
 
     if starType == 4 then
-        haloSize = 1.4
+        haloSize = 1.2
         coreSize = 0.55
-        flareStrength = 0.42   -- antes: 0.35
-        crossSharpness = 4.5   -- antes: 5.0
-        corePower = 1.05
-        haloPower = 0.45
-        quadMul = 4.0
+        flareStrength = 0.25
+        crossSharpness = 6.0
+        corePower = 0.95
+        haloPower = 0.30
+        quadMul = 3.2
     elseif starType == 1 then
         haloSize = 1.25
         coreSize = 0.6
@@ -251,13 +266,36 @@ function StarShader.setType(starType)
     local haloMul = StarShader.settings.haloMultiplier or 1.0
     local flareMul = StarShader.settings.flareMultiplier or 1.0
     local coreMul = StarShader.settings.coreMultiplier or 1.0
-
-    shader:send("u_haloSize", haloSize)
-    shader:send("u_coreSize", coreSize)
-    shader:send("u_flareStrength", flareStrength * flareMul)
-    shader:send("u_crossSharpness", crossSharpness)
-    shader:send("u_corePower", corePower * coreMul)
-    shader:send("u_haloPower", haloPower * haloMul)
+    
+    -- OPTIMIZACIÓN: Solo enviar uniforms si han cambiado
+    local finalFlareStrength = flareStrength * flareMul
+    local finalCorePower = corePower * coreMul
+    local finalHaloPower = haloPower * haloMul
+    
+    if uniformCache.lastHaloSize ~= haloSize then
+        shader:send("u_haloSize", haloSize)
+        uniformCache.lastHaloSize = haloSize
+    end
+    if uniformCache.lastCoreSize ~= coreSize then
+        shader:send("u_coreSize", coreSize)
+        uniformCache.lastCoreSize = coreSize
+    end
+    if uniformCache.lastFlareStrength ~= finalFlareStrength then
+        shader:send("u_flareStrength", finalFlareStrength)
+        uniformCache.lastFlareStrength = finalFlareStrength
+    end
+    if uniformCache.lastCrossSharpness ~= crossSharpness then
+        shader:send("u_crossSharpness", crossSharpness)
+        uniformCache.lastCrossSharpness = crossSharpness
+    end
+    if uniformCache.lastCorePower ~= finalCorePower then
+        shader:send("u_corePower", finalCorePower)
+        uniformCache.lastCorePower = finalCorePower
+    end
+    if uniformCache.lastHaloPower ~= finalHaloPower then
+        shader:send("u_haloPower", finalHaloPower)
+        uniformCache.lastHaloPower = finalHaloPower
+    end
 end
 
 -- Versión batched que NO reenvía uniforms (asume setType() ya llamado)
@@ -311,13 +349,13 @@ function StarShader.drawStarBatched(x, y, size, color, brightness, twinkleIntens
 
     if starType == 4 then
         -- Super brillante con flares en cruz marcados
-        haloSize = 1.4
+        haloSize = 0.0
         coreSize = 0.55
-        flareStrength = 0.42   -- antes: 0.35 (ligeramente más intenso)
-        crossSharpness = 4.5   -- antes: 5.0 (un poco más ancho/suave)
-        corePower = 1.05
-        haloPower = 0.45
-        quadMul = 4.0
+        flareStrength = 0.25
+        crossSharpness = 6.0
+        corePower = 0.95
+        haloPower = 0.0
+        quadMul = 3.2
     elseif starType == 1 then
         -- Estrella básica (parecida a antes)
         haloSize = 1.25

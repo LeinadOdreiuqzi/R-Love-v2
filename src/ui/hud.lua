@@ -4,7 +4,7 @@ local HUD = {}
 local SeedSystem = require 'src.utils.seed_system'
 local ChunkManager = require 'src.maps.chunk_manager'
 
--- Estado del HUD unificado
+-- Estado del HUD unificado con optimizaciones
 local hudState = {
     showInfo = true,
     showSeedInput = false,
@@ -12,7 +12,30 @@ local hudState = {
     seedInputText = "",
     font = nil,
     smallFont = nil,
-    tinyFont = nil
+    tinyFont = nil,
+    
+    -- Cache de renderizado para optimización
+    renderCache = {
+        lastUpdate = 0,
+        updateInterval = 0.1, -- Actualizar cada 100ms
+        cachedStats = nil,
+        cachedBiomeInfo = nil,
+        dirtyFlags = {
+            stats = true,
+            biome = true,
+            player = true
+        }
+    },
+    
+    -- Pool de strings para evitar concatenaciones frecuentes
+    stringPool = {},
+    
+    -- Configuración de performance
+    performance = {
+        enableCaching = true,
+        maxStringPoolSize = 50,
+        reducedUpdateMode = false
+    }
 }
 
 -- Sistema de semillas alfanuméricas integrado
@@ -167,8 +190,12 @@ local biomeCache = {
     lastUpdate = 0,
     updateInterval = 0.5,
     currentBiome = nil,
+    currentBiomeInfo = nil,
     biomeHistory = {},
-    maxHistory = 10
+    maxHistory = 10,
+    debugInfo = nil,
+    lastError = nil,
+    lastSuccessfulUpdate = 0
 }
 
 -- Inicialización del HUD
@@ -205,9 +232,27 @@ function HUD.init(gameStateRef, playerRef, mapRef)
     print("Enhanced HUD system initialized with alphanumeric seed support")
 end
 
--- Función de actualización principal del HUD
+-- Función de actualización principal del HUD optimizada
 function HUD.update(dt)
+    local currentTime = love.timer.getTime()
+    
+    -- Actualizar cache solo cuando sea necesario
+    if hudState.performance.enableCaching then
+        if currentTime - hudState.renderCache.lastUpdate >= hudState.renderCache.updateInterval then
+            HUD.updateCachedData()
+            hudState.renderCache.lastUpdate = currentTime
+        end
+    end
+    
     HUD.updateBiomeInfo(dt)
+end
+
+-- Nueva función para actualizar datos en cache
+function HUD.updateCachedData()
+    -- Marcar flags como dirty para forzar actualización
+    hudState.renderCache.dirtyFlags.stats = true
+    hudState.renderCache.dirtyFlags.biome = true
+    hudState.renderCache.dirtyFlags.player = true
 end
 
 -- Actualizar información de bioma del jugador (SUPER SEGURO)
@@ -215,47 +260,66 @@ function HUD.updateBiomeInfo(dt)
     local currentTime = love.timer.getTime()
     
     if currentTime - biomeCache.lastUpdate >= biomeCache.updateInterval then
+        -- Debug: verificar estado del sistema
+        biomeCache.debugInfo = {
+            playerExists = player ~= nil,
+            playerHasCoords = player and player.x and player.y,
+            biomeSystemExists = BiomeSystem ~= nil,
+            updatePlayerBiomeExists = BiomeSystem and BiomeSystem.updatePlayerBiome ~= nil,
+            getPlayerBiomeInfoExists = BiomeSystem and BiomeSystem.getPlayerBiomeInfo ~= nil,
+            playerCoords = player and {x = player.x, y = player.y} or nil
+        }
+        
         -- Verificar que todo esté disponible antes de proceder
         if player and player.x and player.y and BiomeSystem then
-            local success, currentBiome = pcall(function()
-                if BiomeSystem.updatePlayerBiome then
-                    return BiomeSystem.updatePlayerBiome(player.x, player.y)
+            -- Intentar obtener información del bioma directamente
+            local success, biomeInfo = pcall(function()
+                if BiomeSystem.getPlayerBiomeInfo then
+                    return BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
                 end
                 return nil
             end)
             
-            if success and currentBiome then
-                if biomeCache.currentBiome ~= currentBiome then
-                    local configSuccess, config = pcall(function()
-                        if BiomeSystem.getBiomeConfig then
-                            return BiomeSystem.getBiomeConfig(currentBiome)
-                        end
-                        return nil
-                    end)
+            if success and biomeInfo then
+                biomeCache.currentBiomeInfo = biomeInfo
+                biomeCache.currentBiome = biomeInfo.type
+                biomeCache.lastSuccessfulUpdate = currentTime
+                
+                -- Actualizar historial
+                if #biomeCache.biomeHistory == 0 or biomeCache.biomeHistory[1].biome ~= biomeInfo.type then
+                    table.insert(biomeCache.biomeHistory, 1, {
+                        biome = biomeInfo.type,
+                        name = biomeInfo.name,
+                        time = currentTime,
+                        config = biomeInfo.config
+                    })
                     
-                    if configSuccess and config then
-                        table.insert(biomeCache.biomeHistory, 1, {
-                            biome = currentBiome,
-                            time = currentTime,
-                            config = config
-                        })
-                        
-                        if #biomeCache.biomeHistory > biomeCache.maxHistory then
-                            table.remove(biomeCache.biomeHistory)
-                        end
-                        
-                        biomeCache.currentBiome = currentBiome
+                    if #biomeCache.biomeHistory > biomeCache.maxHistory then
+                        table.remove(biomeCache.biomeHistory)
                     end
                 end
+            else
+                biomeCache.lastError = "Failed to get biome info"
             end
+        else
+            biomeCache.lastError = "Missing dependencies"
         end
         
         biomeCache.lastUpdate = currentTime
     end
 end
 
--- Función de compatibilidad para estadísticas (SUPER SEGURA)
+-- Función de compatibilidad para estadísticas optimizada con cache
 function HUD.getSafeStats()
+    -- Usar cache si está disponible y no está dirty
+    if hudState.performance.enableCaching and 
+       hudState.renderCache.cachedStats and 
+       not hudState.renderCache.dirtyFlags.stats then
+        -- Actualizar solo FPS en tiempo real
+        hudState.renderCache.cachedStats.fps = love.timer.getFPS()
+        return hudState.renderCache.cachedStats
+    end
+    
     local stats = {
         loadedChunks = 0,
         cachedChunks = 0,
@@ -341,6 +405,12 @@ function HUD.getSafeStats()
         end
     end
     
+    -- Guardar en cache si está habilitado
+    if hudState.performance.enableCaching then
+        hudState.renderCache.cachedStats = stats
+        hudState.renderCache.dirtyFlags.stats = false
+    end
+    
     return stats
 end
 
@@ -402,14 +472,23 @@ function HUD.draw()
     love.graphics.setColor(r, g, b, a)
 end
 
--- Panel de información de biomas en tiempo real
+-- Panel de información de biomas optimizado
 function HUD.drawBiomeInfoPanel()
     if not player or not BiomeSystem then return end
     
-    -- Cache nearby biomes to avoid recalculating every frame
-    if not HUD.lastBiomeScan or love.timer.getTime() - HUD.lastBiomeScan > 1.0 then  -- Update every second
-        HUD.nearbyBiomes = BiomeSystem.findNearbyBiomes(player.x, player.y, 10000)  -- 10k radius
-        HUD.lastBiomeScan = love.timer.getTime()
+    -- Cache optimizado de biomas cercanos
+    local currentTime = love.timer.getTime()
+    local scanInterval = hudState.performance.reducedUpdateMode and 2.0 or 1.0
+    
+    if not HUD.lastBiomeScan or currentTime - HUD.lastBiomeScan > scanInterval then
+        -- Siempre actualizar con la posición actual del jugador
+        HUD.nearbyBiomes = BiomeSystem.findNearbyBiomes(player.x, player.y, 10000)
+        HUD.lastBiomeScan = currentTime
+        
+        -- Actualizar cache con la nueva información
+        if hudState.performance.enableCaching then
+            hudState.renderCache.cachedBiomeInfo = HUD.nearbyBiomes
+        end
     end
     
     local panelWidth = 300
@@ -439,15 +518,41 @@ function HUD.drawBiomeInfoPanel()
     love.graphics.setColor(0.2, 0.6, 0.8, 0.8)
     love.graphics.line(x + 10, y + 28, x + panelWidth - 10, y + 28)
     
-    -- Obtener información actual del bioma de forma segura
-    local success, biomeInfo = pcall(function()
-        if BiomeSystem.getPlayerBiomeInfo then
-            return BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
-        end
-        return nil
-    end)
+    -- Usar información del bioma desde el cache actualizado
+    local biomeInfo = biomeCache.currentBiomeInfo
     
-    if success and biomeInfo then
+    -- Mostrar información de debug si hay problemas
+    if biomeCache.debugInfo and not biomeInfo then
+        love.graphics.setColor(1, 0.8, 0.2, 1)
+        love.graphics.setFont(hudState.smallFont)
+        love.graphics.print("DEBUG INFO:", x + 10, y + 35)
+        
+        love.graphics.setColor(0.8, 0.8, 0.8, 1)
+        love.graphics.setFont(hudState.tinyFont)
+        local debugY = y + 50
+        
+        love.graphics.print("Player exists: " .. tostring(biomeCache.debugInfo.playerExists), x + 15, debugY)
+        debugY = debugY + 12
+        love.graphics.print("Player coords: " .. tostring(biomeCache.debugInfo.playerHasCoords), x + 15, debugY)
+        debugY = debugY + 12
+        love.graphics.print("BiomeSystem: " .. tostring(biomeCache.debugInfo.biomeSystemExists), x + 15, debugY)
+        debugY = debugY + 12
+        love.graphics.print("getPlayerBiomeInfo: " .. tostring(biomeCache.debugInfo.getPlayerBiomeInfoExists), x + 15, debugY)
+        debugY = debugY + 12
+        
+        if biomeCache.debugInfo.playerCoords then
+            love.graphics.print(string.format("Coords: (%.1f, %.1f)", 
+                biomeCache.debugInfo.playerCoords.x, biomeCache.debugInfo.playerCoords.y), x + 15, debugY)
+            debugY = debugY + 12
+        end
+        
+        if biomeCache.lastError then
+            love.graphics.setColor(1, 0.5, 0.5, 1)
+            love.graphics.print("Error: " .. biomeCache.lastError, x + 15, debugY)
+        end
+    end
+    
+    if biomeInfo then
         local infoY = y + 35
         local lineHeight = 12
         
@@ -516,24 +621,31 @@ function HUD.drawBiomeInfoPanel()
         
         love.graphics.setFont(hudState.tinyFont)
         
-        -- Show nearby biomes with distance
+        -- Show nearby biomes with distance (optimizado)
         local itemsToShow = math.min(#HUD.nearbyBiomes, maxVisibleItems)
         for i = 1, itemsToShow do
             local biome = HUD.nearbyBiomes[i]
-            local distance = math.floor(biome.distance / 100) * 100  -- Round to nearest 100 units
-            local color = {0.8, 0.9, 1, 1}
+            local distance = math.floor(biome.distance / 100) * 100
             
-            -- Fade out far-away biomes
-            local fadeStart = 8000  -- Start fading at 8k units
-            local fadeEnd = 10000   -- Fully faded at 10k units
-            if distance > fadeStart then
-                local fade = 1 - math.min(1, (distance - fadeStart) / (fadeEnd - fadeStart))
-                color[4] = 0.3 + 0.7 * fade  -- Keep some visibility even at max range
+            -- Cache de strings para evitar concatenaciones frecuentes
+            local stringKey = biome.name .. "_" .. distance
+            local displayText = hudState.stringPool[stringKey]
+            if not displayText then
+                displayText = string.format("%s (%d m)", biome.name, distance)
+                -- Limitar tamaño del pool
+                if #hudState.stringPool < hudState.performance.maxStringPoolSize then
+                    hudState.stringPool[stringKey] = displayText
+                end
             end
             
-            love.graphics.setColor(color)
-            love.graphics.print(string.format("%s (%d m)", biome.name, distance), 
-                              x + 15, listY)
+            -- Optimizar cálculo de color
+            local alpha = 1.0
+            if distance > 8000 then
+                alpha = 0.3 + 0.7 * (1 - math.min(1, (distance - 8000) / 2000))
+            end
+            
+            love.graphics.setColor(0.8, 0.9, 1, alpha)
+            love.graphics.print(displayText, x + 15, listY)
             listY = listY + 12
         end
         

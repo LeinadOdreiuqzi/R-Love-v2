@@ -95,12 +95,26 @@ BackgroundManager.config = {
     }
 }
 
+-- Cache de renderizado optimizado
+local renderCache = {
+    lastCameraPosition = {x = 0, y = 0, zoom = 1},
+    cacheThreshold = 50, -- Píxeles de movimiento para invalidar cache
+    zoomThreshold = 0.1, -- Cambio de zoom para invalidar cache
+    cachedFrame = nil,
+    cacheValid = false,
+    lastCacheTime = 0,
+    cacheLifetime = 0.5 -- Cache válido por 500ms
+}
+
 -- Estadísticas de rendimiento
 BackgroundManager.stats = {
     frameTime = 0,
     renderTime = 0,
     lastUpdate = 0,
-    qualityAdjustments = 0
+    qualityAdjustments = 0,
+    cacheHits = 0,
+    cacheMisses = 0,
+    memoryUsage = 0
 }
 
 function BackgroundManager.init()
@@ -256,6 +270,45 @@ function BackgroundManager.applyQualitySettings(quality)
     GalacticBackground.setSettings(visualSettings)
 end
 
+-- Gestión de cache de renderizado
+function BackgroundManager.shouldInvalidateCache(cameraX, cameraY, zoom)
+    local currentTime = love.timer.getTime()
+    
+    -- Cache expirado por tiempo
+    if currentTime - renderCache.lastCacheTime > renderCache.cacheLifetime then
+        return true
+    end
+    
+    -- Movimiento significativo de cámara
+    local deltaX = math.abs(cameraX - renderCache.lastCameraPosition.x)
+    local deltaY = math.abs(cameraY - renderCache.lastCameraPosition.y)
+    local deltaZoom = math.abs(zoom - renderCache.lastCameraPosition.zoom)
+    
+    if deltaX > renderCache.cacheThreshold or 
+       deltaY > renderCache.cacheThreshold or 
+       deltaZoom > renderCache.zoomThreshold then
+        return true
+    end
+    
+    return false
+end
+
+function BackgroundManager.updateCache(cameraX, cameraY, zoom)
+    renderCache.lastCameraPosition.x = cameraX
+    renderCache.lastCameraPosition.y = cameraY
+    renderCache.lastCameraPosition.zoom = zoom
+    renderCache.lastCacheTime = love.timer.getTime()
+    renderCache.cacheValid = true
+end
+
+function BackgroundManager.invalidateCache()
+    renderCache.cacheValid = false
+    if renderCache.cachedFrame then
+        renderCache.cachedFrame:release()
+        renderCache.cachedFrame = nil
+    end
+end
+
 function BackgroundManager.updateAdaptiveQuality(dt)
     local targetFrameTime = BackgroundManager.config.performance.targetFrameTime
     local currentFrameTime = BackgroundManager.stats.frameTime
@@ -267,9 +320,11 @@ function BackgroundManager.updateAdaptiveQuality(dt)
         if currentQuality == "high" then
             BackgroundManager.setQuality("medium")
             BackgroundManager.stats.qualityAdjustments = BackgroundManager.stats.qualityAdjustments + 1
+            BackgroundManager.invalidateCache() -- Invalidar cache al cambiar calidad
         elseif currentQuality == "medium" then
             BackgroundManager.setQuality("low")
             BackgroundManager.stats.qualityAdjustments = BackgroundManager.stats.qualityAdjustments + 1
+            BackgroundManager.invalidateCache() -- Invalidar cache al cambiar calidad
         end
     elseif currentFrameTime < targetFrameTime * 0.8 then
         -- Aumentar calidad
@@ -277,9 +332,11 @@ function BackgroundManager.updateAdaptiveQuality(dt)
         if currentQuality == "low" then
             BackgroundManager.setQuality("medium")
             BackgroundManager.stats.qualityAdjustments = BackgroundManager.stats.qualityAdjustments + 1
+            BackgroundManager.invalidateCache() -- Invalidar cache al cambiar calidad
         elseif currentQuality == "medium" then
             BackgroundManager.setQuality("high")
             BackgroundManager.stats.qualityAdjustments = BackgroundManager.stats.qualityAdjustments + 1
+            BackgroundManager.invalidateCache() -- Invalidar cache al cambiar calidad
         end
     end
 end

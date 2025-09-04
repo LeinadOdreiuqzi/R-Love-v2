@@ -6,6 +6,30 @@ local MapConfig = require 'src.maps.config.map_config'
 local MapGenerator = require 'src.maps.systems.map_generator'
 local VisibilityUtils = require 'src.maps.visibility_utils'
 
+-- Cache de configuración optimizada
+local configCache = {
+    lastUpdate = 0,
+    updateInterval = 1.0, -- Actualizar configuración cada segundo
+    adaptiveSettings = {
+        lowMemory = {
+            maxActiveChunks = 60,
+            maxCachedChunks = 120,
+            poolSize = 30
+        },
+        normal = {
+            maxActiveChunks = 120,
+            maxCachedChunks = 250,
+            poolSize = 60
+        },
+        highMemory = {
+            maxActiveChunks = 180,
+            maxCachedChunks = 350,
+            poolSize = 90
+        }
+    },
+    currentMode = "normal"
+}
+
 -- Configuración del gestor de chunks
 ChunkManager.config = {
     -- Tamaño de cada chunk
@@ -62,6 +86,20 @@ ChunkManager.config = {
     minGenerationTime = 0.0015,      -- 1.5ms mínimo
     maxGenerationTimeAdaptive = 0.0035, -- 3.5ms máximo adaptativo
     reduceOnOvershoot = 0.5,         -- Reducir a la mitad si dt > target
+    
+    -- Configuración de memoria optimizada
+    memoryManagement = {
+        enabled = true,
+        adaptiveMode = true,
+        memoryThresholds = {
+            low = 100 * 1024 * 1024,    -- 100MB
+            high = 300 * 1024 * 1024    -- 300MB
+        },
+        compressionEnabled = true,
+        compressionLevel = 6,
+        cleanupInterval = 30.0,
+        garbageCollectionInterval = 60.0
+    },
     
     -- Estadísticas
     enableStats = true
@@ -139,6 +177,68 @@ local ChunkStructure = {
     version = 1
 }
 
+-- Gestión de memoria adaptativa
+function ChunkManager.updateMemoryManagement()
+    if not ChunkManager.config.memoryManagement.enabled then return end
+    
+    local currentTime = love.timer.getTime()
+    if currentTime - configCache.lastUpdate < configCache.updateInterval then return end
+    
+    local memoryUsage = collectgarbage("count") * 1024 -- Convertir a bytes
+    local thresholds = ChunkManager.config.memoryManagement.memoryThresholds
+    
+    local newMode = "normal"
+    if memoryUsage > thresholds.high then
+        newMode = "lowMemory"
+    elseif memoryUsage < thresholds.low then
+        newMode = "highMemory"
+    end
+    
+    if newMode ~= configCache.currentMode then
+        configCache.currentMode = newMode
+        local settings = configCache.adaptiveSettings[newMode]
+        
+        ChunkManager.config.maxActiveChunks = settings.maxActiveChunks
+        ChunkManager.config.maxCachedChunks = settings.maxCachedChunks
+        ChunkManager.config.poolSize = settings.poolSize
+        
+        print("ChunkManager: Switched to " .. newMode .. " mode (Memory: " .. 
+              string.format("%.1f", memoryUsage / 1024 / 1024) .. "MB)")
+    end
+    
+    configCache.lastUpdate = currentTime
+end
+
+-- Limpiar memoria de forma inteligente
+function ChunkManager.performMemoryCleanup()
+    local memoryBefore = collectgarbage("count")
+    local cleaned = 0
+    
+    -- Limpiar chunks menos utilizados del cache
+    local cacheEntries = {}
+    for id, chunk in pairs(ChunkManager.state.cachedChunks) do
+        table.insert(cacheEntries, {id = id, chunk = chunk, lastAccess = chunk.lastAccess})
+    end
+    
+    table.sort(cacheEntries, function(a, b) return a.lastAccess < b.lastAccess end)
+    
+    local targetReduction = math.floor(#cacheEntries * 0.3) -- Reducir 30%
+    for i = 1, math.min(targetReduction, #cacheEntries) do
+        local entry = cacheEntries[i]
+        ChunkManager.state.cachedChunks[entry.id] = nil
+        cleaned = cleaned + 1
+    end
+    
+    -- Forzar garbage collection
+    collectgarbage("collect")
+    
+    local memoryAfter = collectgarbage("count")
+    local memoryFreed = memoryBefore - memoryAfter
+    
+    print(string.format("Memory cleanup: %d chunks removed, %.1fMB freed", 
+          cleaned, memoryFreed / 1024))
+end
+
 -- Inicializar el gestor de chunks
 function ChunkManager.init(seed)
     ChunkManager.state.activeChunks = {}
@@ -157,7 +257,11 @@ function ChunkManager.init(seed)
     -- Reset estadísticas
     ChunkManager.resetStats()
     
+    -- Inicializar gestión de memoria
+    configCache.lastUpdate = 0
+    
     print("ChunkManager initialized with pool size: " .. ChunkManager.config.poolSize)
+    print("Adaptive Memory Management: " .. (ChunkManager.config.memoryManagement.enabled and "ON" or "OFF"))
 end
 
 -- Crear chunk vacío
@@ -499,6 +603,13 @@ function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY, playerV
         -- Gestión de memoria si es necesario
         if ChunkManager.countCachedChunks() > ChunkManager.config.maxCachedChunks * 0.9 then
             ChunkManager.cleanupCache()
+        end
+        
+        -- Limpiar memoria si el uso es alto
+        local currentMemory = collectgarbage("count") * 1024
+        if ChunkManager.config.memoryManagement.enabled and 
+           currentMemory > ChunkManager.config.memoryManagement.memoryThresholds.high then
+            ChunkManager.performMemoryCleanup()
         end
         
         ChunkManager.state.stats.lastFrameTime = 0

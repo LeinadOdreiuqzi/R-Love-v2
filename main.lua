@@ -282,6 +282,11 @@ function love.update(dt)
     -- Actualizar estadísticas avanzadas
     updateAdvancedStats(dt)
     
+    -- Actualizar cámara (necesario para zoom y optimizaciones)
+    if _G.camera and _G.camera.update then
+        _G.camera:update(dt)
+    end
+    
     -- Actualizar HUD (incluye tracking de biomas)
     if HUD and HUD.update then
         HUD.update(dt)
@@ -441,44 +446,71 @@ function love.draw()
     end
 end
 
--- Actualizar estadísticas avanzadas
+-- Cache para estadísticas avanzadas
+local advancedStatsCache = {
+    lastFPSUpdate = 0,
+    lastMemoryUpdate = 0,
+    fpsUpdateInterval = 0.5, -- Actualizar FPS cada 500ms
+    memoryUpdateInterval = 2.0, -- Actualizar memoria cada 2s
+    cachedAvgFPS = 0,
+    cachedMemory = 0,
+    cachedFrameTime = 0
+}
+
+-- Actualizar estadísticas avanzadas optimizado
 function updateAdvancedStats(dt)
     local currentTime = love.timer.getTime()
     
-    -- Agregar tiempo de frame actual al historial
-    table.insert(advancedStats.frameTimeHistory, dt)
-    if #advancedStats.frameTimeHistory > advancedStats.maxHistorySize then
-        table.remove(advancedStats.frameTimeHistory, 1)
+    -- Agregar tiempo de frame actual al historial (solo si es necesario)
+    if currentTime - advancedStatsCache.lastFPSUpdate >= advancedStatsCache.fpsUpdateInterval then
+        table.insert(advancedStats.frameTimeHistory, dt)
+        if #advancedStats.frameTimeHistory > advancedStats.maxHistorySize then
+            table.remove(advancedStats.frameTimeHistory, 1)
+        end
+        
+        -- Calcular FPS promedio y cachear
+        local avgFrameTime = 0
+        for _, frameTime in ipairs(advancedStats.frameTimeHistory) do
+            avgFrameTime = avgFrameTime + frameTime
+        end
+        advancedStatsCache.cachedFrameTime = avgFrameTime / #advancedStats.frameTimeHistory
+        advancedStatsCache.cachedAvgFPS = math.floor(1 / advancedStatsCache.cachedFrameTime)
+        advancedStatsCache.lastFPSUpdate = currentTime
     end
     
-    -- Actualizar estadísticas cada intervalo
+    -- Actualizar memoria menos frecuentemente
+    if currentTime - advancedStatsCache.lastMemoryUpdate >= advancedStatsCache.memoryUpdateInterval then
+        advancedStatsCache.cachedMemory = collectgarbage("count")
+        advancedStatsCache.lastMemoryUpdate = currentTime
+    end
+    
+    -- Actualizar estadísticas cada intervalo (usando valores cacheados)
     if currentTime - advancedStats.lastUpdate >= advancedStats.updateInterval then
         advancedStats.lastUpdate = currentTime
         
         if advancedStats.enabled then
-            -- Calcular FPS promedio
-            local avgFrameTime = 0
-            for _, frameTime in ipairs(advancedStats.frameTimeHistory) do
-                avgFrameTime = avgFrameTime + frameTime
-            end
-            avgFrameTime = avgFrameTime / #advancedStats.frameTimeHistory
-            
             print("=== ADVANCED STATS UPDATE ===")
-            print("Avg FPS: " .. math.floor(1 / avgFrameTime))
-            print("Frame Time: " .. string.format("%.2f", avgFrameTime * 1000) .. "ms")
+            print("Avg FPS: " .. advancedStatsCache.cachedAvgFPS)
+            print("Frame Time: " .. string.format("%.2f", advancedStatsCache.cachedFrameTime * 1000) .. "ms")
             print("Current Seed: " .. gameState.currentSeed)
-            
-            -- Estadísticas de memoria
-            local memoryKB = collectgarbage("count")
-            print("Memory: " .. string.format("%.1f", memoryKB / 1024) .. "MB")
+            print("Memory: " .. string.format("%.1f", advancedStatsCache.cachedMemory / 1024) .. "MB")
         end
     end
 end
 
--- Dibujar overlay de performance
+-- Cache para el overlay de performance
+local performanceCache = {
+    lastUpdate = 0,
+    updateInterval = 0.1, -- Actualizar cada 100ms
+    cachedStats = nil,
+    stringCache = {}
+}
+
+-- Dibujar overlay de performance optimizado
 function drawPerformanceOverlay()
     if not gameState.loaded then return end
     
+    local currentTime = love.timer.getTime()
     local r, g, b, a = love.graphics.getColor()
     
     -- Panel de performance en la esquina inferior izquierda
@@ -521,26 +553,41 @@ function drawPerformanceOverlay()
     love.graphics.print("FPS: " .. currentFPS, x + 10, infoY)
     infoY = infoY + 12
     
-    -- Estadísticas del renderizador
-    local rendererStats = OptimizedRenderer.getStats()
+    -- Estadísticas del renderizador (con cache)
+    local rendererStats
+    if currentTime - performanceCache.lastUpdate >= performanceCache.updateInterval then
+        rendererStats = OptimizedRenderer.getStats()
+        performanceCache.cachedStats = rendererStats
+        performanceCache.lastUpdate = currentTime
+        
+        -- Cache de strings formateados
+        performanceCache.stringCache.frameTime = "Frame Time: " .. string.format("%.1f", rendererStats.performance.frameTime) .. "ms"
+        performanceCache.stringCache.drawCalls = "Draw Calls: " .. rendererStats.performance.drawCalls
+        performanceCache.stringCache.objectsRendered = "Objects Rendered: " .. rendererStats.rendering.objectsRendered
+        performanceCache.stringCache.cullingEff = "Culling Efficiency: " .. string.format("%.1f%%", rendererStats.rendering.cullingEfficiency)
+        performanceCache.stringCache.qualityLevel = "Quality Level: " .. string.format("%.1f%%", rendererStats.quality.current * 100)
+    else
+        rendererStats = performanceCache.cachedStats or OptimizedRenderer.getStats()
+    end
+    
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("Frame Time: " .. string.format("%.1f", rendererStats.performance.frameTime) .. "ms", x + 10, infoY)
+    love.graphics.print(performanceCache.stringCache.frameTime or "Frame Time: N/A", x + 10, infoY)
     infoY = infoY + 12
-    love.graphics.print("Draw Calls: " .. rendererStats.performance.drawCalls, x + 10, infoY)
+    love.graphics.print(performanceCache.stringCache.drawCalls or "Draw Calls: N/A", x + 10, infoY)
     infoY = infoY + 12
-    love.graphics.print("Objects Rendered: " .. rendererStats.rendering.objectsRendered, x + 10, infoY)
+    love.graphics.print(performanceCache.stringCache.objectsRendered or "Objects Rendered: N/A", x + 10, infoY)
     infoY = infoY + 12
     
-    -- Eficiencia de culling con color
+    -- Eficiencia de culling con color (optimizado)
     local cullingEff = rendererStats.rendering.cullingEfficiency
     local cullingColor = cullingEff >= 80 and {0, 1, 0, 1} or cullingEff >= 60 and {1, 1, 0, 1} or {1, 0, 0, 1}
     love.graphics.setColor(cullingColor)
-    love.graphics.print("Culling Efficiency: " .. string.format("%.1f%%", cullingEff), x + 10, infoY)
+    love.graphics.print(performanceCache.stringCache.cullingEff or "Culling Efficiency: N/A", x + 10, infoY)
     infoY = infoY + 12
     
     -- Calidad adaptativa
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("Quality Level: " .. string.format("%.1f%%", rendererStats.quality.current * 100), x + 10, infoY)
+    love.graphics.print(performanceCache.stringCache.qualityLevel or "Quality Level: N/A", x + 10, infoY)
     infoY = infoY + 12
     
     -- Memoria

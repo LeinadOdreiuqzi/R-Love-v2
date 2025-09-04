@@ -7,10 +7,55 @@ local StarfieldInstanced = {}
 local shader
 local whiteImage
 
--- NUEVO: buffer y writer
+-- OPTIMIZADO: buffer, writer y pooling system
 local writerShader
 local starDataCanvas
 local starDataW, starDataH = 0, 0
+
+-- Sistema de pooling para Canvas
+local canvasPool = {
+    available = {},
+    inUse = {},
+    maxPoolSize = 5,
+    totalCreated = 0
+}
+
+-- Obtener Canvas del pool o crear uno nuevo
+local function getPooledCanvas(width, height)
+    local key = width .. "x" .. height
+    
+    if canvasPool.available[key] and #canvasPool.available[key] > 0 then
+        local canvas = table.remove(canvasPool.available[key])
+        canvasPool.inUse[canvas] = key
+        return canvas
+    end
+    
+    -- Crear nuevo Canvas si el pool está vacío
+    if canvasPool.totalCreated < canvasPool.maxPoolSize then
+        local ok, canvas = pcall(love.graphics.newCanvas, width, height, {format="rgba32f", readable=true})
+        if ok then
+            canvasPool.totalCreated = canvasPool.totalCreated + 1
+            canvasPool.inUse[canvas] = key
+            return canvas
+        end
+    end
+    
+    return nil
+end
+
+-- Devolver Canvas al pool
+local function returnCanvasToPool(canvas)
+    if not canvas or not canvasPool.inUse[canvas] then return end
+    
+    local key = canvasPool.inUse[canvas]
+    canvasPool.inUse[canvas] = nil
+    
+    if not canvasPool.available[key] then
+        canvasPool.available[key] = {}
+    end
+    
+    table.insert(canvasPool.available[key], canvas)
+end
 
 local MapConfig = require 'src.maps.config.map_config'
 
@@ -106,27 +151,18 @@ float crossFlare(vec2 p, vec2 center, float width, float intensity) {
     return (flareH + flareV) * intensity * 1.4; // Aumentar brillo
 }
 
-// Nuevo: Flare de 6 puntas (para type 5)
+// OPTIMIZADO: Flare de 6 puntas sin loop (para type 5)
 float sixPointFlare(vec2 p, vec2 center, float width, float intensity) {
     vec2 d = p - center;
     float angle = atan(d.y, d.x);
     float dist = length(d);
     
-    // Crear 6 rayos rotados 60 grados entre sí
-    float flare = 0.0;
-    for (int i = 0; i < 6; i++) {
-        float rayAngle = float(i) * PI / 3.0; // 60 grados en radianes
-        float angleDiff = abs(angle - rayAngle);
-        // Manejar wrap-around del ángulo
-        angleDiff = min(angleDiff, abs(angleDiff - 2.0 * PI));
-        angleDiff = min(angleDiff, abs(angleDiff + 2.0 * PI));
-        
-        // Crear rayo con falloff angular y radial
-        float rayIntensity = exp(-pow(angleDiff / 0.15, 2.0)) * exp(-dist / (width * 1.2));
-        flare += rayIntensity;
-    }
+    // Usar función trigonométrica para crear 6 rayos sin loop
+    float rayPattern = abs(sin(angle * 3.0)); // Crea 6 picos por revolución
+    float radialFalloff = exp(-dist / (width * 1.2));
+    float angularSharpness = pow(rayPattern, 4.0); // Hacer rayos más nítidos
     
-    return flare * intensity * 1.2;
+    return angularSharpness * radialFalloff * intensity * 1.2;
 }
 
 // Nuevo: Efecto diamante sutil (para type 3)
@@ -200,28 +236,17 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
         float a = d2.a;
         float pulsePhase = d3.x;
 
-        // Reemplaza el bloque twinkle con una versión branchless equivalente
-        // Antes:
-        // float twinkle = 1.0;
-        // if (u_twinkleEnabled > 0.5) {
-        //     twinkle = 0.6 + 0.4 * sin(float(u_time) * twSpeed + twPhase);
-        // }
+        // OPTIMIZADO: Versión branchless completa
         float twEnabled = step(0.5, u_twinkleEnabled);
         float twinkleSin = 0.6 + 0.4 * sin(float(u_time) * twSpeed + twPhase);
         float twinkle = mix(1.0, twinkleSin, twEnabled);
         float starBrightness = brightness * twinkle;
 
-        // Unifica la comprobación de tipo
-        bool isType4 = abs(type - 4.0) < 0.5;
-
-        float pulseMul = 1.0;
-        if (isType4) {
-            float pulse = sin(float(u_time) * 6.0 + pulsePhase);
-            pulseMul = (1.2 + 0.3 * pulse);
-        }
-
-        // NUEVO: define finalMul para corregir el error de compilación
-        float finalMul = isType4 ? pulseMul : 1.0;
+        // OPTIMIZADO: Cálculo de pulso branchless
+        float isType4 = 1.0 - step(0.5, abs(type - 4.0));
+        float pulse = sin(float(u_time) * 6.0 + pulsePhase);
+        float pulseMul = mix(1.0, 1.2 + 0.3 * pulse, isType4);
+        float finalMul = pulseMul;
 
         vec2 center;
         float screenRadius;
@@ -253,7 +278,7 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
             accum += halo * haloCol;
         }
 
-        float body = circleFill(dist, screenRadius * (isType4 ? 0.85 : 1.0));
+        float body = circleFill(dist, screenRadius * mix(1.0, 0.85, isType4));
         vec3 bodyCol = bodyTint(c, starBrightness);
 
         float core = circleFill(dist, screenRadius * 0.25);
@@ -265,23 +290,27 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
             pulseMul = (1.0 + 0.08 * pulse); // Pulso muy sutil
         }
 
-        // Efectos especiales controlados
-    if (u_enhancedEffects > 0.5 && isType4) {
-        float width = max(1.8, screenRadius * 0.35);
-        float flare = crossFlare(screenCoord, center, width, 0.8);
-        vec3 flareCol = enhanceColor(c, starBrightness * 0.4);
-        accum += flare * flareCol;
-    } else if (u_enhancedEffects > 0.5 && abs(type - 5.0) < 0.5) {
-        float width = max(1.8, screenRadius * 0.3);
-        float flare = sixPointFlare(screenCoord, center, width, 0.9);
-        vec3 flareCol = enhanceColor(c, starBrightness * 0.5);
-        accum += flare * flareCol;
-    } else if (u_enhancedEffects > 0.5 && abs(type - 3.0) < 0.5) {
-        float width = max(1.8, screenRadius * 0.4);
-        float flare = diamondFlare(screenCoord, center, width, 0.8);
-        vec3 flareCol = enhanceColor(c, starBrightness * 0.45);
-        accum += flare * flareCol;
-    }
+        // OPTIMIZADO: Efectos especiales branchless
+        float enhancedEnabled = step(0.5, u_enhancedEffects);
+        
+        // Calcular máscaras de tipo sin branching
+        float isType3 = 1.0 - step(0.5, abs(type - 3.0));
+        float isType5 = 1.0 - step(0.5, abs(type - 5.0));
+        
+        // Calcular todos los efectos y combinar con máscaras
+        float width4 = max(1.8, screenRadius * 0.35);
+        float flare4 = crossFlare(screenCoord, center, width4, 0.8) * isType4;
+        
+        float width5 = max(1.8, screenRadius * 0.3);
+        float flare5 = sixPointFlare(screenCoord, center, width5, 0.9) * isType5;
+        
+        float width3 = max(1.8, screenRadius * 0.4);
+        float flare3 = diamondFlare(screenCoord, center, width3, 0.8) * isType3;
+        
+        // Combinar efectos
+        float totalFlare = flare4 + flare5 + flare3;
+        vec3 flareCol = enhanceColor(c, starBrightness * mix(0.4, mix(0.5, 0.45, isType3), isType5));
+        accum += totalFlare * flareCol * enhancedEnabled;
 
         // Composición final equilibrada
         accum += body * bodyCol * finalMul;
@@ -322,19 +351,15 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     float dist = length(screenCoord - center);
     if (dist > screenRadius * 4.0) return vec4(0.0);
 
-    float twinkle = 1.0;
-    if (u_twinkleEnabled > 0.5) {
-        twinkle = 0.6 + 0.4 * sin(float(u_time) * twSpeed + twPhase);
-    }
+    // OPTIMIZADO: Versión branchless para ruta principal
+    float twEnabled = step(0.5, u_twinkleEnabled);
+    float twinkleSin = 0.6 + 0.4 * sin(float(u_time) * twSpeed + twPhase);
+    float twinkle = mix(1.0, twinkleSin, twEnabled);
     float starBrightness = brightness * twinkle;
 
-    bool isType4Main = abs(type - 4.0) < 0.5;
-    
-    float pulseMul = 1.0;
-    if (isType4Main) {
-        float pulse = sin(float(u_time) * 5.0 + pulsePhase);
-        pulseMul = (1.0 + 0.08 * pulse); // Pulso muy sutil
-    }
+    float isType4Main = 1.0 - step(0.5, abs(type - 4.0));
+    float pulse = sin(float(u_time) * 5.0 + pulsePhase);
+    float pulseMul = mix(1.0, 1.0 + 0.08 * pulse, isType4Main);
 
     vec3 c = starColor.rgb;
     float a = starColor.a;
@@ -348,34 +373,34 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
         accum += halo * haloCol;
     }
 
-    float body = circleFill(dist, screenRadius * (isType4Main ? 0.85 : 1.0));
+    float body = circleFill(dist, screenRadius * mix(1.0, 0.85, isType4Main));
     vec3 bodyCol = bodyTint(c, starBrightness);
 
     float core = circleFill(dist, screenRadius * 0.25);
     vec3 coreCol = coreTint(c, starBrightness);
 
-    // Efectos especiales controlados (ruta principal)
-    if (u_enhancedEffects > 0.5 && isType4Main) {
-        float width = max(1.8, screenRadius * 0.35);
-        float flare = crossFlare(screenCoord, center, width, 0.8);
-        vec3 flareCol = enhanceColor(c, starBrightness * 0.4);
-        accum += flare * flareCol;
-    } else if (u_enhancedEffects > 0.5 && abs(type - 5.0) < 0.5) {
-        float width = max(1.8, screenRadius * 0.3);
-        float flare = sixPointFlare(screenCoord, center, width, 0.9);
-        vec3 flareCol = enhanceColor(c, starBrightness * 0.5);
-        accum += flare * flareCol;
-    } else if (u_enhancedEffects > 0.5 && abs(type - 3.0) < 0.5) {
-        float width = max(1.8, screenRadius * 0.4);
-        float flare = diamondFlare(screenCoord, center, width, 0.8);
-        vec3 flareCol = enhanceColor(c, starBrightness * 0.45);
-        accum += flare * flareCol;
-    }
-
-    float finalMul = isType4Main ? pulseMul : 1.0;
-
+    // OPTIMIZADO: Efectos especiales branchless (ruta principal)
+    float enhancedEnabled = step(0.5, u_enhancedEffects);
+    float isType3Main = 1.0 - step(0.5, abs(type - 3.0));
+    float isType5Main = 1.0 - step(0.5, abs(type - 5.0));
+    
+    // Calcular todos los efectos
+    float width4 = max(1.8, screenRadius * 0.35);
+    float flare4 = crossFlare(screenCoord, center, width4, 0.8) * isType4Main;
+    
+    float width5 = max(1.8, screenRadius * 0.3);
+    float flare5 = sixPointFlare(screenCoord, center, width5, 0.9) * isType5Main;
+    
+    float width3 = max(1.8, screenRadius * 0.4);
+    float flare3 = diamondFlare(screenCoord, center, width3, 0.8) * isType3Main;
+    
+    // Combinar efectos
+    float totalFlareMain = flare4 + flare5 + flare3;
+    vec3 flareColMain = enhanceColor(c, starBrightness * mix(0.4, mix(0.5, 0.45, isType3Main), isType5Main));
+    accum += totalFlareMain * flareColMain * enhancedEnabled;
+    
     // Composición final equilibrada (ruta principal)
-    accum += body * bodyCol * finalMul;
+    accum += body * bodyCol * pulseMul;
     accum += core * coreCol * 0.9;
 
     // Alpha suave y controlado (ruta principal)
@@ -545,24 +570,29 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
     if ok then writerShader = sh else print("✗ StarfieldInstanced: error creando writerShader: "..tostring(sh)) end
 end
 
--- NUEVO: iniciar la construcción del buffer para N estrellas (ancho=N, alto=4 filas)
+-- OPTIMIZADO: iniciar la construcción del buffer usando pooling
 function StarfieldInstanced.beginBuildStarData(count)
     if not love.graphics then return end
     ensureWriterShader()
     starDataW, starDataH = math.max(1, count or 1), 4
-    -- Canvas float para valores fuera de [0,1]
-    local ok, cvs = pcall(love.graphics.newCanvas, starDataW, starDataH, {format="rgba32f", readable=true})
-    if not ok then
-        print("✗ StarfieldInstanced: no se pudo crear Canvas rgba32f: "..tostring(cvs))
-        return
+    
+    -- Intentar obtener Canvas del pool
+    starDataCanvas = getPooledCanvas(starDataW, starDataH)
+    
+    if not starDataCanvas then
+        -- Fallback: crear Canvas directamente si el pool falla
+        local ok, cvs = pcall(love.graphics.newCanvas, starDataW, starDataH, {format="rgba32f", readable=true})
+        if not ok then
+            print("✗ StarfieldInstanced: no se pudo crear Canvas rgba32f: "..tostring(cvs))
+            return
+        end
+        starDataCanvas = cvs
     end
-    starDataCanvas = cvs
 
     -- Preparar estado de dibujo
     love.graphics.push("all")
     love.graphics.setCanvas(starDataCanvas)
     love.graphics.clear(0,0,0,0)
-    -- overwrite total al escribir píxeles
     love.graphics.setBlendMode("replace", "premultiplied")
     love.graphics.setShader(writerShader)
 end
@@ -604,6 +634,285 @@ end
 -- NUEVO: consultar si hay buffer cargado
 function StarfieldInstanced.hasStarData()
     return starDataCanvas ~= nil
+end
+
+-- OPTIMIZADO: limpiar y devolver Canvas al pool
+function StarfieldInstanced.releaseStarData()
+    if starDataCanvas then
+        returnCanvasToPool(starDataCanvas)
+        starDataCanvas = nil
+        starDataW, starDataH = 0, 0
+    end
+end
+
+-- OPTIMIZADO: Pre-filtrado inteligente de estrellas para culling agresivo
+function StarfieldInstanced.preFilterStars(stars, camera, config)
+    if not stars or not camera then return stars end
+    
+    local filtered = {}
+    local zoom = camera.zoom or 1.0
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    
+    -- Configuración de culling dinámico
+    local cullingConfig = config or {
+        enableHighZoomCulling = true,
+        highZoomThreshold = 1.5,
+        importanceThreshold = 2.0,
+        marginMultiplier = zoom > 2.0 and 1.5 or 2.0
+    }
+    
+    for i, star in ipairs(stars) do
+        local shouldInclude = true
+        
+        -- Culling básico de viewport
+        if star.x and star.y then
+            local screenX = (star.x - camera.x) * zoom + screenWidth / 2
+            local screenY = (star.y - camera.y) * zoom + screenHeight / 2
+            local margin = (star.size or 10) * cullingConfig.marginMultiplier
+            
+            local inViewport = screenX >= -margin and screenX <= screenWidth + margin and
+                              screenY >= -margin and screenY <= screenHeight + margin
+            
+            if not inViewport then
+                shouldInclude = false
+            end
+        end
+        
+        -- Culling por zoom alto e importancia
+        if shouldInclude and cullingConfig.enableHighZoomCulling and zoom > cullingConfig.highZoomThreshold then
+            local importance = StarfieldInstanced.calculateStarImportance(star)
+            
+            -- En zoom muy alto, filtrar estrellas menos importantes
+            if zoom > 2.0 and importance < cullingConfig.importanceThreshold then
+                shouldInclude = false
+            end
+            
+            -- Culling adicional por distancia del centro en zoom extremo
+            if shouldInclude and zoom > 2.5 and star.x and star.y then
+                local screenX = (star.x - camera.x) * zoom + screenWidth / 2
+                local screenY = (star.y - camera.y) * zoom + screenHeight / 2
+                local distanceFromCenter = math.sqrt((screenX - screenWidth/2)^2 + (screenY - screenHeight/2)^2)
+                local maxDistance = math.min(screenWidth, screenHeight) * 0.4
+                
+                if distanceFromCenter > maxDistance and importance < 2.5 then
+                    shouldInclude = false
+                end
+            end
+        end
+        
+        if shouldInclude then
+            table.insert(filtered, star)
+        end
+    end
+    
+    return filtered
+end
+
+-- OPTIMIZADO: Calcular importancia de estrella (compatible con OptimizedRenderer)
+function StarfieldInstanced.calculateStarImportance(star)
+    if not star then return 1.0 end
+    
+    local importance = 1.0
+    
+    -- Factor de tamaño
+    local size = star.size or 10
+    local sizeNormalized = math.min(size / 20, 2.0)
+    importance = importance + (sizeNormalized * 2.0)
+    
+    -- Factor de tipo
+    local starType = star.type or 1
+    local typeMultipliers = {[1] = 1.0, [2] = 1.2, [3] = 1.4, [4] = 2.0, [5] = 1.6}
+    importance = importance * (typeMultipliers[starType] or 1.0)
+    
+    -- Factor de brillo
+    local brightness = star.brightness or 1.0
+    importance = importance + (brightness * 1.5)
+    
+    return math.max(importance, 0.1)
+end
+
+-- OPTIMIZADO: Sistema de cache avanzado para efectos visuales
+local effectsCache = {
+    twinkle = {},
+    pulse = {},
+    flare = {},
+    lastCleanup = 0,
+    cleanupInterval = 5.0, -- Limpiar cache cada 5 segundos
+    maxCacheSize = 1000
+}
+
+-- Cache inteligente de twinkle con interpolación temporal
+function StarfieldInstanced.getCachedTwinkle(star, time, forceUpdate)
+    if not star or not star.id then return 0.6 end
+    
+    local starId = star.id
+    local cache = effectsCache.twinkle[starId]
+    
+    -- Verificar si necesitamos actualizar el cache
+    local needsUpdate = forceUpdate or not cache or (time - cache.lastUpdate) > 0.1
+    
+    if needsUpdate then
+        local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+        local angleIndex = math.floor(twinklePhase * 57.29) % 360
+        local intensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
+        
+        effectsCache.twinkle[starId] = {
+            intensity = intensity,
+            lastUpdate = time,
+            phase = twinklePhase
+        }
+        
+        return intensity
+    else
+        -- Interpolar entre valores cacheados para suavidad
+        local deltaTime = time - cache.lastUpdate
+        local phaseIncrement = deltaTime * (star.twinkleSpeed or 1)
+        local newPhase = cache.phase + phaseIncrement
+        local angleIndex = math.floor(newPhase * 57.29) % 360
+        local interpolatedIntensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
+        
+        return interpolatedIntensity
+    end
+end
+
+-- Cache de efectos de pulso para estrellas especiales
+function StarfieldInstanced.getCachedPulse(star, time, starType)
+    if not star or not star.id or starType < 4 then return 1.0 end
+    
+    local starId = star.id
+    local cache = effectsCache.pulse[starId]
+    
+    if not cache or (time - cache.lastUpdate) > 0.05 then
+        local pulseSpeed = (star.pulseSpeed or 0.5) * (starType == 5 and 1.5 or 1.0)
+        local pulsePhase = time * pulseSpeed + (star.pulseOffset or 0)
+        local pulseIntensity = 0.8 + 0.2 * math.sin(pulsePhase)
+        
+        effectsCache.pulse[starId] = {
+            intensity = pulseIntensity,
+            lastUpdate = time,
+            phase = pulsePhase
+        }
+        
+        return pulseIntensity
+    end
+    
+    return cache.intensity
+end
+
+-- Cache de efectos de flare para estrellas grandes
+function StarfieldInstanced.getCachedFlare(star, time, size)
+    if not star or not star.id or size < 15 then return {1.0, 1.0, 1.0} end
+    
+    local starId = star.id
+    local cache = effectsCache.flare[starId]
+    
+    if not cache or (time - cache.lastUpdate) > 0.08 then
+        local flareSpeed = star.flareSpeed or 0.3
+        local flarePhase = time * flareSpeed
+        
+        -- Diferentes tipos de flare según el tipo de estrella
+        local starType = star.type or 1
+        local crossIntensity, sixPointIntensity, diamondIntensity = 1.0, 1.0, 1.0
+        
+        if starType == 4 then
+            crossIntensity = 0.7 + 0.3 * math.sin(flarePhase)
+            sixPointIntensity = 0.8 + 0.2 * math.sin(flarePhase * 1.3)
+        elseif starType == 5 then
+            diamondIntensity = 0.6 + 0.4 * math.sin(flarePhase * 0.8)
+            crossIntensity = 0.9 + 0.1 * math.sin(flarePhase * 2.1)
+        end
+        
+        effectsCache.flare[starId] = {
+            cross = crossIntensity,
+            sixPoint = sixPointIntensity,
+            diamond = diamondIntensity,
+            lastUpdate = time
+        }
+        
+        return {crossIntensity, sixPointIntensity, diamondIntensity}
+    end
+    
+    return {cache.cross, cache.sixPoint, cache.diamond}
+end
+
+-- Limpieza automática del cache
+function StarfieldInstanced.cleanupEffectsCache(time)
+    if time - effectsCache.lastCleanup < effectsCache.cleanupInterval then
+        return
+    end
+    
+    local cleaned = 0
+    
+    -- Limpiar cache de twinkle
+    for starId, cache in pairs(effectsCache.twinkle) do
+        if time - cache.lastUpdate > 10.0 then -- Eliminar entradas viejas
+            effectsCache.twinkle[starId] = nil
+            cleaned = cleaned + 1
+        end
+    end
+    
+    -- Limpiar cache de pulse
+    for starId, cache in pairs(effectsCache.pulse) do
+        if time - cache.lastUpdate > 10.0 then
+            effectsCache.pulse[starId] = nil
+            cleaned = cleaned + 1
+        end
+    end
+    
+    -- Limpiar cache de flare
+    for starId, cache in pairs(effectsCache.flare) do
+        if time - cache.lastUpdate > 10.0 then
+            effectsCache.flare[starId] = nil
+            cleaned = cleaned + 1
+        end
+    end
+    
+    -- Limitar tamaño del cache si es necesario
+    local totalCacheSize = 0
+    for _ in pairs(effectsCache.twinkle) do totalCacheSize = totalCacheSize + 1 end
+    for _ in pairs(effectsCache.pulse) do totalCacheSize = totalCacheSize + 1 end
+    for _ in pairs(effectsCache.flare) do totalCacheSize = totalCacheSize + 1 end
+    
+    if totalCacheSize > effectsCache.maxCacheSize then
+        -- Limpiar cache más agresivamente
+        for starId, cache in pairs(effectsCache.twinkle) do
+            if time - cache.lastUpdate > 5.0 then
+                effectsCache.twinkle[starId] = nil
+                cleaned = cleaned + 1
+            end
+        end
+    end
+    
+    effectsCache.lastCleanup = time
+    
+    if cleaned > 0 then
+        print("✓ StarfieldInstanced: Cleaned " .. cleaned .. " cache entries")
+    end
+end
+
+-- Función de limpieza para liberar recursos
+function StarfieldInstanced.cleanup()
+    StarfieldInstanced.releaseStarData()
+    
+    -- Limpiar cache de efectos
+    effectsCache.twinkle = {}
+    effectsCache.pulse = {}
+    effectsCache.flare = {}
+    effectsCache.lastCleanup = 0
+    
+    -- Limpiar pool si es necesario
+    for key, canvases in pairs(canvasPool.available) do
+        for i, canvas in ipairs(canvases) do
+            if canvas and canvas.release then
+                canvas:release()
+            end
+        end
+    end
+    
+    canvasPool.available = {}
+    canvasPool.inUse = {}
+    canvasPool.totalCreated = 0
 end
 
 return StarfieldInstanced
