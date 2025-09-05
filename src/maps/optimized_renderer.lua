@@ -20,16 +20,7 @@ OptimizedRenderer.config = {
         },
         transitionSmoothing = true,
         
-        -- Configuración específica para zoom alto
-        highZoomMode = {
-            enabled = false,  -- Se activa dinámicamente
-            levels = {
-                [0] = {distance = 0,    detail = 0.7},  -- Reducido
-                [1] = {distance = 400,  detail = 0.5},  -- Reducido
-                [2] = {distance = 800,  detail = 0.3},  -- Reducido
-                [3] = {distance = 1600, detail = 0.1}   -- Muy reducido
-            }
-        },
+        -- Configuración simplificada sin optimizaciones adaptativas
         
         -- NUEVO: LOD inteligente basado en propiedades de estrella
         intelligentLOD = {
@@ -82,12 +73,7 @@ OptimizedRenderer.config = {
             effects = {maxSize = 2000, priority = 5}
         },
         
-        -- Optimización para zoom alto
-        zoomOptimization = {
-            enabled = true,
-            highZoomThreshold = 1.2,  -- Umbral para considerar zoom alto
-            batchSizeMultiplier = 0.7 -- Reducir tamaño de batch en zoom alto
-        }
+        -- Configuración fija sin optimizaciones adaptativas
     },
     
     -- Optimizaciones de performance
@@ -279,63 +265,7 @@ function OptimizedRenderer.createSpriteBatches()
     end
 end
 
--- Activar optimizaciones para zoom alto
-function OptimizedRenderer.enableHighZoomOptimizations()
-    -- Activar modo de zoom alto
-    OptimizedRenderer.config.lod.highZoomMode.enabled = true
-    
-    -- Reducir tamaños de batch
-    local zoomConfig = OptimizedRenderer.config.batching.zoomOptimization
-    if zoomConfig and zoomConfig.enabled then
-        -- Guardar configuración original si no existe
-        if not OptimizedRenderer.originalBatchSizes then
-            OptimizedRenderer.originalBatchSizes = {}
-            for type, config in pairs(OptimizedRenderer.config.batching.batchConfigs) do
-                OptimizedRenderer.originalBatchSizes[type] = config.maxSize
-            end
-        end
-        
-        -- Aplicar multiplicador a todos los batches
-        for type, config in pairs(OptimizedRenderer.config.batching.batchConfigs) do
-            config.maxSize = math.floor(OptimizedRenderer.originalBatchSizes[type] * zoomConfig.batchSizeMultiplier)
-        end
-    end
-    
-    -- Forzar limpieza de caché de visibilidad
-    OptimizedRenderer.invalidateVisibilityCache()
-    
-    -- Vaciar todos los batches para aplicar nuevos tamaños
-    OptimizedRenderer.flushAllBatches()
-    
-    print(" HIGH ZOOM OPTIMIZATIONS ENABLED - Performance mode activated")
-    print(string.format("Batch size multiplier: %.1f%% (reduction: %.1f%%)", 
-        zoomConfig.batchSizeMultiplier * 100, (1 - zoomConfig.batchSizeMultiplier) * 100))
-    print("  ✓ Visibility cache invalidated and batches flushed")
-end
-
--- Desactivar optimizaciones para zoom alto
-function OptimizedRenderer.disableHighZoomOptimizations()
-    -- Desactivar modo de zoom alto
-    OptimizedRenderer.config.lod.highZoomMode.enabled = false
-    
-    -- Restaurar tamaños de batch originales
-    if OptimizedRenderer.originalBatchSizes then
-        for type, size in pairs(OptimizedRenderer.originalBatchSizes) do
-            if OptimizedRenderer.config.batching.batchConfigs[type] then
-                OptimizedRenderer.config.batching.batchConfigs[type].maxSize = size
-            end
-        end
-    end
-    
-    -- Forzar limpieza de caché de visibilidad
-    OptimizedRenderer.invalidateVisibilityCache()
-    
-    -- Vaciar todos los batches para aplicar nuevos tamaños
-    OptimizedRenderer.flushAllBatches()
-    
-    print("HIGH ZOOM OPTIMIZATIONS DISABLED - Normal performance mode restored")
-    print("  ✓ Original batch sizes restored and caches cleared")
-end
+-- Funciones de optimización removidas para garantizar renderizado consistente
 
 -- Calcular nivel de LOD basado en distancia y zoom
 function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
@@ -389,11 +319,6 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
     -- Determinar nivel de LOD (con soporte para modo zoom alto)
     local lodLevels = OptimizedRenderer.config.lod.levels
     
-    -- Usar configuración específica para zoom alto si está activada
-    if OptimizedRenderer.config.lod.highZoomMode and OptimizedRenderer.config.lod.highZoomMode.enabled then
-        lodLevels = OptimizedRenderer.config.lod.highZoomMode.levels
-    end
-    
     for level = #lodLevels - 1, 0, -1 do
         if adjustedDistance >= lodLevels[level].distance then
             return level
@@ -423,11 +348,19 @@ function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera)
         return true
     end
     
-    -- Optimización para zoom alto: culling más agresivo
+    -- Optimización para zoom alto: culling más agresivo (solo para estrellas pequeñas, no nebulosas)
     local zoom = camera.zoom or 1.0
     if zoom > 1.5 and objectSize < 20 then
         -- En zoom muy alto, objetos pequeños se descartan rápidamente
+        -- EXCEPCIÓN: No aplicar a nebulosas (que tienen tamaños típicos de 140+ * worldScale)
+        -- Esta lógica solo debe afectar a estrellas muy pequeñas
         return false
+    end
+    
+    -- NUEVO: Protección especial para nebulosas - nunca aplicar culling agresivo
+    if camera and camera.obj and camera.obj.type == "nebulae" then
+        -- Las nebulosas siempre deben ser evaluadas con el culling normal, no agresivo
+        -- (Esta es una protección adicional aunque no debería ser necesaria)
     end
     
     -- Convertir a coordenadas relativas
@@ -516,7 +449,9 @@ function OptimizedRenderer.updateVisibilityCache(camera)
     local dzoom = math.abs(currentPos.zoom - lastPos.zoom)
     
     local cameraMovement = math.sqrt(dx * dx + dy * dy)
-    local significantMovement = cameraMovement > 50 or dzoom > 0.1
+    -- Umbral de zoom fijo para consistencia en todos los niveles
+    local zoomThreshold = 0.2 -- Umbral fijo que funciona bien en todo el rango de zoom
+    local significantMovement = cameraMovement > 50 or dzoom > zoomThreshold
     
     -- Invalidar cache si hay movimiento significativo
     if significantMovement then
@@ -557,32 +492,45 @@ function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, ch
         -- Frustum culling inteligente (usar tamaño escalado)
         local objSize = ((obj.size or 10)) * ws
         if OptimizedRenderer.isObjectVisible(worldX, worldY, objSize, camera, obj) then
-            -- Calcular LOD inteligente
-            local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera, obj)
-            obj.lodLevel = lodLevel  -- Guardar para estadísticas
-            obj.directionalPriority = directionalPriority -- Guardar prioridad
             
-            -- MEJORADO: No saltear estrellas importantes en LOD 3
-            local shouldRender = true
-            if lodLevel >= 3 and objectType == "stars" then
-                local importance = OptimizedRenderer.calculateStarImportance(obj)
-                -- Solo saltear si la importancia es muy baja
-                if importance < 2.0 then
-                    shouldRender = false
-                end
-            end
-            
-            if shouldRender then
-                -- Renderizar según el tipo y LOD
-                OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, lodLevel, camera)
+            -- Las nebulosas no usan LOD - se renderizan siempre con calidad completa
+            if objectType == "nebulae" then
+                obj.lodLevel = 0  -- Siempre LOD 0 para estadísticas
+                obj.directionalPriority = directionalPriority
+                OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, 0, camera)
                 renderedCount = renderedCount + 1
+                
+                -- Actualizar estadísticas de LOD
+                OptimizedRenderer.state.stats.lodDistribution[0] = 
+                    (OptimizedRenderer.state.stats.lodDistribution[0] or 0) + 1
             else
-                culledCount = culledCount + 1
+                -- Calcular LOD inteligente para otros objetos
+                local lodLevel = OptimizedRenderer.calculateLOD(worldX, worldY, camera, obj)
+                obj.lodLevel = lodLevel  -- Guardar para estadísticas
+                obj.directionalPriority = directionalPriority -- Guardar prioridad
+                
+                -- MEJORADO: No saltear estrellas importantes en LOD 3
+                local shouldRender = true
+                if lodLevel >= 3 and objectType == "stars" then
+                    local importance = OptimizedRenderer.calculateStarImportance(obj)
+                    -- Solo saltear si la importancia es muy baja
+                    if importance < 2.0 then
+                        shouldRender = false
+                    end
+                end
+                
+                if shouldRender then
+                    -- Renderizar según el tipo y LOD
+                    OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, lodLevel, camera)
+                    renderedCount = renderedCount + 1
+                else
+                    culledCount = culledCount + 1
+                end
+                
+                -- Actualizar estadísticas de LOD
+                OptimizedRenderer.state.stats.lodDistribution[lodLevel] = 
+                    (OptimizedRenderer.state.stats.lodDistribution[lodLevel] or 0) + 1
             end
-            
-            -- Actualizar estadísticas de LOD
-            OptimizedRenderer.state.stats.lodDistribution[lodLevel] = 
-                (OptimizedRenderer.state.stats.lodDistribution[lodLevel] or 0) + 1
         else
             culledCount = culledCount + 1
         end
@@ -628,7 +576,9 @@ function OptimizedRenderer.renderSingleObject(obj, objectType, worldX, worldY, l
     if objectType == "stars" then
         OptimizedRenderer.renderStarBatched(obj, renderX, renderY, renderSize, lodLevel)
     elseif objectType == "nebulae" then
-        OptimizedRenderer.renderNebulaBatched(obj, renderX, renderY, renderSize, lodLevel)
+        -- Las nebulosas no usan LOD - siempre calidad completa
+        local nebulaSize = (obj.size or 10) * ws * camera.zoom  -- Sin detailLevel
+        OptimizedRenderer.renderNebulaBatched(obj, renderX, renderY, nebulaSize)
     elseif objectType == "asteroids" then
         OptimizedRenderer.renderAsteroidBatched(obj, renderX, renderY, renderSize, lodLevel)
     elseif objectType == "stations" then
@@ -644,8 +594,8 @@ function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
     local camera = OptimizedRenderer.state.camera
     local zoom = camera and camera.zoom or 1.0
     
-    -- NUEVA OPTIMIZACIÓN: Culling agresivo para zoom alto
-    if not OptimizedRenderer.isStarVisibleHighZoom(star, x, y, size, camera) then
+    -- Culling consistente para todos los niveles de zoom
+    if not OptimizedRenderer.isOnScreen(x, y, size, camera) then
         return -- Saltear estrellas no visibles
     end
     
@@ -682,18 +632,7 @@ function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
     -- OPTIMIZACIÓN: Incrementar contador de batch
     OptimizedRenderer.config.batching.currentBatchCount = OptimizedRenderer.config.batching.currentBatchCount + 1
     
-    -- Aplicar optimización de tamaño de batch para zoom alto
-    if OptimizedRenderer.config.batching.zoomOptimization.enabled and 
-       zoom > OptimizedRenderer.config.batching.zoomOptimization.highZoomThreshold then
-        -- Forzar flush más frecuente en zoom alto para mantener batches pequeños
-        local currentCount = OptimizedRenderer.config.batching.currentBatchCount
-        local maxBatchSize = OptimizedRenderer.config.batching.maxBatchSize * 
-                            OptimizedRenderer.config.batching.zoomOptimization.batchSizeMultiplier
-        
-        if currentCount > maxBatchSize then
-            OptimizedRenderer.flushAllBatches()
-        end
-    end
+    -- Batching simplificado sin optimizaciones adaptativas
     
     local batch = OptimizedRenderer.state.batches.stars
     if not batch then
@@ -753,18 +692,7 @@ function OptimizedRenderer.renderAsteroidBatched(asteroid, x, y, size, lodLevel)
     -- OPTIMIZACIÓN: Incrementar contador de batch
     OptimizedRenderer.config.batching.currentBatchCount = OptimizedRenderer.config.batching.currentBatchCount + 1
     
-    -- Aplicar optimización de tamaño de batch para zoom alto
-    if OptimizedRenderer.config.batching.zoomOptimization.enabled and 
-       zoom > OptimizedRenderer.config.batching.zoomOptimization.highZoomThreshold then
-        -- Forzar flush más frecuente en zoom alto para mantener batches pequeños
-        local currentCount = OptimizedRenderer.config.batching.currentBatchCount
-        local maxBatchSize = OptimizedRenderer.config.batching.maxBatchSize * 
-                            OptimizedRenderer.config.batching.zoomOptimization.batchSizeMultiplier
-        
-        if currentCount > maxBatchSize then
-            OptimizedRenderer.flushAllBatches()
-        end
-    end
+    -- Batching simplificado sin optimizaciones adaptativas
     
     -- Configurar color del asteroide
     local color = {0.4, 0.3, 0.2, 1}
@@ -804,30 +732,14 @@ function OptimizedRenderer.flushAllBatches()
     OptimizedRenderer.state.stats.batchFlushes = (OptimizedRenderer.state.stats.batchFlushes or 0) + 1
 end
 
--- Renderizar nebulosa con batching (optimizado para zoom alto)
-function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
-    -- Optimización para zoom alto
-    local camera = OptimizedRenderer.state.camera
-    local zoom = camera and camera.zoom or 1.0
-    
-    -- En zoom alto, ser más selectivo con nebulosas
-    if zoom > 1.5 and lodLevel >= 2 then
-        return -- No renderizar nebulosas en zoom alto con LOD bajo
-    end
-    
-    if lodLevel >= 3 then
-        -- Para nebulosas grandes, renderizar con calidad reducida en lugar de eliminar
-        local nebulaSize = nebula.size or 140
-        if nebulaSize < 300 then
-            return -- Solo eliminar nebulosas pequeñas en LOD 3
-        end
-        -- Nebulosas grandes se renderizan con menor detalle pero siguen visibles
-        size = size * 0.6
-    end
+-- Renderizar nebulosa con batching (sin culling agresivo)
+function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size)
+    -- REMOVIDO: Sistema LOD para nebulosas - ahora se renderizan siempre con calidad completa
+    -- Las nebulosas se manejan completamente por NebulaRenderer sin restricciones de LOD
     
     local batch = OptimizedRenderer.state.batches.nebulae
     if not batch then
-        OptimizedRenderer.renderNebula(nebula, x, y, size, lodLevel)
+        OptimizedRenderer.renderNebula(nebula, x, y, size)
         -- No-op: Rendering inmediato para nebulosas (uniforms por-nebulosa). El batch no se usa.
         return
     end
@@ -842,6 +754,9 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
     -- Color base
     local color = nebula.color or {1, 1, 1, 0.7}
     local r, g, b, a = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 0.7
+    
+    -- REMOVIDO: Fade-out agresivo en zoom alto
+    -- El alpha se mantiene sin modificaciones para evitar desaparición prematura
 
     -- UNIFICADO: Usar función centralizada de brillo
     local brightness = OptimizedRenderer.calculateNebulaBrightness(nebula, love.timer.getTime())
@@ -871,6 +786,52 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size, lodLevel)
     batch:clear()
     
 end
+
+-- Renderizar nebulosa individual (fallback sin batching)
+function OptimizedRenderer.renderNebula(nebula, x, y, size)
+    -- REMOVIDO: Sistema LOD para nebulosas - ahora se renderizan siempre con calidad completa
+    -- Las nebulosas se manejan completamente por NebulaRenderer sin restricciones de LOD
+    
+    -- Renderizado directo sin batch
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle")
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula")
+    if not img or not shader then
+        return
+    end
+    
+    -- Color base
+    local color = nebula.color or {1, 1, 1, 0.7}
+    local r, g, b, a = color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 0.7
+    
+    -- REMOVIDO: Fade-out agresivo en zoom alto
+    -- El alpha se mantiene sin modificaciones para evitar desaparición prematura
+    
+    -- UNIFICADO: Usar función centralizada de brillo
+    local brightness = OptimizedRenderer.calculateNebulaBrightness(nebula, love.timer.getTime())
+    local par = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
+    
+    -- Enviar uniforms por nebulosa
+    shader:send("u_seed", (nebula.seed or 0) * 0.001)
+    shader:send("u_noiseScale", nebula.noiseScale or 2.5)
+    shader:send("u_warpAmp", nebula.warpAmp or 0.65)
+    shader:send("u_warpFreq", nebula.warpFreq or 1.25)
+    shader:send("u_softness", nebula.softness or 0.28)
+    shader:send("u_brightness", brightness)
+    shader:send("u_intensity", (nebula.intensity or 0.6) * 1.3)
+    shader:send("u_parallax", par)
+    shader:send("u_sparkleStrength", 1.3)
+    shader:send("u_time", love.timer.getTime())
+    
+    -- Dibujar
+    love.graphics.setShader(shader)
+    love.graphics.setColor(r, g, b, a)
+    local iw = img:getWidth()
+    local ih = img:getHeight()
+    local s = size / math.max(1, iw)
+    love.graphics.draw(img, x, y, 0, s, s, iw * 0.5, ih * 0.5)
+    love.graphics.setShader()
+end
+
 -- Culling jerárquico por capas
 function OptimizedRenderer.hierarchicalLayerCulling(camera, zoom, layer_config)
     local frustum = {
@@ -909,6 +870,26 @@ function OptimizedRenderer.renderStationBatched(station, x, y, size, lodLevel)
     
     batch:setColor(color[1], color[2], color[3], color[4])
     batch:add(x, y, station.rotation or 0, size, size, 0.5, 0.5)
+end
+
+-- Renderizar estación individual (fallback sin batching)
+function OptimizedRenderer.renderStation(station, x, y, size, lodLevel)
+    if lodLevel >= 2 then return end
+    
+    -- Renderizado directo sin batch
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("white")
+    if not img then
+        return
+    end
+    
+    local color = {0.6, 0.6, 0.8, 1}
+    
+    -- Dibujar
+    love.graphics.setColor(color[1], color[2], color[3], color[4])
+    local iw = img:getWidth()
+    local ih = img:getHeight()
+    local s = size / math.max(1, iw)
+    love.graphics.draw(img, x, y, station.rotation or 0, s, s, iw * 0.5, ih * 0.5)
 end
 
 -- Actualización con precarga incremental
@@ -1086,38 +1067,7 @@ function OptimizedRenderer.resetStats()
 end
 
 -- Culling agresivo para estrellas en zoom máximo
-function OptimizedRenderer.isStarVisibleHighZoom(star, x, y, size, camera)
-    if not camera or camera.zoom <= 1.5 then
-        return true -- Usar culling normal para zoom bajo/medio
-    end
-    
-    -- Culling más agresivo para zoom alto
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
-    local margin = size * 2 -- Margen reducido para zoom alto
-    
-    -- Convertir a coordenadas de pantalla
-    local screenX = (x - camera.x) * camera.zoom + screenWidth / 2
-    local screenY = (y - camera.y) * camera.zoom + screenHeight / 2
-    
-    -- Verificar si está dentro del viewport con margen reducido
-    local visible = screenX >= -margin and screenX <= screenWidth + margin and
-                   screenY >= -margin and screenY <= screenHeight + margin
-    
-    -- Culling adicional por importancia en zoom muy alto
-    if visible and camera.zoom > 2.0 then
-        local importance = OptimizedRenderer.calculateStarImportance(star)
-        local distanceFromCenter = math.sqrt((screenX - screenWidth/2)^2 + (screenY - screenHeight/2)^2)
-        local maxDistance = math.min(screenWidth, screenHeight) * 0.6 -- Solo centro de pantalla
-        
-        -- Filtrar estrellas menos importantes en los bordes
-        if distanceFromCenter > maxDistance and importance < 2.5 then
-            visible = false
-        end
-    end
-    
-    return visible
-end
+-- Función de culling específico para zoom alto removida para garantizar consistencia
 
 -- Incrementar contador de frames (llamar desde el bucle principal)
 function OptimizedRenderer.incrementFrameCount()
@@ -1185,7 +1135,7 @@ function OptimizedRenderer.calculateStarImportance(star)
 end
 
 -- MEJORADO: Calcular nivel de LOD basado en distancia, zoom y propiedades de estrella
-function OptimizedRenderer.calculateLOD(objectX, objectY, camera, star)
+function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
     if not camera then return 0 end
     
     -- Convertir coordenadas del mundo a relativas para precisión
@@ -1201,8 +1151,8 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, star)
     local adjustedDistance = distance / (camera.zoom or 1)
     
     -- NUEVO: Ajustar distancia por importancia de la estrella
-    if star and OptimizedRenderer.config.lod.intelligentLOD.enabled then
-        local importance = OptimizedRenderer.calculateStarImportance(star)
+    if obj and obj.type and OptimizedRenderer.config.lod.intelligentLOD.enabled then
+        local importance = OptimizedRenderer.calculateStarImportance(obj)
         local config = OptimizedRenderer.config.lod.intelligentLOD
         
         -- Determinar multiplicador de distancia
@@ -1219,6 +1169,18 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, star)
         
         -- Aplicar multiplicador (estrellas importantes "parecen" más cerca)
         adjustedDistance = adjustedDistance / distanceMultiplier
+    end
+    
+    -- NUEVO: Ajuste especial para nebulosas considerando su tamaño
+    if obj and obj.size and not obj.type then -- Las nebulosas no tienen 'type', las estrellas sí
+        local nebulaSize = obj.size or 140
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        local worldSize = nebulaSize * ws
+        
+        -- CORREGIDO: Nebulosas más grandes deben mantener mejor visibilidad
+        -- Para nebulosas grandes, usar un multiplicador que favorezca la visibilidad
+        local sizeMultiplier = math.max(0.3, math.min(1.2, 1.0 + (worldSize - 1000) / 5000)) -- Nebulosas grandes = multiplicador mayor
+        adjustedDistance = adjustedDistance / sizeMultiplier -- Dividir para reducir distancia efectiva
     end
     
     -- Determinar nivel de LOD

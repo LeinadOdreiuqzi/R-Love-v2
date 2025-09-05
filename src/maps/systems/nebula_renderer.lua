@@ -51,11 +51,17 @@ local function worldToScreenParallax(camera, wx, wy, parallax)
     return camera:worldToScreen(px, py)
 end
 
-local function isOnScreen(screenX, screenY, radiusPx, margin)
+function isOnScreen(screenX, screenY, radiusPx, margin)
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+    -- Margen mucho más generoso para nebulosas grandes
     local m = margin or 200
-    return (screenX + radiusPx + m) >= 0 and (screenX - radiusPx - m) <= w
-       and (screenY + radiusPx + m) >= 0 and (screenY - radiusPx - m) <= h
+    local dynamicMargin = math.max(m, radiusPx * 1.5)  -- 150% del radio como margen para nebulosas grandes
+    -- Para nebulosas muy grandes (>1000px), ser aún más permisivo
+    if radiusPx > 1000 then
+        dynamicMargin = radiusPx * 2.0  -- 200% del radio para nebulosas enormes
+    end
+    return (screenX + radiusPx + dynamicMargin) >= 0 and (screenX - radiusPx - dynamicMargin) <= w
+       and (screenY + radiusPx + dynamicMargin) >= 0 and (screenY - radiusPx - dynamicMargin) <= h
 end
 
 function NebulaRenderer.update(dt)
@@ -66,6 +72,12 @@ function NebulaRenderer.update(dt)
 end
 
 function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
+    -- DEBUG: Logging desactivado
+    -- if not NebulaRenderer._drawCallLogged then
+    --     NebulaRenderer._drawCallLogged = true
+    --     print("NebulaRenderer.drawNebulae called - function is active")
+    -- end
+    
     -- Usar el nuevo sistema de shaders de nebulosas
     local shader = NebulasShaders and NebulasShaders.getShader and NebulasShaders.getShader() or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
@@ -106,14 +118,35 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                     local par = math.max(0.0, math.min(1.0, n.parallax or 0.85))
                     local screenX, screenY = worldToScreenParallax(camera, wx, wy, par)
                     local radiusPx = (n.size or 140) * zoom
-
-                    if isOnScreen(screenX, screenY, radiusPx, 250) then
+                    
+                    -- DEBUG: Logging desactivado para reducir spam
+                    -- if zoom > 0.8 and i == 1 then
+                    --     print(string.format("Nebula debug: zoom=%.2f, worldPos=(%.1f,%.1f), screenPos=(%.1f,%.1f), size=%.1f, radiusPx=%.1f, parallax=%.2f", 
+                    --         zoom, wx, wy, screenX, screenY, n.size or 140, radiusPx, par))
+                    -- end
+                    
+                    -- NUEVO: Sistema basado en intersección con pantalla en lugar de distancia al centro
+                    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+                    
+                    -- Calcular bounds de la nebulosa en pantalla
+                    local nebulaLeft = screenX - radiusPx
+                    local nebulaRight = screenX + radiusPx
+                    local nebulaTop = screenY - radiusPx
+                    local nebulaBottom = screenY + radiusPx
+                    
+                    -- Usar función isOnScreen con margen dinámico más generoso
+                    local isVisible = isOnScreen(screenX, screenY, radiusPx, nil)
+                    
+                    -- REMOVIDO: Sistema de fade-out - las nebulosas ahora mantienen visibilidad completa
+                    
+                    -- Renderizar si la nebulosa está visible en pantalla
+                    if isVisible then
                         love.graphics.push()
                         love.graphics.origin()
 
                         -- Color base con alpha aumentado para mayor visibilidad
                         local br, bg, bb, ba = (n.color and n.color[1] or 1), (n.color and n.color[2] or 1), (n.color and n.color[3] or 1), (n.color and n.color[4] or 1)
-                        ba = ba * 1.25  -- Aumentar opacidad base
+                        ba = ba * 1.25  -- Alpha aumentado para mayor visibilidad, sin fade-out
                         
                         -- Armonización con nebulosas cercanas para coherencia visual
                         local harmonyFactor = 1.0

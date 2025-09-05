@@ -99,7 +99,7 @@ BackgroundManager.config = {
 local renderCache = {
     lastCameraPosition = {x = 0, y = 0, zoom = 1},
     cacheThreshold = 50, -- Píxeles de movimiento para invalidar cache
-    zoomThreshold = 0.1, -- Cambio de zoom para invalidar cache
+    zoomThreshold = 0.5, -- Cambio de zoom para invalidar cache (será calculado dinámicamente)
     cachedFrame = nil,
     cacheValid = false,
     lastCacheTime = 0,
@@ -284,9 +284,12 @@ function BackgroundManager.shouldInvalidateCache(cameraX, cameraY, zoom)
     local deltaY = math.abs(cameraY - renderCache.lastCameraPosition.y)
     local deltaZoom = math.abs(zoom - renderCache.lastCameraPosition.zoom)
     
+    -- Umbral de zoom fijo para consistencia en todos los niveles
+    local dynamicZoomThreshold = 0.2 -- Umbral fijo que funciona bien en todo el rango de zoom
+    
     if deltaX > renderCache.cacheThreshold or 
        deltaY > renderCache.cacheThreshold or 
-       deltaZoom > renderCache.zoomThreshold then
+       deltaZoom > dynamicZoomThreshold then
         return true
     end
     

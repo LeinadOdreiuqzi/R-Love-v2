@@ -198,7 +198,7 @@ MapConfig.galacticBackground = {
     rendering = {
         enabled = true,
         renderBehindStars = true,  -- Renderizar en la capa más profunda
-        fadeWithZoom = true,
+        fadeWithZoom = false,  -- DESHABILITADO: No aplicar fade a nebulosas durante zoom
         minZoomVisibility = 0.1,
         maxZoomVisibility = 3.0
     },

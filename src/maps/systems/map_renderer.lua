@@ -1022,10 +1022,10 @@ function MapRenderer.drawNebula(nebula, worldX, worldY, time, camera)
     local pulse = 1.0 + 0.03 * MapRenderer.sinTable[timeIndex]
     local currentSize = nebula.size * pulse
     
-    -- Convertir a coordenadas de pantalla y aplicar fade
+    -- Convertir a coordenadas de pantalla sin fade
     local screenX, screenY = camera:worldToScreen(worldX, worldY)
-    local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, currentSize, camera)
-    love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], (nebula.color[4] or 1) * (nebula.intensity or 1) * alpha)
+    -- REMOVIDO: fade para nebulosas - mantener visibilidad completa
+    love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], (nebula.color[4] or 1) * (nebula.intensity or 1))
     
     love.graphics.push()
     love.graphics.origin()

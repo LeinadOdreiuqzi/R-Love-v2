@@ -403,6 +403,58 @@ function ChunkManager.insertLoadRequest(loadRequest)
         table.insert(queue, loadRequest)
     end
 end
+
+-- Función principal de actualización del ChunkManager
+function ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
+    if not ChunkManager.state then return end
+    
+    local frameStart = love.timer.getTime()
+    
+    -- Actualizar gestión de memoria adaptativa
+    ChunkManager.updateMemoryManagement()
+    
+    -- Determinar chunk del jugador
+    local playerChunkX, playerChunkY
+    if playerX and playerY then
+        local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
+            * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
+        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        playerChunkX = math.floor(playerX / (stride * ws))
+        playerChunkY = math.floor(playerY / (stride * ws))
+        ChunkManager.state.lastPlayerChunkX = playerChunkX
+        ChunkManager.state.lastPlayerChunkY = playerChunkY
+    else
+        playerChunkX = ChunkManager.state.lastPlayerChunkX or 0
+        playerChunkY = ChunkManager.state.lastPlayerChunkY or 0
+    end
+    
+    -- Procesar cola de descarga (chunks demasiado lejanos)
+    ChunkManager.processUnloadQueue(playerChunkX, playerChunkY)
+    
+    -- Procesar cola de carga con presupuesto adaptativo
+    local budget = ChunkManager.config.maxGenerationTime
+    if ChunkManager.config.useAdaptiveBudget and ChunkManager.computeGenerationBudget then
+        budget = ChunkManager.computeGenerationBudget(dt)
+    end
+    ChunkManager.processLoadQueue(dt, budget)
+    
+    -- Precarga direccional si el jugador se está moviendo
+    if playerVelX and playerVelY and ChunkManager.config.directionalPreload.enabled then
+        ChunkManager.performDirectionalPreload(playerChunkX, playerChunkY, playerVelX, playerVelY)
+    end
+    
+    -- Limpiar memoria si es necesario
+    if ChunkManager.config.memoryManagement.enabled then
+        local memoryUsage = collectgarbage("count") * 1024
+        if memoryUsage > ChunkManager.config.memoryManagement.memoryThresholds.high then
+            ChunkManager.performMemoryCleanup()
+        end
+    end
+    
+    -- Actualizar estadísticas de frame
+    ChunkManager.state.stats.lastFrameTime = love.timer.getTime() - frameStart
+end
 -- Presupuesto de generación adaptativo (segundos)
 function ChunkManager.computeGenerationBudget(dt)
     local cfg = ChunkManager.config

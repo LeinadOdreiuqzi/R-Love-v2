@@ -17,11 +17,7 @@ function Camera:new()
     camera.maxZoom = 2.0
     camera.zoomSpeed = 0.1
     
-    -- Optimización para zoom alto
-    camera.highZoomThreshold = 1.2  -- Sincronizado con OptimizedRenderer
-    camera.highZoomMode = false
-    camera.lastZoomCheck = 0
-    camera.zoomCheckInterval = 0.2 -- Verificar cada 200ms
+    -- Configuración simplificada sin optimizaciones adaptativas
     
     -- Auto zoom desactivado por defecto para no “volver” tras zoom manual
     camera.autoZoomEnabled = false
@@ -63,36 +59,10 @@ function Camera:updateScreenDimensions()
     self.targetZoom = self.targetZoom or 1
 end
 
--- Actualizar estado de la cámara (optimizado para zoom alto)
+-- Actualizar estado de la cámara
 function Camera:update(dt)
     -- Actualizar zoom suavemente
     self.zoom = self.zoom + (self.targetZoom - self.zoom) * 0.1
-    
-    -- Verificar si estamos en modo de zoom alto (con intervalo para no hacerlo cada frame)
-    self.lastZoomCheck = self.lastZoomCheck + dt
-    if self.lastZoomCheck >= self.zoomCheckInterval then
-        local wasHighZoom = self.highZoomMode
-        self.highZoomMode = self.zoom > self.highZoomThreshold
-        
-        -- Si cambiamos de modo, notificar al sistema de renderizado
-        if wasHighZoom ~= self.highZoomMode and OptimizedRenderer then
-            if self.highZoomMode then
-                -- Activar optimizaciones para zoom alto
-                print(string.format("📈 ZOOM THRESHOLD EXCEEDED: %.2f > %.2f - Activating optimizations", self.zoom, self.highZoomThreshold))
-                if OptimizedRenderer.enableHighZoomOptimizations then
-                    OptimizedRenderer.enableHighZoomOptimizations()
-                end
-            else
-                -- Desactivar optimizaciones para zoom alto
-                print(string.format("📉 ZOOM BELOW THRESHOLD: %.2f <= %.2f - Deactivating optimizations", self.zoom, self.highZoomThreshold))
-                if OptimizedRenderer.disableHighZoomOptimizations then
-                    OptimizedRenderer.disableHighZoomOptimizations()
-                end
-            end
-        end
-        
-        self.lastZoomCheck = 0
-    end
     
     -- Actualizar efectos de cámara
     if self.shake > 0 then
