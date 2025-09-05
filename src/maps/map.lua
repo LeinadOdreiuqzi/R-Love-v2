@@ -149,6 +149,16 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
         Map.lastPlayerPosition = {x = playerX, y = playerY}
     end
     
+    -- Actualizar sistema de anomalías gravitacionales
+    pcall(function()
+        local GravityAnomaly = require 'src.shaders.gravity_anomaly'
+        local chunkInfo = Map.calculateVisibleChunksTraditional(_G.camera or {zoom = 1, x = playerX, y = playerY})
+        GravityAnomaly.update(dt, chunkInfo, Map.getChunkNonBlocking)
+        
+        -- Actualizar sistema continuo de anomalías basado en el bioma del jugador
+        GravityAnomaly.updateContinuousSystem(dt, playerX, playerY)
+    end)
+    
     -- Asegurar actualización por frame del sistema de shaders (u_time, precarga incremental, etc.)
     pcall(function()
         if OptimizedRenderer and OptimizedRenderer.update then
@@ -226,6 +236,15 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     -- 5. Dibujar características de biomas (afectadas por shader si está activo)
     local featuresRendered = MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(featuresRendered, featuresRendered, 0)
+    
+    -- 6. Dibujar anomalías gravitacionales (tanto las de chunks como las continuas)
+    local GravityAnomaly = require 'src.shaders.gravity_anomaly'
+    local anomaliesRendered = GravityAnomaly.drawAnomalies(chunkInfo, camera, Map.getChunkNonBlocking)
+    MapStats.addObjects(anomaliesRendered, anomaliesRendered, 0)
+    
+    -- Actualizar y dibujar anomalías continuas
+    GravityAnomaly.updateContinuousAnomalies(camera)
+    GravityAnomaly.drawContinuousAnomalies(camera)
     
     -- Nota: El shader se mantiene activo durante todo el renderizado
     -- y se desactiva automáticamente cuando el jugador sale del bioma

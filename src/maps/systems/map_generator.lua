@@ -1086,6 +1086,10 @@ function MapGenerator.generateChunk(chunkX, chunkY)
     -- BiomeSystem.generateSpecialFeatures(chunk, chunkX, chunkY, biomeInfo.type)
     BiomeSystem.generateSpecialFeaturesBlended(chunk, chunkX, chunkY, chunk.biomeBlend)
 
+    -- Generar anomalías gravitacionales para el bioma gravity_anomaly
+    local GravityAnomaly = require 'src.shaders.gravity_anomaly'
+    GravityAnomaly.generateAnomalies(chunk, chunkX, chunkY, chunk.biome.type, rng)
+
     -- Debug para verificar generación
     if #chunk.specialObjects > 0 then
         if MapGenerator.debugLogs then
