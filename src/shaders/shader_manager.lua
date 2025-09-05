@@ -753,4 +753,7 @@ function ShaderManager.warmup()
     love.graphics.setShader(prevShader)
     love.graphics.setColor(prevColor[1], prevColor[2], prevColor[3], prevColor[4] or 1)
 end
+
+
+
 return ShaderManager

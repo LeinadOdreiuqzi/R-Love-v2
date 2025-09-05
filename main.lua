@@ -154,9 +154,7 @@ function loadWorld(updateProgress)
             print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr))
         end
         
-        -- Inicializar shader de anomalía gravitacional
-        local GravitationalAnomalyShader = require 'src.shaders.gravity_anomaly'
-        GravitationalAnomalyShader.init()
+        -- Shader de anomalía gravitacional removido
         
         return true
     end)

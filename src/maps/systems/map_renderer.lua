@@ -390,7 +390,8 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             love.graphics.origin()
             
             if StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
-                love.graphics.setShader(StarfieldInstanced.getShader())
+                local ShaderManager = require 'src.shaders.shader_manager'
+                ShaderManager.setShaderSafe(StarfieldInstanced.getShader())
                 
                 -- Dibujar quad para cada estrella en el buffer
                 for i = 0, starCount - 1 do
