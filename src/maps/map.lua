@@ -172,7 +172,6 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
 end
 
 -- Dibujo principal del mapa
--- function Map.draw(camera)
 function Map.draw(camera)
     if not Map.initialized or not camera then return end
     
@@ -181,7 +180,7 @@ function Map.draw(camera)
     
     -- Calcular chunks visibles
     local chunkInfo = Map.calculateVisibleChunksTraditional(camera)
-    
+
     -- Renderizar fondo galáctico procedural (capa más profunda)
     local BackgroundManager = require 'src.shaders.background_manager'
     BackgroundManager.render(camera)
@@ -196,7 +195,7 @@ function Map.draw(camera)
     -- NUEVO: estrellas pequeñas (capa intermedia)
     MapRenderer.drawSmallStars(camera)
     
-    -- Renderizar usando el sistema modular
+    -- Renderizar usando el sistema modular (incluye anomalías y overlays de lentes)
     Map.drawTraditionalImproved(camera, chunkInfo)
     
     -- Grid de debug si está habilitado
@@ -245,6 +244,7 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     -- Actualizar y dibujar anomalías continuas
     GravityAnomaly.updateContinuousAnomalies(camera)
     GravityAnomaly.drawContinuousAnomalies(camera)
+    GravityAnomaly.drawContinuousOverlays(camera)
     
     -- Nota: El shader se mantiene activo durante todo el renderizado
     -- y se desactiva automáticamente cuando el jugador sale del bioma
