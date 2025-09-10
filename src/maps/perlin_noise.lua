@@ -106,4 +106,3 @@ function PerlinNoise.noise(x, y, z)
 end
 
 return PerlinNoise
-

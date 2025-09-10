@@ -329,7 +329,7 @@ function GravityAnomaly.updateContinuousSystem(dt, playerX, playerY)
         
         -- Debug: mostrar información del bioma actual
         if biomeInfo then
-            print(string.format("[GravityAnomaly DEBUG] Jugador en bioma: %s (tipo: %d) en posición (%.1f, %.1f)", biomeInfo.name or "unknown", biomeInfo.type or -1, playerX, playerY))
+            
             
             -- Almacenar coordenadas del jugador para uso en updateContinuousAnomalies
             tracker.lastPlayerX = playerX
