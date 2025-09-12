@@ -23,55 +23,121 @@ AncientRuinsRenderer.config = {
             medium = 0.35,  -- 35% probabilidad de estación mediana
             small = 0.25    -- 25% probabilidad de estación pequeña
         },
-        -- Tipos de complejos espaciales
-        complexTypes = {
+        -- Sistema de tipos base y estados de daño coherentes
+        baseStationTypes = {
             ring_station = {
                 name = "estacion_anillo",
-                weight = 0.15,  -- 15% probabilidad
-                shape = "ring",
-                color = {0.4, 0.45, 0.5, 1.0},  -- Color sólido metálico
-                glowColor = {0.6, 0.7, 0.8, 1.0},  -- Resplandor azul sólido
-                alpha = 1.0
+                weight = 0.4,  -- 40% probabilidad de tipo anillo
+                baseShape = "ring"
             },
             modular_station = {
                 name = "estacion_modular",
-                weight = 0.2,   -- 20% probabilidad
-                shape = "modular",
-                color = {0.35, 0.4, 0.45, 1.0},  -- Color sólido gris azulado
-                glowColor = {0.5, 0.6, 0.7, 1.0},  -- Resplandor sólido
-                alpha = 1.0
+                weight = 0.35,  -- 35% probabilidad de tipo modular
+                baseShape = "modular"
             },
             elongated_ship = {
                 name = "nave_alargada",
-                weight = 0.25,  -- 25% probabilidad
-                shape = "elongated",
-                color = {0.3, 0.35, 0.4, 1.0},  -- Color sólido oscuro
-                glowColor = {0.4, 0.5, 0.6, 1.0},  -- Resplandor sólido
-                alpha = 1.0
+                weight = 0.25,  -- 25% probabilidad de tipo nave
+                baseShape = "elongated"
+            }
+        },
+        
+        -- Estados de daño para cada tipo base
+        damageStates = {
+            intact = {
+                name = "intacta",
+                weight = 0.3,  -- 30% probabilidad de estar intacta
+                suffix = "_intact"
             },
-            partial = {
+            damaged = {
                 name = "parcialmente_destruida",
-                weight = 0.25,  -- 25% probabilidad
-                shape = "damaged",
-                color = {0.25, 0.25, 0.30, 1.0},  -- Color más visible y sólido
-                glowColor = {0.4, 0.4, 0.5, 1.0},  -- Resplandor más intenso para visibilidad
-                alpha = 1.0  -- Completamente opaco
+                weight = 0.45,  -- 45% probabilidad de estar dañada
+                suffix = "_damaged"
             },
             ruins = {
                 name = "ruinas_totales",
-                weight = 0.15,  -- 15% probabilidad
-                shape = "ruins",
-                color = {0.12, 0.08, 0.08, 1.0},  -- Color mucho más oscuro para profundidad
-                glowColor = {0.2, 0.12, 0.12, 1.0},  -- Resplandor muy tenue
-                alpha = 1.0
+                weight = 0.25,  -- 25% probabilidad de ser ruinas
+                suffix = "_ruins"
+            }
+        },
+        
+        -- Configuraciones específicas por tipo y estado
+        stationConfigs = {
+            -- Estaciones tipo anillo
+            ring_intact = {
+                shape = "ring_intact",
+                color = {0.45, 0.5, 0.55, 1.0},  -- Metálico brillante
+                glowColor = {0.7, 0.8, 0.9, 1.0},  -- Resplandor azul intenso
+                alpha = 1.0,
+                structuralIntegrity = 1.0
+            },
+            ring_damaged = {
+                shape = "ring_damaged",
+                color = {0.3, 0.35, 0.4, 1.0},  -- Gris metálico espacial dañado
+                glowColor = {0.4, 0.5, 0.6, 1.0},  -- Resplandor azul frío reducido
+                alpha = 1.0,
+                structuralIntegrity = 0.6
+            },
+            ring_ruins = {
+                shape = "ring_ruins",
+                color = {0.15, 0.18, 0.22, 1.0},  -- Gris espacial muy oscuro
+                glowColor = {0.2, 0.25, 0.35, 1.0},  -- Resplandor azul muy tenue
+                alpha = 1.0,
+                structuralIntegrity = 0.2
+            },
+            
+            -- Estaciones modulares
+            modular_intact = {
+                shape = "modular_intact",
+                color = {0.4, 0.45, 0.5, 1.0},  -- Gris azulado sólido
+                glowColor = {0.6, 0.7, 0.8, 1.0},  -- Resplandor azul
+                alpha = 1.0,
+                structuralIntegrity = 1.0
+            },
+            modular_damaged = {
+                shape = "modular_damaged",
+                color = {0.28, 0.32, 0.38, 1.0},  -- Gris azulado espacial dañado
+                glowColor = {0.38, 0.45, 0.55, 1.0},  -- Resplandor azul frío
+                alpha = 1.0,
+                structuralIntegrity = 0.5
+            },
+            modular_ruins = {
+                shape = "modular_ruins",
+                color = {0.12, 0.15, 0.20, 1.0},  -- Gris espacial muy oscuro
+                glowColor = {0.18, 0.22, 0.32, 1.0},  -- Resplandor azul muy débil
+                alpha = 1.0,
+                structuralIntegrity = 0.15
+            },
+            
+            -- Naves alargadas
+            elongated_intact = {
+                shape = "elongated_intact",
+                color = {0.35, 0.4, 0.45, 1.0},  -- Gris oscuro sólido
+                glowColor = {0.5, 0.6, 0.7, 1.0},  -- Resplandor azul
+                alpha = 1.0,
+                structuralIntegrity = 1.0
+            },
+            elongated_damaged = {
+                shape = "elongated_damaged",
+                color = {0.32, 0.36, 0.42, 1.0},  -- Gris metálico espacial dañado
+                glowColor = {0.42, 0.48, 0.58, 1.0},  -- Resplandor azul frío
+                alpha = 1.0,
+                structuralIntegrity = 0.4
+            },
+            elongated_ruins = {
+                shape = "elongated_ruins",
+                color = {0.14, 0.17, 0.23, 1.0},  -- Gris espacial muy oscuro
+                glowColor = {0.19, 0.23, 0.33, 1.0},  -- Resplandor azul muy tenue
+                alpha = 1.0,
+                structuralIntegrity = 0.1
             }
         }
     },
     
     -- Configuración de LOD mejorada con más niveles de detalle
     lod = {
-        maxDistance = 8000,  -- Distancia máxima de renderizado aumentada
-        lodThresholds = {800, 2000, 4000, 6000},  -- Más niveles de LOD para transiciones suaves
+        maxDistance = 12000,  -- Distancia máxima de renderizado aumentada
+        lodThresholds = {1200, 3000, 6000, 9000},  -- Umbrales aumentados para evitar transparencia
         -- Configuración de detalles por LOD
         details = {
             [0] = { -- LOD máximo (muy cerca)
@@ -149,8 +215,10 @@ function AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
     local sizeType = AncientRuinsRenderer.selectStationSize(rng)
     local stationSize = biomeSize * config.sizes[sizeType]
     
-    -- Seleccionar tipo de complejo espacial
-    local complexType = AncientRuinsRenderer.selectComplexType(chunkX, chunkY)
+    -- Seleccionar tipo base y estado de daño
+    local baseType = AncientRuinsRenderer.selectBaseStationType(chunkX, chunkY)
+    local damageState = AncientRuinsRenderer.selectDamageState(chunkX, chunkY)
+    local complexType = baseType .. "_" .. damageState
     
     -- Posición central del chunk para la estación
     local localX = (chunkSize * tileSize) * 0.5
@@ -193,9 +261,9 @@ function AncientRuinsRenderer.selectStationSize(rng)
     end
 end
 
--- Función auxiliar para seleccionar el tipo de complejo espacial
-function AncientRuinsRenderer.selectComplexType(chunkX, chunkY)
-    local config = AncientRuinsRenderer.config.placeholders.complexTypes
+-- Función auxiliar para seleccionar el tipo base de estación
+function AncientRuinsRenderer.selectBaseStationType(chunkX, chunkY)
+    local config = AncientRuinsRenderer.config.placeholders.baseStationTypes
     
     -- Usar coordenadas del chunk para generar un valor determinístico
     local seed = math.abs(chunkX * 73 + chunkY * 41) % 1000
@@ -203,23 +271,113 @@ function AncientRuinsRenderer.selectComplexType(chunkX, chunkY)
     
     -- Orden determinístico de tipos para asegurar variedad
     local orderedTypes = {
-        {"ring_station", config.ring_station},
-        {"modular_station", config.modular_station},
-        {"elongated_ship", config.elongated_ship},
-        {"partial", config.partial},
-        {"ruins", config.ruins}
+        {"ring", config.ring_station},
+        {"modular", config.modular_station},
+        {"elongated", config.elongated_ship}
     }
     
     local cumulative = 0
     for _, typeData in ipairs(orderedTypes) do
-        local complexType, typeConfig = typeData[1], typeData[2]
+        local baseType, typeConfig = typeData[1], typeData[2]
         cumulative = cumulative + typeConfig.weight
         if random < cumulative then
-            return complexType
+            return baseType
         end
     end
     
-    return "ruins"  -- fallback
+    return "ring"  -- fallback
+end
+
+-- Función auxiliar para seleccionar el estado de daño
+function AncientRuinsRenderer.selectDamageState(chunkX, chunkY)
+    local config = AncientRuinsRenderer.config.placeholders.damageStates
+    
+    -- Usar coordenadas diferentes para el estado de daño (más variación)
+    local seed = math.abs(chunkX * 127 + chunkY * 83) % 1000
+    local random = seed / 1000
+    
+    -- Orden determinístico de estados
+    local orderedStates = {
+        {"intact", config.intact},
+        {"damaged", config.damaged},
+        {"ruins", config.ruins}
+    }
+    
+    local cumulative = 0
+    for _, stateData in ipairs(orderedStates) do
+        local damageState, stateConfig = stateData[1], stateData[2]
+        cumulative = cumulative + stateConfig.weight
+        if random < cumulative then
+            return damageState
+        end
+    end
+    
+    return "damaged"  -- fallback
+end
+
+-- Función para obtener efectos de daño según el estado
+function AncientRuinsRenderer.getDamageEffects(damageState, seed)
+    local effects = {
+        alphaMultiplier = 1.0,
+        sizeMultiplier = 1.0,
+        fragmentCount = 0,
+        glowReduction = 1.0,
+        structuralIntegrity = 1.0
+    }
+    
+    if damageState == "intact" then
+        effects.alphaMultiplier = 1.0
+        effects.sizeMultiplier = 1.0
+        effects.glowReduction = 1.0
+        effects.structuralIntegrity = 1.0
+    elseif damageState == "damaged" then
+        effects.alphaMultiplier = 0.8
+        effects.sizeMultiplier = 0.9
+        effects.fragmentCount = 3 + (seed % 3)
+        effects.glowReduction = 0.6
+        effects.structuralIntegrity = 0.7
+    elseif damageState == "ruins" then
+        effects.alphaMultiplier = 0.5
+        effects.sizeMultiplier = 0.7
+        effects.fragmentCount = 8 + (seed % 5)
+        effects.glowReduction = 0.3
+        effects.structuralIntegrity = 0.3
+    end
+    
+    return effects
+end
+
+-- Función para renderizar fragmentos de daño
+function AncientRuinsRenderer.renderDamageFragments(screenX, screenY, size, damageEffects, alpha, seed)
+    if damageEffects.fragmentCount <= 0 then
+        return
+    end
+    
+    love.graphics.push()
+    love.graphics.translate(screenX, screenY)
+    
+    -- Obtener color base actual
+    local baseR, baseG, baseB, baseA = love.graphics.getColor()
+    
+    -- Renderizar fragmentos dispersos
+    for i = 1, damageEffects.fragmentCount do
+        local angle = (i / damageEffects.fragmentCount) * 2 * math.pi + (seed or 0) * 0.3
+        local distance = size * (0.6 + (i % 4) * 0.2)
+        local fragX = math.cos(angle) * distance
+        local fragY = math.sin(angle) * distance
+        local fragSize = size * (0.02 + (i % 3) * 0.015)
+        
+        -- Aplicar variación de color para fragmentos
+        local fragAlpha = alpha * damageEffects.alphaMultiplier * (0.7 + (i % 3) * 0.1)
+        love.graphics.setColor(baseR * 0.8, baseG * 0.8, baseB * 0.8, fragAlpha)
+        
+        -- Renderizar fragmento como círculo pequeño
+        love.graphics.circle("fill", fragX, fragY, fragSize, math.max(4, math.floor(fragSize * 2)))
+    end
+    
+    -- Restaurar color original
+    love.graphics.setColor(baseR, baseG, baseB, baseA)
+    love.graphics.pop()
 end
 
 -- Función para renderizar placeholders de ancient ruins
@@ -354,9 +512,9 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     end
     
     -- Obtener configuración del tipo de complejo espacial
-    local complexConfig = AncientRuinsRenderer.config.placeholders.complexTypes[placeholder.complexType]
+    local complexConfig = AncientRuinsRenderer.config.placeholders.stationConfigs[placeholder.complexType]
     if not complexConfig then
-        complexConfig = AncientRuinsRenderer.config.placeholders.complexTypes.ruins -- fallback
+        complexConfig = AncientRuinsRenderer.config.placeholders.stationConfigs.ring_station_damaged -- fallback
     end
     
     -- Calcular perspectiva fija por tipo (siempre aplicada) basada en la estructura y la seed
@@ -416,20 +574,21 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     -- Tamaño final con efectos 3D aplicados
     local finalSize = enhanced3DSize
     
+    -- Separar tipo base y estado de daño
+    local baseType, damageState = complexConfig.shape:match("([^_]+)_(.+)")
+    if not baseType then
+        baseType = complexConfig.shape
+        damageState = "intact"
+    end
+    
     -- Rotación con perspectiva dinámica mejorada y efectos 3D
     local rotation = 0
-    if complexConfig.shape == "ring" then
+    if baseType == "ring" then
         rotation = (placeholder.seed * 0.1) % (math.pi * 2) + advanced3D.apparentRotation * 0.3
-    elseif complexConfig.shape == "modular" then
+    elseif baseType == "modular" then
         rotation = advanced3D.apparentRotation * 0.2  -- Rotación sutil para estructuras modulares
-    elseif complexConfig.shape == "elongated" then
+    elseif baseType == "elongated" then
         rotation = (placeholder.seed * 0.05) % (math.pi * 2) + advanced3D.apparentRotation * 0.5
-    elseif complexConfig.shape == "damaged" then
-        -- Combinar rotación de perspectiva con efectos 3D
-        rotation = perspectiveData.rotation + advanced3D.apparentRotation * 0.4
-    elseif complexConfig.shape == "ruins" then
-        -- Combinar rotación de perspectiva con efectos 3D
-        rotation = perspectiveData.rotation + advanced3D.apparentRotation * 0.3
     else
         rotation = advanced3D.apparentRotation * 0.1
     end
@@ -571,7 +730,15 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
     perspectiveData = perspectiveData or {scaleY = 1.0, skewX = 0.0, rotation = 0.0, perspectiveFactor = 1.0}
     volumeEffects = volumeEffects or {}
     lodConfig = lodConfig or AncientRuinsRenderer.config.lod.details[4] -- fallback a LOD mínimo
-    if shape == "ring" then
+    
+    -- Separar tipo base y estado de daño
+    local baseType, damageState = shape:match("([^_]+)_(.+)")
+    if not baseType then
+        baseType = shape
+        damageState = "intact"
+    end
+    
+    if baseType == "ring" then
         -- Estación tipo anillo (como en las imágenes de referencia)
         love.graphics.push()
         love.graphics.translate(screenX, screenY)
@@ -849,7 +1016,7 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         
         love.graphics.pop()
         
-    elseif shape == "modular" then
+    elseif baseType == "modular" then
         -- Estación modular (como ISS en las imágenes)
         love.graphics.push()
         love.graphics.translate(screenX, screenY)
@@ -969,7 +1136,7 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         
         love.graphics.pop()
         
-    elseif shape == "elongated" then
+    elseif baseType == "elongated" then
         -- Nave alargada (como las naves espaciales de las imágenes)
         love.graphics.push()
         love.graphics.translate(screenX, screenY)
@@ -1045,8 +1212,179 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         
         love.graphics.pop()
         
-    elseif shape == "damaged" then
-        -- Estación parcialmente dañada (más realista) con perspectiva 2.5D
+    elseif baseType == "modular_station" then
+        -- Alias para compatibilidad
+        baseType = "modular"
+    elseif baseType == "elongated_ship" then
+        -- Alias para compatibilidad
+        baseType = "elongated"
+    elseif baseType == "ring_station" then
+        -- Alias para compatibilidad
+        baseType = "ring"
+    end
+    
+    -- Aplicar efectos de daño según el estado
+    local damageEffects = AncientRuinsRenderer.getDamageEffects(damageState, seed)
+    
+    -- Modificar alpha y otros parámetros según el daño
+    alpha = alpha * damageEffects.alphaMultiplier
+    finalSize = finalSize * damageEffects.sizeMultiplier
+    
+    -- Renderizar diseños específicos para ruinas totales
+    if damageState == "ruins" then
+        -- Obtener configuración de color para ruinas
+        local stationConfig = AncientRuinsRenderer.config.placeholders.stationConfigs[baseType .. "_ruins"]
+        local color = stationConfig and stationConfig.color or {0.25, 0.3, 0.35, 1.0}
+        
+        love.graphics.push()
+        love.graphics.translate(screenX, screenY)
+        love.graphics.rotate(rotation)
+        love.graphics.scale(1.0, perspectiveData.scaleY)
+        love.graphics.shear(perspectiveData.skewX, 0)
+        
+        -- Establecer colores específicos para ruinas (grises fríos y azules apagados)
+        love.graphics.setColor(color[1], color[2], color[3], color[4] * alpha)
+        
+        -- Resplandor muy tenue para ruinas
+        if glowColor and lod <= 2 then
+            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * 0.3)
+            if baseType == "ring" then
+                love.graphics.circle("fill", 0, 0, finalSize * 1.1, segments)
+            elseif baseType == "modular" then
+                love.graphics.rectangle("fill", -finalSize * 1.2, -finalSize * 0.25, finalSize * 2.4, finalSize * 0.5)
+            elseif baseType == "elongated" then
+                love.graphics.ellipse("fill", 0, 0, finalSize * 1.6, finalSize * 0.5)
+            end
+            love.graphics.setColor(love.graphics.getColor())
+        end
+        
+        if baseType == "ring" then
+            -- Anillo en ruinas: solo fragmentos del anillo original
+            -- Fragmentos principales del anillo
+            for i = 1, 8 do
+                local startAngle = (i / 8) * 2 * math.pi + (seed * 0.1)
+                local endAngle = startAngle + (math.pi / 6) + (seed % 3) * 0.2
+                local innerRadius = finalSize * 0.6
+                local outerRadius = finalSize * 0.9
+                
+                -- Crear arco fragmentado
+                local points = {}
+                local arcSegments = 8
+                for j = 0, arcSegments do
+                    local angle = startAngle + (endAngle - startAngle) * (j / arcSegments)
+                    table.insert(points, math.cos(angle) * innerRadius)
+                    table.insert(points, math.sin(angle) * innerRadius)
+                end
+                for j = arcSegments, 0, -1 do
+                    local angle = startAngle + (endAngle - startAngle) * (j / arcSegments)
+                    table.insert(points, math.cos(angle) * outerRadius)
+                    table.insert(points, math.sin(angle) * outerRadius)
+                end
+                
+                if #points >= 6 then
+                    love.graphics.polygon("fill", points)
+                end
+            end
+            
+            -- Estructuras centrales colapsadas
+            love.graphics.polygon("fill", 
+                -finalSize * 0.3, -finalSize * 0.1,
+                finalSize * 0.2, -finalSize * 0.15,
+                finalSize * 0.1, finalSize * 0.1,
+                -finalSize * 0.2, finalSize * 0.05
+            )
+            
+        elseif baseType == "modular" then
+            -- Estación modular en ruinas: módulos dispersos y estructura central dañada
+            -- Estructura central parcialmente destruida
+            love.graphics.polygon("fill", 
+                -finalSize * 0.3, -finalSize * 0.08,
+                finalSize * 0.1, -finalSize * 0.12,
+                finalSize * 0.2, finalSize * 0.06,
+                -finalSize * 0.4, finalSize * 0.1
+            )
+            
+            -- Módulos flotantes dispersos
+            love.graphics.rectangle("fill", -finalSize * 0.8, -finalSize * 0.2, finalSize * 0.15, finalSize * 0.1)
+            love.graphics.rectangle("fill", finalSize * 0.5, finalSize * 0.15, finalSize * 0.12, finalSize * 0.08)
+            love.graphics.circle("fill", -finalSize * 0.2, finalSize * 0.3, finalSize * 0.08, 6)
+            
+            -- Paneles solares destruidos (solo fragmentos)
+            love.graphics.polygon("fill", 
+                -finalSize * 1.0, -finalSize * 0.05,
+                -finalSize * 0.7, -finalSize * 0.02,
+                -finalSize * 0.8, finalSize * 0.03,
+                -finalSize * 0.9, finalSize * 0.01
+            )
+            love.graphics.polygon("fill", 
+                finalSize * 0.6, -finalSize * 0.04,
+                finalSize * 0.9, -finalSize * 0.06,
+                finalSize * 0.8, finalSize * 0.02
+            )
+            
+        elseif baseType == "elongated" then
+            -- Nave alargada en ruinas: casco partido y secciones dispersas
+            -- Sección frontal separada
+            love.graphics.ellipse("fill", finalSize * 0.7, -finalSize * 0.1, finalSize * 0.25, finalSize * 0.15)
+            
+            -- Casco principal partido
+            love.graphics.polygon("fill", 
+                -finalSize * 0.5, -finalSize * 0.15,
+                finalSize * 0.3, -finalSize * 0.18,
+                finalSize * 0.2, finalSize * 0.12,
+                -finalSize * 0.6, finalSize * 0.1
+            )
+            
+            -- Motores desprendidos
+            love.graphics.circle("fill", -finalSize * 1.3, -finalSize * 0.3, finalSize * 0.1, segments)
+            love.graphics.circle("fill", -finalSize * 1.1, finalSize * 0.4, finalSize * 0.08, segments)
+            
+            -- Alas/estabilizadores rotos
+            love.graphics.polygon("fill", 
+                -finalSize * 0.2, -finalSize * 0.5,
+                finalSize * 0.1, -finalSize * 0.3,
+                -finalSize * 0.1, -finalSize * 0.4
+            )
+            love.graphics.polygon("fill", 
+                -finalSize * 0.1, finalSize * 0.6,
+                finalSize * 0.2, finalSize * 0.3,
+                finalSize * 0.0, finalSize * 0.4
+            )
+        end
+        
+        -- Cables y estructuras colgantes para todas las ruinas
+        love.graphics.setLineWidth(math.max(1, finalSize * 0.003))
+        for i = 1, 5 do
+            local startAngle = (i / 5) * 2 * math.pi + seed * 0.2
+            local startX = math.cos(startAngle) * finalSize * 0.4
+            local startY = math.sin(startAngle) * finalSize * 0.4
+            local endX = startX + (seed % 3 - 1) * finalSize * 0.3
+            local endY = startY + (seed % 4 - 2) * finalSize * 0.2
+            love.graphics.line(startX, startY, endX, endY)
+        end
+        
+        -- Fragmentos de escombros adicionales
+        for i = 1, 12 do
+            local angle = (i / 12) * 2 * math.pi + seed * 0.3
+            local distance = finalSize * (0.8 + (i % 4) * 0.3)
+            local fragX = math.cos(angle) * distance
+            local fragY = math.sin(angle) * distance
+            local fragSize = finalSize * (0.02 + (i % 3) * 0.015)
+            
+            -- Fragmentos irregulares
+            love.graphics.polygon("fill", 
+                fragX - fragSize, fragY - fragSize * 0.7,
+                fragX + fragSize * 0.8, fragY - fragSize * 0.4,
+                fragX + fragSize * 0.6, fragY + fragSize * 0.9,
+                fragX - fragSize * 0.9, fragY + fragSize * 0.5
+            )
+        end
+        
+        love.graphics.pop()
+        
+    -- Renderizar según el tipo base (sin los tipos damaged/ruins separados)
+    elseif false then
+        -- Placeholder para mantener estructura
         love.graphics.push()
         love.graphics.translate(screenX, screenY)
         love.graphics.rotate(rotation)
@@ -1098,428 +1436,11 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         
         love.graphics.pop()
 
-    elseif shape == "ruins" then
-        -- Ruinas más detalladas y realistas con perspectiva 2.5D mejorada
-        love.graphics.push()
-        love.graphics.translate(screenX, screenY)
-        love.graphics.rotate(rotation)
-        
-        -- Resplandor específico para ruinas (más visible y fragmentado)
-        if glowColor and lod <= 1 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * 0.8)
-            -- Múltiples resplandores pequeños en lugar de uno grande
-            for i = 1, 5 do
-                local angle = (i / 5) * 2 * math.pi + (seed or 0) * 0.1
-                local distance = finalSize * (0.3 + (i % 3) * 0.2)
-                local glowX = math.cos(angle) * distance
-                local glowY = math.sin(angle) * distance
-                local glowSize = finalSize * (0.4 + (i % 2) * 0.2)
-                love.graphics.circle("fill", glowX, glowY, glowSize, math.max(8, math.floor(segments / 2)))
-            end
-            love.graphics.setColor(love.graphics.getColor())
-        end
-        
-        -- Aplicar transformaciones de perspectiva 2.5D mejoradas
-        love.graphics.scale(1.0, perspectiveData.scaleY)
-        
-        -- Aplicar inclinación (skew) para efecto 3D
-        love.graphics.shear(perspectiveData.skewX, 0)
-        
-        -- Dirección de luz determinista basada en la semilla y color base actual
-        local baseR, baseG, baseB, baseA = love.graphics.getColor()
-        local lightAngle = ((seed or 0) * 12.9898) % (math.pi * 2)
-        local lightDirX, lightDirY = math.cos(lightAngle), math.sin(lightAngle)
-        local shadowBase = math.max(4, finalSize * 0.04)
-        local shadowPasses = (lod and lod <= 1) and 3 or 2
-        
-        -- Funciones de textura procedural
-        local function getLayerTexture(layer, x, y, size, partSeed)
-            local texSeed = (partSeed or 0) + layer * 1000
-            local noise1 = math.sin(x * 0.1 + texSeed) * math.cos(y * 0.1 + texSeed * 0.7)
-            local noise2 = math.sin(x * 0.05 + texSeed * 1.3) * math.cos(y * 0.05 + texSeed * 2.1)
-            
-            if layer == 0 then -- Capa base: metal oxidado
-                local rust = math.abs(noise1 * noise2) * 0.3
-                return {r = 0.8 - rust, g = 0.6 - rust * 0.5, b = 0.4 - rust * 0.3, roughness = 0.8 + rust}
-            elseif layer == 1 then -- Capa media: metal pulido con daños
-                local damage = math.max(0, noise1 * 0.4)
-                return {r = 0.9 - damage, g = 0.9 - damage, b = 0.95 - damage * 0.5, roughness = 0.3 + damage}
-            else -- Capa alta: cristal/cerámica
-                local clarity = math.abs(noise2) * 0.2
-                return {r = 0.95 - clarity, g = 0.98 - clarity, b = 1.0 - clarity * 0.5, roughness = 0.1 + clarity}
-            end
-        end
-        
-        local function getNormalOffset(x, y, size, partSeed, intensity)
-            local ns = (partSeed or 0) * 0.1
-            local nx = math.sin(x * 0.2 + ns) * math.cos(y * 0.15 + ns * 1.4) * intensity
-            local ny = math.cos(x * 0.15 + ns * 0.8) * math.sin(y * 0.2 + ns * 2.1) * intensity
-            return nx, ny
-        end
-        
-        -- Funciones de perspectiva dinámica eliminadas - ahora se usa perspectiva fija
-        
-        -- Sistema de profundidad visual optimizado para vista cenital
-        local function calculateVisualDepth(layer, height, perspectiveFactor, distance)
-            -- Calcular offset de profundidad con mayor contraste
-            local depthOffset = layer * 2.5 + height * 0.8
-            
-            -- Factor de escala con mayor diferencia entre capas
-            local depthScale = math.max(0.6, 1.0 - (depthOffset * 0.025 * perspectiveFactor))
-            
-            -- Offset de posición más pronunciado para mejor efecto 3D
-            local maxOffset = 0.4
-            local depthX = math.max(-maxOffset, math.min(maxOffset, depthOffset * math.sin(perspectiveFactor * math.pi * 0.3) * 0.3))
-            local depthY = math.max(-maxOffset, math.min(maxOffset, depthOffset * math.cos(perspectiveFactor * math.pi * 0.3) * 0.25))
-            
-            -- Alpha con mayor contraste para profundidad
-            local depthAlpha = math.max(0.8, 1.0 - (depthOffset * 0.08 * perspectiveFactor))
-            
-            -- Factor de desenfoque más pronunciado
-            local blurFactor = math.min(0.25, depthOffset * 0.12 * perspectiveFactor)
-            
-            return {
-                scale = depthScale,
-                offsetX = depthX,
-                offsetY = depthY,
-                alpha = depthAlpha,
-                blur = blurFactor
-            }
-        end
-        
-        -- Fragmentos realistas de estación destruida (con mayor variación de capas y alturas)
-        local stationParts = {
-            {type = "command", x = 0.3,  y = -0.4, size = 0.25, intact = 0.7, layer = 3, height = 5},  -- Más profundo
-            {type = "power",   x = -0.5, y = 0.2,  size = 0.3,  intact = 0.4, layer = 2, height = 3},  -- Profundidad media
-            {type = "hull",    x = 0.1,  y = 0.3,  size = 0.35, intact = 0.6, layer = 0, height = 1},  -- Superficie
-            {type = "antenna", x = -0.3, y = -0.5, size = 0.15, intact = 0.8, layer = 4, height = 6},  -- Muy profundo
-            {type = "lifesupport", x = 0.6,  y = 0.1, size = 0.2, intact = 0.3, layer = 2, height = 4},  -- Profundidad media-alta
-            {type = "engine",  x = -0.2, y = 0.6,  size = 0.28, intact = 0.5, layer = 1, height = 2},  -- Cerca de superficie
-            {type = "solar",   x = 0.4,  y = -0.2, size = 0.18, intact = 0.2, layer = 0, height = 1},  -- Superficie
-            {type = "dock",    x = -0.4, y = -0.1, size = 0.22, intact = 0.6, layer = 3, height = 4}   -- Profundo
-        }
-        
-        -- En el espacio no hay sombras proyectadas - solo efectos de iluminación direccional
-        -- Las estaciones espaciales no proyectan sombras porque no hay superficie para proyectarlas
-        -- En su lugar, usamos variaciones de iluminación direccional para crear profundidad visual
-        
-        -- Paso 2: dibujo por capas con sombreado direccional y profundidad visual
-        for layer = 0, 4 do
-            for i, part in ipairs(stationParts) do
-                if part.layer == layer then
-                    local partX = part.x * finalSize
-                    local partY = part.y * finalSize
-                    local partSize = finalSize * part.size
-                    local damage = 1.0 - part.intact
-                    local partSeed = (seed or 0) + i * 100
-                    
-                    -- Calcular profundidad visual para esta parte
-                    local depthData = calculateVisualDepth(part.layer, part.height, perspectiveData.perspectiveFactor, finalSize)
-                    
-                    -- Aplicar transformaciones de profundidad
-                    partX = partX + depthData.offsetX
-                    partY = partY + depthData.offsetY
-                    partSize = partSize * depthData.scale
-                    
-                    -- Obtener textura procedural para esta capa
-                    local texture = getLayerTexture(layer, partX, partY, partSize, partSeed)
-                    
-                    -- Normal mapping simulado
-                    local normalIntensity = partSize * 0.02 * texture.roughness
-                    local normalX, normalY = getNormalOffset(partX, partY, partSize, partSeed, normalIntensity)
-                    
-                    -- Sombreado direccional mejorado con normal mapping
-                    local nx, ny = partX + normalX, partY + normalY
-                    local len = math.sqrt(nx * nx + ny * ny)
-                    if len > 0 then nx, ny = nx / len, ny / len end
-                    local ndotl = -(nx * lightDirX + ny * lightDirY)
-                    local brightness = math.max(0.7, math.min(1.2, 0.85 + 0.25 * ndotl))
-                    
-                    -- Aplicar textura procedural al color base con alpha de profundidad
-                    -- Factor de oscurecimiento por profundidad mejorado para mayor contraste 3D
-                    local depthDarkening = 1.0 - (part.layer * 0.35 + part.height * 0.20)
-                    depthDarkening = math.max(0.15, depthDarkening) -- Oscurecimiento más agresivo para capas profundas
-                    
-                    local finalR = (baseR * texture.r) * brightness * depthDarkening
-                    local finalG = (baseG * texture.g) * brightness * depthDarkening
-                    local finalB = (baseB * texture.b) * brightness * depthDarkening
-                    local finalAlpha = baseA * depthData.alpha * alpha
-                    love.graphics.setColor(finalR, finalG, finalB, finalAlpha)
-                    
-                    -- Renderizar cada tipo de parte de estación con texturas específicas
-                    if part.type == "command" then
-                        -- Sección de comando (hexágono dañado) con paneles
-                        local points = {}
-                        for j = 1, 6 do
-                            local angle = (j / 6) * 2 * math.pi
-                            local radius = partSize * (0.8 + damage * 0.4)
-                            table.insert(points, partX + math.cos(angle) * radius)
-                            table.insert(points, partY + math.sin(angle) * radius)
-                        end
-                        love.graphics.polygon("fill", points)
-                        
-                        -- Paneles de comando con micro-detalles
-                        love.graphics.setColor(finalR * 1.1, finalG * 1.1, finalB * 1.1, baseA * 0.8)
-                        for j = 1, 6 do
-                            local angle = (j / 6) * 2 * math.pi
-                            local px = partX + math.cos(angle) * partSize * 0.6
-                            local py = partY + math.sin(angle) * partSize * 0.6
-                            love.graphics.rectangle("fill", px - partSize * 0.08, py - partSize * 0.05, partSize * 0.16, partSize * 0.1)
-                        end
-                        
-                        -- Borde de profundidad
-                        love.graphics.setColor(finalR * 0.6, finalG * 0.6, finalB * 0.6, baseA)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.polygon("line", points)
-                        
-                        -- Daño interno
-                        if damage > 0.3 then
-                            love.graphics.setColor(0, 0, 0, alpha)
-                            love.graphics.circle("fill", partX + partSize * 0.2, partY, partSize * damage * 0.4, 8)
-                        end
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "power" then
-                        -- Módulo de energía (cilindro con daños) con superficie metálica
-                        love.graphics.ellipse("fill", partX, partY, partSize, partSize * 0.6)
-                        
-                        -- Superficie metálica con reflejos
-                        love.graphics.setColor(finalR * 1.3, finalG * 1.3, finalB * 1.3, baseA * 0.9)
-                        love.graphics.ellipse("fill", partX - partSize * 0.2, partY - partSize * 0.1, partSize * 0.4, partSize * 0.2)
-                        
-                        -- Borde de profundidad
-                        love.graphics.setColor(finalR * 0.5, finalG * 0.5, finalB * 0.5, baseA)
-                        love.graphics.setLineWidth(3)
-                        love.graphics.ellipse("line", partX, partY, partSize, partSize * 0.6)
-                        
-                        -- Grietas de energía con resplandor
-                        love.graphics.setColor(0.3, 0.8, 1.0, alpha * 0.95)
-                        love.graphics.setLineWidth(2)
-                        for j = 1, 3 do
-                            local startX = partX + (j - 2) * partSize * 0.3
-                            love.graphics.line(startX, partY - partSize * 0.3, startX, partY + partSize * 0.3)
-                        end
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "hull" then
-                        -- Fragmento del casco principal (irregular) con placas de blindaje
-                        local hullPoints = {
-                            partX - partSize, partY - partSize * 0.5,
-                            partX + partSize * 0.8, partY - partSize * 0.3,
-                            partX + partSize, partY + partSize * 0.4,
-                            partX - partSize * 0.6, partY + partSize * 0.6
-                        }
-                        love.graphics.polygon("fill", hullPoints)
-                        
-                        -- Placas de blindaje superpuestas
-                        love.graphics.setColor(finalR * 0.9, finalG * 0.9, finalB * 0.9, baseA * 0.9)
-                        love.graphics.polygon("fill",
-                            partX - partSize * 0.7, partY - partSize * 0.3,
-                            partX + partSize * 0.5, partY - partSize * 0.1,
-                            partX + partSize * 0.6, partY + partSize * 0.2,
-                            partX - partSize * 0.4, partY + partSize * 0.3
-                        )
-                        
-                        -- Bordes de profundidad
-                        love.graphics.setColor(finalR * 0.4, finalG * 0.4, finalB * 0.4, baseA)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.polygon("line", hullPoints)
-                        
-                        -- Agujeros de impacto con bordes quemados
-                        love.graphics.setColor(0.2, 0.1, 0.1, alpha)
-                        love.graphics.circle("fill", partX - partSize * 0.3, partY, partSize * 0.25, 8)
-                        love.graphics.setColor(0, 0, 0, alpha)
-                        love.graphics.circle("fill", partX - partSize * 0.3, partY, partSize * 0.2, 8)
-                        love.graphics.circle("fill", partX + partSize * 0.2, partY + partSize * 0.2, partSize * 0.15, 6)
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "antenna" then
-                        -- Antena rota con estructura metálica
-                        -- Base de la antena con textura metálica
-                        love.graphics.circle("fill", partX, partY, partSize * 0.3, 8)
-                        
-                        -- Reflejo metálico en la base
-                        love.graphics.setColor(finalR * 1.4, finalG * 1.4, finalB * 1.4, baseA * 0.7)
-                        love.graphics.circle("fill", partX - partSize * 0.1, partY - partSize * 0.1, partSize * 0.15, 6)
-                        
-                        -- Estructura de antena con profundidad
-                        love.graphics.setColor(finalR * 0.8, finalG * 0.8, finalB * 0.8, baseA)
-                        love.graphics.setLineWidth(4)
-                        love.graphics.line(partX, partY, partX + partSize * 0.8, partY - partSize * 1.2)
-                        love.graphics.line(partX, partY, partX - partSize * 0.6, partY - partSize * 0.8)
-                        
-                        -- Cables y detalles
-                        love.graphics.setColor(finalR * 0.6, finalG * 0.6, finalB * 0.6, baseA)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.line(partX, partY, partX + partSize * 0.4, partY - partSize * 0.6)
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "lifesupport" then
-                        -- Módulo de soporte vital (cubo dañado) con paneles
-                        love.graphics.rectangle("fill", partX - partSize, partY - partSize, partSize * 2, partSize * 2)
-                        
-                        -- Paneles laterales con textura
-                        love.graphics.setColor(finalR * 1.1, finalG * 1.1, finalB * 1.1, baseA * 0.95)
-                        love.graphics.rectangle("fill", partX - partSize * 0.9, partY - partSize * 0.9, partSize * 0.3, partSize * 1.8)
-                        love.graphics.rectangle("fill", partX + partSize * 0.6, partY - partSize * 0.9, partSize * 0.3, partSize * 1.8)
-                        
-                        -- Bordes de profundidad
-                        love.graphics.setColor(finalR * 0.5, finalG * 0.5, finalB * 0.5, baseA)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", partX - partSize, partY - partSize, partSize * 2, partSize * 2)
-                        
-                        -- Ventilación rota con resplandor interno
-                        love.graphics.setColor(0.8, 0.4, 0.2, alpha * 0.9)
-                        for j = 1, 4 do
-                            local vX = partX - partSize * 0.6 + (j - 1) * partSize * 0.4
-                            love.graphics.rectangle("fill", vX, partY - partSize * 0.8, partSize * 0.1, partSize * 0.3)
-                        end
-                        love.graphics.setColor(0, 0, 0, alpha)
-                        for j = 1, 4 do
-                            local vX = partX - partSize * 0.6 + (j - 1) * partSize * 0.4
-                            love.graphics.rectangle("fill", vX + partSize * 0.02, partY - partSize * 0.75, partSize * 0.06, partSize * 0.2)
-                        end
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "engine" then
-                        -- Motor dañado con estructura compleja
-                        love.graphics.polygon("fill",
-                            partX - partSize * 0.8, partY - partSize * 0.4,
-                            partX + partSize * 0.8, partY - partSize * 0.4,
-                            partX + partSize * 0.5, partY + partSize * 0.6,
-                            partX - partSize * 0.5, partY + partSize * 0.6
-                        )
-                        
-                        -- Anillo metálico exterior
-                        love.graphics.setColor(finalR * 1.3, finalG * 1.3, finalB * 1.3, baseA * 0.8)
-                        love.graphics.setLineWidth(4)
-                        love.graphics.polygon("line",
-                            partX - partSize * 0.8, partY - partSize * 0.4,
-                            partX + partSize * 0.8, partY - partSize * 0.4,
-                            partX + partSize * 0.5, partY + partSize * 0.6,
-                            partX - partSize * 0.5, partY + partSize * 0.6
-                        )
-                        
-                        -- Núcleo central con resplandor
-                        love.graphics.setColor(finalR * 0.7, finalG * 0.7, finalB * 0.7, baseA)
-                        love.graphics.ellipse("fill", partX, partY, partSize * 0.6, partSize * 0.4)
-                        
-                        -- Toberas dañadas con efectos de quemado
-                        love.graphics.setColor(0.4, 0.2, 0.1, alpha * 0.95)
-                        love.graphics.circle("fill", partX - partSize * 0.3, partY + partSize * 0.3, partSize * 0.2, 8)
-                        love.graphics.circle("fill", partX + partSize * 0.3, partY + partSize * 0.3, partSize * 0.2, 8)
-                        
-                        -- Agujeros internos quemados
-                        love.graphics.setColor(0.1, 0.05, 0.05, alpha)
-                        love.graphics.circle("fill", partX - partSize * 0.3, partY + partSize * 0.3, partSize * 0.1, 6)
-                        love.graphics.circle("fill", partX + partSize * 0.3, partY + partSize * 0.3, partSize * 0.1, 6)
-                        
-                        -- Conductos de combustible dañados
-                        love.graphics.setColor(finalR * 0.5, finalG * 0.5, finalB * 0.5, baseA)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.line(partX, partY - partSize * 0.2, partX - partSize * 0.3, partY + partSize * 0.3)
-                        love.graphics.line(partX, partY - partSize * 0.2, partX + partSize * 0.3, partY + partSize * 0.3)
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "solar" then
-                        -- Panel solar roto con estructura metálica
-                        love.graphics.rectangle("fill", partX - partSize * 1.2, partY - partSize * 0.8, partSize * 2.4, partSize * 1.6)
-                        
-                        -- Marco metálico del panel
-                        love.graphics.setColor(finalR * 1.2, finalG * 1.2, finalB * 1.2, baseA * 0.98)
-                        love.graphics.setLineWidth(3)
-                        love.graphics.rectangle("line", partX - partSize * 1.2, partY - partSize * 0.8, partSize * 2.4, partSize * 1.6)
-                        
-                        -- Celdas solares individuales
-                        love.graphics.setColor(finalR * 0.3, finalG * 0.3, finalB * 0.8, baseA * 0.9)
-                        for i = 0, 2 do
-                            for j = 0, 1 do
-                                local cellX = partX - partSize * 0.8 + i * partSize * 0.8
-                                local cellY = partY - partSize * 0.4 + j * partSize * 0.8
-                                love.graphics.rectangle("fill", cellX, cellY, partSize * 0.6, partSize * 0.6)
-                            end
-                        end
-                        
-                        -- Grietas en el panel con efecto de cristal
-                        love.graphics.setColor(0.9, 0.9, 1.0, alpha * 0.95)
-                        love.graphics.setLineWidth(3)
-                        love.graphics.line(partX - partSize, partY - partSize * 0.5, partX + partSize * 0.8, partY + partSize * 0.3)
-                        love.graphics.line(partX - partSize * 0.3, partY - partSize * 0.7, partX + partSize * 0.5, partY + partSize * 0.6)
-                        
-                        -- Grietas secundarias
-                        love.graphics.setColor(0, 0, 0, alpha)
-                        love.graphics.setLineWidth(1)
-                        love.graphics.line(partX - partSize * 0.8, partY, partX + partSize * 0.2, partY + partSize * 0.4)
-                        love.graphics.line(partX, partY - partSize * 0.6, partX + partSize * 0.6, partY)
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                        
-                    elseif part.type == "dock" then
-                        -- Puerto de acoplamiento con estructura compleja
-                        -- Anillo exterior metálico
-                        love.graphics.setColor(finalR * 1.1, finalG * 1.1, finalB * 1.1, baseA * 0.8)
-                        love.graphics.setLineWidth(4)
-                        love.graphics.circle("line", partX, partY, partSize * 1.8, 16)
-                        
-                        -- Núcleo central
-                        love.graphics.setColor(finalR * 0.9, finalG * 0.9, finalB * 0.9, baseA)
-                        love.graphics.circle("fill", partX, partY, partSize * 0.5, 8)
-                        
-                        -- Reflejo metálico en el núcleo
-                        love.graphics.setColor(finalR * 1.4, finalG * 1.4, finalB * 1.4, baseA * 0.6)
-                        love.graphics.circle("fill", partX - partSize * 0.2, partY - partSize * 0.2, partSize * 0.25, 6)
-                        
-                        -- Brazos de acoplamiento rotos con estructura
-                        love.graphics.setColor(finalR * 0.8, finalG * 0.8, finalB * 0.8, baseA)
-                        love.graphics.setLineWidth(3)
-                        for j = 1, 4 do
-                            local angle = (j - 1) * math.pi / 2
-                            local armX = partX + math.cos(angle) * partSize * 1.5
-                            local armY = partY + math.sin(angle) * partSize * 1.5
-                            love.graphics.line(partX, partY, armX, armY)
-                            
-                            -- Conectores dañados
-                            love.graphics.setColor(finalR * 0.6, finalG * 0.6, finalB * 0.6, baseA)
-                            love.graphics.circle("fill", armX, armY, partSize * 0.4, 6)
-                            
-                            -- Agujeros en los conectores
-                            love.graphics.setColor(0, 0, 0, alpha * 0.95)
-                            love.graphics.circle("fill", armX, armY, partSize * 0.2, 6)
-                            
-                            -- Cables sueltos
-                            love.graphics.setColor(finalR * 0.4, finalG * 0.4, finalB * 0.4, baseA * 0.9)
-                            love.graphics.setLineWidth(1)
-                            love.graphics.line(armX, armY, armX + partSize * 0.3, armY + partSize * 0.2)
-                        end
-                        love.graphics.setColor(finalR, finalG, finalB, baseA)
-                    end
-                    
-                    -- Restaurar color base para siguiente pieza
-                    love.graphics.setColor(baseR, baseG, baseB, baseA)
-                end
-            end
-        end
-        
-        -- Pequeños fragmentos dispersos
-        for i = 1, 12 do
-            local angle = (i / 12) * 2 * math.pi + seed * 0.3
-            local distance = finalSize * (0.7 + (i % 4) * 0.15)
-            local fragX = math.cos(angle) * distance
-            local fragY = math.sin(angle) * distance
-            local fragSize = finalSize * (0.02 + (i % 3) * 0.01)
-            love.graphics.circle("fill", fragX, fragY, fragSize, 4)
-        end
-        
-        love.graphics.pop()
-        
-    else
-        -- Forma por defecto (círculo) - solo para tipos no definidos
-        -- Resplandor exterior para círculos básicos
-        if glowColor and lod <= 2 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha)
-            love.graphics.circle("fill", screenX, screenY, finalSize * 1.3, segments)
-            love.graphics.setColor(love.graphics.getColor())
-        end
-        love.graphics.circle("fill", screenX, screenY, finalSize, segments)
+    end
+    
+    -- Aplicar efectos de fragmentos para estados de daño
+    if damageState == "damaged" or damageState == "ruins" then
+        AncientRuinsRenderer.renderDamageFragments(screenX, screenY, finalSize, damageEffects, alpha, seed)
     end
 end
 
