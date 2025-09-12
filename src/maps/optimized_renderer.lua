@@ -10,13 +10,13 @@ local MapConfig = require 'src.maps.config.map_config'
 
 -- Configuración del renderizador
 OptimizedRenderer.config = {
-    -- Niveles de detalle (LOD)
+    -- Niveles de detalle (LOD) mejorados para mejor calidad visual
     lod = {
         levels = {
             [0] = {distance = 0,    name = "High",   detail = 1.0},   -- Alto detalle
-            [1] = {distance = 800,  name = "Medium", detail = 0.7},   -- Detalle medio
-            [2] = {distance = 1600, name = "Low",    detail = 0.4},   -- Bajo detalle
-            [3] = {distance = 3200, name = "Minimal", detail = 0.2}   -- Detalle mínimo
+            [1] = {distance = 1200, name = "Medium", detail = 0.8},   -- Detalle medio mejorado
+            [2] = {distance = 2400, name = "Low",    detail = 0.6},   -- Bajo detalle mejorado
+            [3] = {distance = 4800, name = "Minimal", detail = 0.4}   -- Detalle mínimo mejorado
         },
         transitionSmoothing = true,
         

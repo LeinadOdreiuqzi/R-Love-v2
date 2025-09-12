@@ -58,7 +58,7 @@ local advancedStats = {
 }
 
 -- NUEVA FUNCIÓN: Cargar el mundo de forma asíncrona
-function loadWorld(updateProgress)
+local function loadWorld(updateProgress)
     local loadSteps = {}
     local currentStep = 1
     

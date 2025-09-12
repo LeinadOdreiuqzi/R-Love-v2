@@ -1089,6 +1089,10 @@ function MapGenerator.generateChunk(chunkX, chunkY)
     -- Generar anomalías gravitacionales para el bioma gravity_anomaly
     local GravityAnomaly = require 'src.shaders.gravity_anomaly'
     GravityAnomaly.generateAnomalies(chunk, chunkX, chunkY, chunk.biome.type, rng)
+    
+    -- Generar placeholders para el bioma ancient_ruins
+    local AncientRuinsRenderer = require 'src.maps.systems.ancient_ruins_renderer'
+    AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
 
     -- Debug para verificar generación
     if #chunk.specialObjects > 0 then

@@ -246,6 +246,11 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     GravityAnomaly.drawContinuousAnomalies(camera)
     GravityAnomaly.drawContinuousOverlays(camera)
     
+    -- 7. Dibujar placeholders de ancient ruins (afectados por shader si está activo)
+    local AncientRuinsRenderer = require 'src.maps.systems.ancient_ruins_renderer'
+    local ruinsRendered = AncientRuinsRenderer.renderPlaceholders(chunkInfo, camera, Map.getChunkNonBlocking)
+    MapStats.addObjects(ruinsRendered, ruinsRendered, 0)
+    
     -- Nota: El shader se mantiene activo durante todo el renderizado
     -- y se desactiva automáticamente cuando el jugador sale del bioma
 end
