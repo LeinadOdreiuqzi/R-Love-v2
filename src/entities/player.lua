@@ -14,13 +14,25 @@ function Player:new(x, y)
     player.dx = 0  -- Velocity X
     player.dy = 0  -- Velocity Y
     
-    -- Movement parameters
-    player.maxSpeed = 150           -- Maximum speed
-    player.forwardAccel = 20        -- Forward acceleration (W key toward mouse)
-    player.strafeAccel = 10         -- Strafe acceleration (A/D keys)
-    player.backwardAccel = 10      -- Backward acceleration (S key)
-    player.drag = 0.92              -- Air resistance (higher = less drag)
-    player.brakePower = 0.6         -- How much to slow down when braking
+    -- Movement parameters (VELOCIDADES REDUCIDAS Y BALANCEADAS)
+    player.maxSpeed = 80            -- Maximum speed (reducido significativamente)
+    player.forwardAccel = 12        -- Forward acceleration (reducido)
+    player.strafeAccel = 8          -- Strafe acceleration (A/D keys) - reducido
+    player.backwardAccel = 6        -- Backward acceleration (S key) - reducido
+    player.drag = 0.94              -- More drag for better control
+    player.brakePower = 0.8         -- Improved drift braking
+    
+    -- Parámetros balanceados para drift controlado
+     player.rotationSpeed = 5.0      -- Velocidad de rotación controlada
+     player.driftFactor = 0.88       -- Factor de drift reducido (88% inercia lateral)
+     player.driftActivation = 6      -- Umbral reducido para activar drift
+     player.driftTransition = 0.95   -- Transición más controlada
+     player.gradualBraking = 0.85    -- Frenado más efectivo
+     player.boostMultiplier = 1.8    -- Multiplicador para boost temporal (reducido)
+     player.boostDuration = 0        -- Duración actual del boost
+     player.maxBoostDuration = 1.2   -- Duración máxima del boost (reducida)
+     
+
     
     -- Toggle de viaje rápido (100k)
     player.hyperTravelEnabled = false
@@ -41,7 +53,11 @@ function Player:new(x, y)
     
     -- State
     player.rotation = 0            -- Current rotation in radians
+    player.targetRotation = 0      -- Target rotation for smooth turning
     player.isBraking = false
+    player.isBoostActive = false   -- Estado del boost
+    player.isDrifting = false      -- Estado del drift activo
+
     
     -- Mouse direction tracking
     player.mouseDirection = {x = 1, y = 0}  -- Default direction (right)
@@ -103,6 +119,44 @@ function Player:update(dt)
     -- Update input state and handle rotation
     self:handleInput()
     
+    -- ROTACIÓN INERCIAL HACIA EL MOUSE
+    local mouseX, mouseY = love.mouse.getPosition()
+    local screenX, screenY = love.graphics.getDimensions()
+    
+    -- Convert mouse position to world coordinates
+    local worldMouseX = (mouseX - screenX/2) / camera.zoom + camera.x
+    local worldMouseY = (mouseY - screenY/2) / camera.zoom + camera.y
+    
+    -- Calculate target angle to mouse
+    local dx = worldMouseX - self.x
+    local dy = worldMouseY - self.y
+    local targetRotation = math.atan2(dy, dx) + (math.pi / 2)
+    
+    -- Smooth rotation towards target (rotación inercial)
+    local angleDiff = targetRotation - self.rotation
+    -- Normalize angle difference to [-π, π]
+    while angleDiff > math.pi do angleDiff = angleDiff - 2 * math.pi end
+    while angleDiff < -math.pi do angleDiff = angleDiff + 2 * math.pi end
+    
+    -- Apply gradual rotation
+    self.rotation = self.rotation + angleDiff * self.rotationSpeed * dt
+    
+    -- Update mouse direction for movement
+    local distance = math.sqrt(dx * dx + dy * dy)
+    if distance > 0 then
+        self.mouseDirection.x = dx / distance
+        self.mouseDirection.y = dy / distance
+    end
+    
+    -- SISTEMA DE BOOST TEMPORAL
+    if self.input.boost and self.boostDuration < self.maxBoostDuration then
+        self.boostDuration = math.min(self.maxBoostDuration, self.boostDuration + dt)
+        self.isBoostActive = true
+    else
+        self.boostDuration = math.max(0, self.boostDuration - dt * 2)  -- Se agota más rápido
+        self.isBoostActive = false
+    end
+    
     -- Check if can move (fuel or debug infinite fuel)
     local canMove = self.stats:canMove()
     
@@ -120,26 +174,28 @@ function Player:update(dt)
         self.engineGlow = math.max(0, self.engineGlow - dt * 2)
     end
     
-    -- Support movements (A, S, D) - relative to current orientation
-    if self.input.left and canMove then       -- A - Strafe left relative to facing direction
+    -- Support movements (A, S, D) - CORREGIDO para orientación relativa a la nave
+    if self.input.left and canMove then       -- A - Strafe left relative to ship orientation
         local leftX = -math.sin(self.rotation)
         local leftY = math.cos(self.rotation)
-        moveX = moveX + leftX * 0.7  -- Reduced power for strafe
-        moveY = moveY + leftY * 0.7
+        moveX = moveX + leftX * 0.8  -- Mejorado para mejor control
+        moveY = moveY + leftY * 0.8
         isMoving = true
     end
     
-    if self.input.right and canMove then      -- D - Strafe right relative to facing direction
+    if self.input.right and canMove then      -- D - Strafe right relative to ship orientation
         local rightX = math.sin(self.rotation)
         local rightY = -math.cos(self.rotation)
-        moveX = moveX + rightX * 0.7  -- Reduced power for strafe
-        moveY = moveY + rightY * 0.7
+        moveX = moveX + rightX * 0.8  -- Mejorado para mejor control
+        moveY = moveY + rightY * 0.8
         isMoving = true
     end
     
-    if self.input.backward and canMove then   -- S - Move backward from mouse direction
-        moveX = moveX - self.mouseDirection.x * 0.5  -- Reduced power for backward
-        moveY = moveY - self.mouseDirection.y * 0.5
+    if self.input.backward and canMove then   -- S - Move backward relative to ship orientation
+        local backX = -math.cos(self.rotation)
+        local backY = -math.sin(self.rotation)
+        moveX = moveX + backX * 0.6  -- Movimiento hacia atrás relativo a la nave
+        moveY = moveY + backY * 0.6
         isMoving = true
     end
     
@@ -158,34 +214,108 @@ function Player:update(dt)
             accel = self.strafeAccel
         end
         
+        -- Aplicar multiplicador de boost si está activo
+        if self.isBoostActive and self.boostDuration > 0 then
+            accel = accel * self.boostMultiplier
+        end
+        
         -- Apply movement based on the normalized direction
         self.dx = self.dx + moveX * accel * dt
         self.dy = self.dy + moveY * accel * dt
     end
     
-    -- Apply air resistance (drag) - stronger when braking
-    local currentDrag = self.input.brake and self.drag * 0.9 or self.drag
-    self.dx = self.dx * math.pow(currentDrag, dt * 60)
-    self.dy = self.dy * math.pow(currentDrag, dt * 60)
+    -- SISTEMA DE DRIFT INTENSO CON BULLET TIME CINEMATOGRÁFICO
+     if self.input.brake then
+         -- Calcular velocidad actual
+         local currentSpeed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
+         
+
+         
+         -- Activar drift intenso basado en velocidad
+         if currentSpeed > self.driftActivation then
+             -- DRIFT ACTIVO INTENSO - Preservar más inercia lateral
+             local currentDirX = self.dx / currentSpeed
+             local currentDirY = self.dy / currentSpeed
+             
+             -- Calcular componente hacia adelante (en dirección de la nave)
+             local forwardX = math.cos(self.rotation)
+             local forwardY = math.sin(self.rotation)
+             local forwardComponent = currentDirX * forwardX + currentDirY * forwardY
+             
+             -- Separar velocidad en componentes forward y lateral
+             local forwardVelX = forwardComponent * forwardX
+             local forwardVelY = forwardComponent * forwardY
+             local lateralVelX = self.dx - forwardVelX
+             local lateralVelY = self.dy - forwardVelY
+             
+             -- Frenado gradual diferenciado (más suave para drift intenso)
+             local gradualBrakeFactor = math.pow(self.gradualBraking, dt * 60)
+             forwardVelX = forwardVelX * gradualBrakeFactor
+             forwardVelY = forwardVelY * gradualBrakeFactor
+             
+             -- Preservar inercia lateral controlada para drift balanceado (88% preservado)
+             local driftPreservation = math.pow(self.driftFactor, dt * 60)
+             lateralVelX = lateralVelX * driftPreservation
+             lateralVelY = lateralVelY * driftPreservation
+             
+             -- Recombinar velocidades con transición suave
+             self.dx = forwardVelX + lateralVelX
+             self.dy = forwardVelY + lateralVelY
+             
+             -- Verificar que la velocidad total no exceda el límite durante el drift
+             local totalSpeed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
+             if totalSpeed > self.maxSpeed * 1.1 then  -- Permitir 10% extra durante drift
+                 local limitFactor = (self.maxSpeed * 1.1) / totalSpeed
+                 self.dx = self.dx * limitFactor
+                 self.dy = self.dy * limitFactor
+             end
+             
+             -- Marcar drift activo
+             self.isDrifting = true
+             
+         elseif currentSpeed > 2 then
+             -- TRANSICIÓN GRADUAL - Velocidad media (umbral aumentado)
+             local transitionFactor = math.pow(self.driftTransition, dt * 60)
+             self.dx = self.dx * transitionFactor
+             self.dy = self.dy * transitionFactor
+             self.isDrifting = true
+             
+         else
+             -- FRENADO FINAL - Velocidad muy baja
+             local finalBrakeFactor = math.pow(self.brakePower * 0.4, dt * 60)
+             self.dx = self.dx * finalBrakeFactor
+             self.dy = self.dy * finalBrakeFactor
+             self.isDrifting = false
+
+         end
+         
+         -- Parar completamente solo si extremadamente lento
+         local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
+         if speed < 1.0 then
+             self.dx, self.dy = 0, 0
+             self.isDrifting = false
+
+         end
+     else
+         -- Drag normal del espacio cuando no se frena
+         self.dx = self.dx * math.pow(self.drag, dt * 60)
+         self.dy = self.dy * math.pow(self.drag, dt * 60)
+         self.isDrifting = false
+
+     end
+     
+
     
-    -- Apply braking if shift is held
-    if self.input.brake then
-        local brakeFactor = math.pow(self.brakePower, dt * 60)
-        self.dx = self.dx * brakeFactor
-        self.dy = self.dy * brakeFactor
-        
-        -- Stop completely if moving very slowly
-        local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
-        if speed < 5 then
-            self.dx, self.dy = 0, 0
-        end
+    -- Limit maximum speed (con boost puede exceder temporalmente)
+    local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
+    local currentMaxSpeed = self.maxSpeed
+    if self.isBoostActive and self.boostDuration > 0 then
+        currentMaxSpeed = self.maxSpeed * self.boostMultiplier
     end
     
-    -- Limit maximum speed
-    local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
-    if speed > self.maxSpeed then
-        self.dx = (self.dx / speed) * self.maxSpeed
-        self.dy = (self.dy / speed) * self.maxSpeed
+    if speed > currentMaxSpeed then
+        self.dx = (self.dx / speed) * currentMaxSpeed
+        self.dy = (self.dy / speed) * currentMaxSpeed
     end
     
     -- Update position
@@ -207,6 +337,7 @@ function Player:handleInput()
         left = love.keyboard.isDown("a"),
         right = love.keyboard.isDown("d"),
         brake = love.keyboard.isDown("lshift"),
+        boost = love.keyboard.isDown("space"),  -- Boost temporal
     }
     self.input.isMoving = self.input.forward or self.input.backward or self.input.left or self.input.right
     
@@ -231,10 +362,7 @@ function Player:handleInput()
                 self.mouseDirection.x = dx / distance
                 self.mouseDirection.y = dy / distance
                 
-                -- Update rotation to face mouse direction
-                -- Adjust rotation for sprite orientation (sprites usually face up by default in LÖVE)
-                -- Add 90 degrees (π/2 radians) to make the sprite point towards the cursor
-                self.rotation = math.atan2(dy, dx) + (math.pi / 2)
+                -- La rotación ahora se maneja en la función update principal
             end
         end
     end
