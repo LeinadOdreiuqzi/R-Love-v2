@@ -11,6 +11,9 @@ local OptimizedRenderer = require 'src.maps.optimized_renderer'
 local SeedSystem = require 'src.utils.seed_system'
 local LoadingScreen = require 'src.ui.loading_screen'
 local FullscreenManager = require 'src.utils.fullscreen_manager'
+local StateManager = require 'src.states.state_manager'
+local StationScene = require 'src.states.station_scene'
+local stateManager = StateManager:new()
 
 -- Estado del juego con semilla alfanumérica
 local gameState = {
@@ -54,7 +57,7 @@ local function loadWorld(updateProgress)
     
     -- Definir todos los pasos de carga como funciones
     table.insert(loadSteps, function()
-        -- Paso 1: Inicialización
+        -- Paso 1: Inicializar
         updateProgress("init", "Setting up game systems...")
         
         -- Configuración inicial de la ventana
@@ -266,6 +269,14 @@ function love.update(dt)
     
     -- Limitar delta time para evitar saltos grandes
     dt = math.min(dt or 1/60, 1/30)
+
+    -- Actualizar gestor de estados; si hay estado bloqueante, detener gameplay
+    if stateManager then
+        stateManager:update(dt)
+        if stateManager:blocksUnderlying() then
+            return
+        end
+    end
     
     -- Actualizar estadísticas avanzadas
     updateAdvancedStats(dt)
@@ -385,6 +396,13 @@ function love.draw()
         return
     end
     
+    -- Si hay un estado bloqueante activo, solo dibujar estados
+    if stateManager and stateManager:blocksUnderlying() then
+        love.graphics.clear(0, 0, 0, 1)
+        stateManager:draw()
+        return
+    end
+
     -- Aplicar transformación de cámara
     if _G.camera then
         _G.camera:apply()
@@ -421,6 +439,11 @@ function love.draw()
     -- Dibujar overlay de performance si está activado
     if biomeDebug.showPerformanceOverlay or advancedStats.enabled then
         drawPerformanceOverlay()
+    end
+
+    -- Dibujar estados superpuestos (overlays)
+    if stateManager then
+        stateManager:draw()
     end
 end
 
@@ -753,6 +776,11 @@ function love.keypressed(key)
         return
     end
 
+    -- Delegar primero al gestor de estados
+    if stateManager and stateManager:keypressed(key) then
+        return
+    end
+
     -- Atajos globales para pantalla completa
     if key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
         if FullscreenManager and FullscreenManager.toggle then
@@ -886,16 +914,50 @@ function love.keypressed(key)
                 end
             end
         end
+    elseif key == "e" and (not stateManager or not stateManager:blocksUnderlying()) then
+        -- Entrar a estación si existe una cercana en Ancient Ruins
+        if player and player.x and player.y then
+            local biomeInfo = BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
+            if biomeInfo and biomeInfo.type == BiomeSystem.BiomeType.ANCIENT_RUINS then
+                -- Buscar estación cercana en los chunks visibles
+                local bounds = Map.getVisibleChunkBounds(_G.camera, 800)
+                local closest, minDist
+                for cy = bounds.startY, bounds.endY do
+                    for cx = bounds.startX, bounds.endX do
+                        local chunk = Map.getChunkNonBlocking(cx, cy)
+                        if chunk and chunk.ancientRuinsPlaceholders then
+                            for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
+                                local dx, dy = ph.x - player.x, ph.y - player.y
+                                local dist = math.sqrt(dx*dx + dy*dy)
+                                if not minDist or dist < minDist then
+                                    closest, minDist = ph, dist
+                                end
+                            end
+                        end
+                    end
+                end
+                local factor = HUD.getEnterRadiusFactor()
+                local allowed = HUD.computeEnterRadius(closest, factor)
+                if closest and (not minDist or minDist <= allowed) then
+                    local scene = StationScene:new(closest)
+                    stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
+                else
+                    print("No hay estación cercana para entrar.")
+                end
+            end
+        end
     end
 end
 
 function love.textinput(text)
     if not gameState.loaded then return end
+    if stateManager and stateManager:textinput(text) then return end
     HUD.textinput(text)
 end
 
 function love.wheelmoved(x, y)
     if not gameState.loaded then return end
+    if stateManager and stateManager:wheelmoved(x, y) then return end
     if _G.camera and _G.camera.wheelmoved then
         _G.camera:wheelmoved(x, y)
     end
@@ -976,6 +1038,9 @@ function regenerateMap(seed)
 end
 
 function love.resize(w, h)
+    -- Delegar primero al gestor de estados
+    if stateManager then stateManager:resize(w, h) end
+
     -- Notificar al FullscreenManager sobre el redimensionamiento
     if FullscreenManager and FullscreenManager.handleResize then
         FullscreenManager.handleResize(w, h)

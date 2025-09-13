@@ -35,6 +35,20 @@ local hudState = {
         enableCaching = true,
         maxStringPoolSize = 50,
         reducedUpdateMode = false
+    },
+
+    -- Aviso contextual de estación en Ancient Ruins
+    stationHint = {
+        enabled = true,
+        show = false,
+        placeholder = nil,
+        distance = math.huge,
+        enterRadiusFactor = 1.25,
+        scanInterval = 0.25,
+        lastScan = 0,
+        scanMargin = 1,
+        screenX = 0,
+        screenY = 0
     }
 }
 
@@ -245,6 +259,11 @@ function HUD.update(dt)
     end
     
     HUD.updateBiomeInfo(dt)
+    
+    -- Actualizar aviso contextual de estación
+    if hudState.stationHint and hudState.stationHint.enabled then
+        HUD.updateStationHint(dt)
+    end
 end
 
 -- Nueva función para actualizar datos en cache
@@ -309,6 +328,122 @@ function HUD.updateBiomeInfo(dt)
     end
 end
 
+-- Nuevo: actualizar aviso de entrada a estación (placeholder cercano en Ancient Ruins)
+function HUD.updateStationHint(dt)
+    local cfg = hudState.stationHint
+    if not cfg or not cfg.enabled then return end
+
+    -- Dependencias mínimas
+    if not (player and player.x and player.y and Map and BiomeSystem) then return end
+
+    local now = love.timer.getTime()
+    if now - cfg.lastScan < cfg.scanInterval then return end
+    cfg.lastScan = now
+
+    -- Reset por defecto (solo cuando escaneamos)
+    cfg.show = false
+    cfg.placeholder = nil
+    cfg.distance = math.huge
+
+    -- Verificar bioma actual (usar cache si existe)
+    local isAncient = false
+    if biomeCache.currentBiome then
+        isAncient = (biomeCache.currentBiome == (BiomeSystem.BiomeType and BiomeSystem.BiomeType.ANCIENT_RUINS))
+    else
+        local ok, info = pcall(function()
+            return BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
+        end)
+        if ok and info then
+            isAncient = (info.type == (BiomeSystem.BiomeType and BiomeSystem.BiomeType.ANCIENT_RUINS))
+        end
+    end
+    if not isAncient then return end
+
+    -- Determinar bounds visibles usando la misma API que main.lua
+    local bounds
+    local okBounds, err = pcall(function()
+        bounds = Map.getVisibleChunkBounds(_G.camera, cfg.scanMargin)
+    end)
+    if not okBounds or not bounds then return end
+
+    local closest, minDist
+    for cy = bounds.startY, bounds.endY do
+        for cx = bounds.startX, bounds.endX do
+            local chunk = Map.getChunkNonBlocking and Map.getChunkNonBlocking(cx, cy) or nil
+            if chunk and chunk.ancientRuinsPlaceholders then
+                for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
+                    local dx, dy = (ph.x or 0) - player.x, (ph.y or 0) - player.y
+                    local dist = math.sqrt(dx*dx + dy*dy)
+                    if not minDist or dist < minDist then
+                        closest, minDist = ph, dist
+                    end
+                end
+            end
+        end
+    end
+
+    if closest and minDist then
+        local factor = cfg.enterRadiusFactor or 1.25
+        -- Usar helper centralizado para calcular el radio permitido (incluye daño + tipo base)
+        local allowed = (HUD.computeEnterRadius and HUD.computeEnterRadius(closest, factor)) or math.huge
+        
+        if minDist <= allowed then
+            cfg.show = true
+            cfg.placeholder = closest
+            cfg.distance = minDist
+
+            -- Posición de pantalla para indicador
+            if _G.camera and _G.camera.worldToScreen then
+                local sx, sy = _G.camera:worldToScreen(closest.x or 0, closest.y or 0)
+                cfg.screenX, cfg.screenY = sx, sy
+            else
+                cfg.screenX, cfg.screenY = love.graphics.getWidth() * 0.5, love.graphics.getHeight() * 0.5
+            end
+        end
+    end
+end
+
+-- Nuevo helper: calcula el radio dinámico de entrada para una estación
+function HUD.computeEnterRadius(placeholder, factorOverride)
+    local cfg = hudState and hudState.stationHint or {}
+    local factor = factorOverride or (cfg and cfg.enterRadiusFactor) or 1.25
+    if not placeholder or not placeholder.size or placeholder.size <= 0 then
+        return math.huge
+    end
+
+    local baseMultiplier = 1.0
+    local damageMultiplier = 1.0
+
+    if placeholder.complexType then
+        local base, state = tostring(placeholder.complexType):match("([^_]+)_([^_]+)")
+        -- Ajuste por tipo base
+        if base == "ring" then
+            baseMultiplier = 1.0
+        elseif base == "modular" then
+            baseMultiplier = 0.95
+        elseif base == "elongated" then
+            baseMultiplier = 1.1
+        end
+        -- Ajuste por estado de daño
+        if state == "damaged" then
+            damageMultiplier = 0.9
+        elseif state == "ruins" then
+            damageMultiplier = 0.7
+        else
+            damageMultiplier = 1.0
+        end
+    end
+
+    return placeholder.size * factor * damageMultiplier * baseMultiplier
+end
+
+-- Getter público del factor de radio de entrada usado por el HUD
+function HUD.getEnterRadiusFactor()
+    if hudState and hudState.stationHint and hudState.stationHint.enterRadiusFactor then
+        return hudState.stationHint.enterRadiusFactor
+    end
+    return 1.25
+end
 -- Función de compatibilidad para estadísticas optimizada con cache
 function HUD.getSafeStats()
     -- Usar cache si está disponible y no está dirty
@@ -446,7 +581,7 @@ end
 function HUD.draw()
     local r, g, b, a = love.graphics.getColor()
     
-    -- Panel de información unificado
+    -- Panel de información unificada
     if hudState.showInfo then
         HUD.drawUnifiedInfoPanel()
     end
@@ -468,8 +603,40 @@ function HUD.draw()
     if player and player.stats then
         HUD.drawPlayerHUD()
     end
+
+    -- Aviso contextual para entrar a estación
+    if hudState.stationHint and hudState.stationHint.enabled then
+        HUD.drawStationHint()
+    end
     
     love.graphics.setColor(r, g, b, a)
+end
+
+-- Nuevo: dibujar aviso/indicador de estación
+function HUD.drawStationHint()
+    local cfg = hudState.stationHint
+    if not cfg or not cfg.show or not cfg.placeholder then return end
+
+    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+
+    -- Efecto de pulso para visibilidad
+    local t = love.timer.getTime()
+    local pulse = 0.5 + 0.5 * math.sin(t * 4)
+
+    -- Solo mostrar el prompt centrado inferior
+    local prompt = "Presiona E para entrar a la estación"
+    love.graphics.setFont(hudState.font or love.graphics.getFont())
+    local tw = love.graphics.getFont():getWidth(prompt)
+    local th = love.graphics.getFont():getHeight()
+    local px = (w - tw) * 0.5
+    local py = h - th - 20
+
+    love.graphics.setColor(0, 0, 0, 0.6 * (0.6 + 0.4 * pulse))
+    love.graphics.rectangle("fill", px - 12, py - 6, tw + 24, th + 12, 6, 6)
+    love.graphics.setColor(0.2, 0.8, 1.0, 1)
+    love.graphics.rectangle("line", px - 12, py - 6, tw + 24, th + 12, 6, 6)
+    love.graphics.setColor(0.85, 1.0, 1.0, 1)
+    love.graphics.print(prompt, px, py)
 end
 
 -- Panel de información de biomas optimizado
