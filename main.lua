@@ -20,17 +20,7 @@ local gameState = {
     isLoading = false  -- Nueva bandera para estado de carga
 }
 
--- Sistema de iluminación mejorado
-local lighting = {
-    playerLight = {
-        x = 0,
-        y = 0,
-        radius = 35 * Map.worldScale,
-        color = {0.7, 0.9, 1.0, 0.4}
-    },
-    ambientColor = {0.05, 0.05, 0.15, 1},
-    enabled = true
-}
+-- Sistema de luz eliminado (no se usaba)
 
 -- Variables globales
 _G.camera = nil
@@ -334,14 +324,7 @@ function love.update(dt)
         end
     end
     
-    -- Actualizar posición de la luz del jugador
-    if lighting and lighting.playerLight and player then
-        lighting.playerLight.x = player.x or 0
-        lighting.playerLight.y = player.y or 0
-        -- Ajustar radio de luz basado en velocidad
-        local speed = math.sqrt((player.dx or 0)^2 + (player.dy or 0)^2)
-        lighting.playerLight.radius = (35 + speed * 0.1) * Map.worldScale
-    end
+    -- Sistema de luz eliminado
     
     -- Actualizar debug de biomas y sistemas
     if biomeDebug.enabled and player then
@@ -420,10 +403,7 @@ function love.draw()
         player:draw()
     end
     
-    -- Dibujar efectos de iluminación si están habilitados
-    if lighting.enabled then
-        drawLightingEffects()
-    end
+    -- Efectos de iluminación eliminados
     
     -- Restaurar transformación de cámara
     if _G.camera then
@@ -751,32 +731,7 @@ function drawBiomeRegionDebug()
     love.graphics.setColor(r, g, b, a)
 end
 
-function drawLightingEffects()
-    if not gameState.loaded then return end
-    
-    local r, g, b, a = love.graphics.getColor()
-    
-    -- Convertir posición de luz a coordenadas relativas para renderizado
-    local relX, relY = CoordinateSystem.worldToRelative(lighting.playerLight.x, lighting.playerLight.y)
-    local camRelX, camRelY = CoordinateSystem.worldToRelative(_G.camera.x, _G.camera.y)
-    
-    local screenX = (relX - camRelX) * _G.camera.zoom + love.graphics.getWidth() / 2
-    local screenY = (relY - camRelY) * _G.camera.zoom + love.graphics.getHeight() / 2
-    local screenRadius = lighting.playerLight.radius * _G.camera.zoom
-    
-    -- Luz del jugador
-    love.graphics.setColor(lighting.playerLight.color)
-    love.graphics.circle("fill", screenX, screenY, screenRadius, 32)
-    
-    -- Efecto de brillo adicional más suave
-    love.graphics.setColor(lighting.playerLight.color[1], 
-                          lighting.playerLight.color[2], 
-                          lighting.playerLight.color[3], 
-                          lighting.playerLight.color[4] * 0.3)
-    love.graphics.circle("fill", screenX, screenY, screenRadius * 1.5, 32)
-    
-    love.graphics.setColor(r, g, b, a)
-end
+-- Función de efectos de iluminación eliminada
 
 function love.keypressed(key)
     -- No procesar teclas durante la carga
@@ -838,9 +793,7 @@ function love.keypressed(key)
     elseif key == "f4" then
         _G.showGrid = not _G.showGrid
         print("Enhanced grid display: " .. (_G.showGrid and "ON" or "OFF"))
-    elseif key == "f5" then
-        lighting.enabled = not lighting.enabled
-        print("Lighting: " .. (lighting.enabled and "ON" or "OFF"))
+    -- Toggle de iluminación eliminado
     elseif key == "f6" then
         -- Toggle del overlay de performance (antes: daño de prueba)
         biomeDebug.showPerformanceOverlay = not biomeDebug.showPerformanceOverlay
