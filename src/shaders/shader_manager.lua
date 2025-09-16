@@ -17,6 +17,8 @@ local shaderCache = {
     accessTimes = {}
 }
 
+-- Sistema de validación de uniforms integrado en ShaderManager
+
 -- Estado del gestor de shaders
 ShaderManager.state = {
     initialized = false,
@@ -167,9 +169,107 @@ function ShaderManager.cleanupTextureCache()
     print("ShaderManager: Cleaned " .. cleaned .. " textures from cache")
 end
 
--- Inicializar el gestor de shaders
+-- Sistema de dependencias de shaders para inicialización ordenada
+local shaderDependencies = {
+    -- Orden de inicialización: dependencias primero
+    initOrder = {
+        "base_images",      -- Imágenes base (sin dependencias)
+        "star",             -- Shader básico de estrellas
+        "star_instanced",   -- Depende de star shader
+        "galactic_background", -- Fondo galáctico (independiente)
+        "nebula",           -- Nebulosas (independiente)
+        "asteroid",         -- Asteroides (independiente)
+        "station",          -- Estaciones (independiente)
+        "wormhole"          -- Efectos visuales críticos (último)
+    },
+    
+    -- Dependencias explícitas
+    dependencies = {
+        star_instanced = {"star"},
+        wormhole = {"base_images"}
+    },
+    
+    -- Validadores de parámetros para shaders críticos
+    paramValidators = {
+        wormhole = function(params)
+            local required = {"u_time", "u_intensity", "u_color", "u_pulsePhase", "u_playerPos", "u_wormholePos", "u_parallaxStrength", "u_cameraZoom"}
+            for _, param in ipairs(required) do
+                if not params[param] then
+                    return false, "Parámetro requerido faltante: " .. param
+                end
+            end
+            
+            -- Validaciones específicas
+            if type(params.u_time) ~= "number" or params.u_time < 0 then
+                return false, "u_time debe ser un número positivo"
+            end
+            if type(params.u_intensity) ~= "number" or params.u_intensity <= 0 then
+                return false, "u_intensity debe ser un número positivo"
+            end
+            if type(params.u_color) ~= "table" or #params.u_color ~= 3 then
+                return false, "u_color debe ser un array de 3 números [r,g,b]"
+            end
+            for i, c in ipairs(params.u_color) do
+                if type(c) ~= "number" or c < 0 or c > 1 then
+                    return false, "u_color[" .. i .. "] debe estar entre 0 y 1"
+                end
+            end
+            if type(params.u_playerPos) ~= "table" or #params.u_playerPos ~= 2 then
+                return false, "u_playerPos debe ser un array de 2 números [x,y]"
+            end
+            if type(params.u_wormholePos) ~= "table" or #params.u_wormholePos ~= 2 then
+                return false, "u_wormholePos debe ser un array de 2 números [x,y]"
+            end
+            
+            return true, nil
+        end,
+        
+        asteroid = function(params)
+            local required = {"u_squashX", "u_squashY", "u_noiseAmp", "u_noiseFreq", "u_seed", "u_rotation"}
+            for _, param in ipairs(required) do
+                if not params[param] then
+                    return false, "Parámetro requerido faltante: " .. param
+                end
+            end
+            
+            if params.u_squashX <= 0 or params.u_squashY <= 0 then
+                return false, "u_squashX y u_squashY deben ser positivos"
+            end
+            if params.u_noiseFreq <= 0 then
+                return false, "u_noiseFreq debe ser positivo"
+            end
+            
+            return true, nil
+        end
+    }
+}
+
+-- Validar parámetros de shader crítico
+function ShaderManager.validateShaderParams(shaderName, params)
+    local validator = shaderDependencies.paramValidators[shaderName]
+    if validator then
+        return validator(params)
+    end
+    return true, nil -- Sin validador específico = válido
+end
+
+-- Verificar dependencias antes de inicializar
+function ShaderManager.checkDependencies(shaderName)
+    local deps = shaderDependencies.dependencies[shaderName]
+    if not deps then return true end
+    
+    for _, dep in ipairs(deps) do
+        if not ShaderManager.state.preloadStatus[dep] then
+            print("⚠ Dependencia no satisfecha: " .. shaderName .. " requiere " .. dep)
+            return false
+        end
+    end
+    return true
+end
+
+-- Inicializar el gestor de shaders con orden de dependencias
 function ShaderManager.init()
-    print("=== SHADER MANAGER INITIALIZING ===")
+    print("=== SHADER MANAGER INITIALIZING (ORDERED) ===")
 
     -- Evitar doble init
     if ShaderManager.state.initialized then
@@ -180,48 +280,71 @@ function ShaderManager.init()
     -- Inicializar cache
     shaderCache.lastCleanup = love.timer.getTime()
 
-    -- Crear imágenes base para batching
-    ShaderManager.createBaseImages()
-    
-    -- Inicializar StarShader primero (crítico para estrellas)
-    if StarShader and StarShader.init then
-        StarShader.init()
-        ShaderManager.state.shaders.star = StarShader.getShader()
-        ShaderManager.state.preloadStatus.star = true
-        print("✓ StarShader preloaded")
+    -- Inicializar en orden de dependencias
+    for _, shaderType in ipairs(shaderDependencies.initOrder) do
+        ShaderManager.initializeShaderByType(shaderType)
     end
     
-    -- Inicializar StarfieldInstanced
-    if StarfieldInstanced and StarfieldInstanced.init then
-        StarfieldInstanced.init()
-        ShaderManager.state.shaders.star_instanced = StarfieldInstanced.getShader()
-        ShaderManager.state.preloadStatus.star_instanced = ShaderManager.state.shaders.star_instanced and true or false
-        if ShaderManager.state.preloadStatus.star_instanced then
-            print("✓ StarfieldInstanced shader preloaded")
-        else
-            print("✗ StarfieldInstanced shader failed to preload")
-        end
-    end
-    
-    -- Inicializar NebulasShaders
-    if NebulasShaders and NebulasShaders.init then
-        local success = NebulasShaders.init()
-        if success then
-            ShaderManager.state.shaders.nebula = NebulasShaders.getShader()
-            ShaderManager.state.preloadStatus.nebula = true
-            print("✓ NebulasShaders preloaded")
-        else
-            print("✗ NebulasShaders failed to preload")
-        end
-    end
-    
-    -- Crear shaders básicos para otros objetos
-    ShaderManager.createBasicShaders()
     -- Warmup de shaders para evitar stutter en primer uso
     ShaderManager.warmup()
     print("✓ ShaderManager initialized with " .. ShaderManager.getLoadedCount() .. " shaders")
     print("✓ Shader cache enabled with max size: " .. shaderCache.maxCacheSize)
+    print("✓ Dependency-ordered initialization completed")
     ShaderManager.state.initialized = true
+end
+
+-- Inicializar shader específico por tipo
+function ShaderManager.initializeShaderByType(shaderType)
+    if shaderType == "base_images" then
+        ShaderManager.createBaseImages()
+        print("✓ Base images created")
+        
+    elseif shaderType == "star" then
+        if StarShader and StarShader.init then
+            StarShader.init()
+            ShaderManager.state.shaders.star = StarShader.getShader()
+            ShaderManager.state.preloadStatus.star = true
+            print("✓ StarShader preloaded")
+        end
+        
+    elseif shaderType == "star_instanced" then
+        if ShaderManager.checkDependencies("star_instanced") then
+            if StarfieldInstanced and StarfieldInstanced.init then
+                StarfieldInstanced.init()
+                ShaderManager.state.shaders.star_instanced = StarfieldInstanced.getShader()
+                ShaderManager.state.preloadStatus.star_instanced = ShaderManager.state.shaders.star_instanced and true or false
+                if ShaderManager.state.preloadStatus.star_instanced then
+                    print("✓ StarfieldInstanced shader preloaded")
+                else
+                    print("✗ StarfieldInstanced shader failed to preload")
+                end
+            end
+        end
+        
+    elseif shaderType == "galactic_background" then
+        if BackgroundManager and BackgroundManager.init then
+            BackgroundManager.init()
+            local GalacticBackground = require 'src.shaders.galactic_background'
+            ShaderManager.state.shaders.galactic_background = GalacticBackground.getShader()
+            ShaderManager.state.preloadStatus.galactic_background = true
+            print("✓ Galactic Background shader loaded successfully")
+        end
+        
+    elseif shaderType == "nebula" then
+        if NebulasShaders and NebulasShaders.init then
+            local success = NebulasShaders.init()
+            if success then
+                ShaderManager.state.shaders.nebula = NebulasShaders.getShader()
+                ShaderManager.state.preloadStatus.nebula = true
+                print("✓ NebulasShaders preloaded")
+            else
+                print("✗ NebulasShaders failed to preload")
+            end
+        end
+        
+    elseif shaderType == "asteroid" or shaderType == "station" or shaderType == "wormhole" then
+        ShaderManager.createBasicShaders()
+    end
 end
 
 -- Crear imágenes base para batching
@@ -264,7 +387,7 @@ end
 local wormholeShaderCode = [[
     extern float u_time;
     extern float u_intensity;
-    extern float u_size;
+    // u_size eliminado: no se usa en el shader
     extern vec3 u_color;
     extern float u_pulsePhase;
     extern vec2 u_playerPos;     // Posición del jugador
@@ -418,66 +541,90 @@ function ShaderManager.createBasicShaders()
     
     -- Nebulosas ahora manejadas por NebulasShaders (código movido a nebulas_shaders.lua)
     
-    -- Shader básico para estaciones (efecto metálico)
-    local stationShaderCode = [[
-        vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords) {
-            vec2 uv = texcoord;
-            
-            // Efecto metálico simple con reflexión
-            float metallic = sin(uv.x * 20.0) * cos(uv.y * 20.0) * 0.1 + 0.9;
-            vec3 metallicColor = color.rgb * metallic;
-            
-            return vec4(metallicColor, color.a);
-        }
-    ]]
+    -- Shader de estaciones ahora manejado por StationShaders module
     
     -- Crear shaders si Love2D está disponible
     if love.graphics and love.graphics.newShader then
         local success, shader
-        -- Asteroide shader
+        -- Asteroide shader con validación de parámetros
         success, shader = pcall(love.graphics.newShader, asteroidShaderCode)
         if success then
             ShaderManager.state.shaders.asteroid = shader
             ShaderManager.state.preloadStatus.asteroid = true
-            -- Defaults seguros para uniforms
-            pcall(function()
-                shader:send("u_squashX", 1.0)
-                shader:send("u_squashY", 1.0)
-                shader:send("u_noiseAmp", 0.10)
-                shader:send("u_noiseFreq", 12.0)
-                shader:send("u_seed", 0.0)
-                shader:send("u_rotation", 0.0)
-            end)
+            
+            -- Defaults seguros para uniforms con validación
+            local asteroidParams = {
+                u_squashX = 1.0,
+                u_squashY = 1.0,
+                u_noiseAmp = 0.10,
+                u_noiseFreq = 12.0,
+                u_seed = 0.0,
+                u_rotation = 0.0
+            }
+            
+            -- Validar parámetros antes del envío
+            local isValid, error = ShaderManager.validateShaderParams("asteroid", asteroidParams)
+            if isValid then
+                ShaderManager.sendUniforms(shader, asteroidParams)
+                print("✓ Asteroid shader initialized with validated parameters")
+            else
+                print("⚠ Asteroid shader parameter validation failed: " .. error)
+            end
         end
         
         -- Nebulosa shader ahora manejado por NebulasShaders
         
-        -- Estación shader
-        success, shader = pcall(love.graphics.newShader, stationShaderCode)
-        if success then
-            ShaderManager.state.shaders.station = shader
+        -- Estación shader (usando módulo StationShaders)
+        local StationShaders = require 'src.shaders.station_shaders'
+        if StationShaders.init() then
+            ShaderManager.state.shaders.station = StationShaders.getShader()
             ShaderManager.state.preloadStatus.station = true
+            print("✓ Station shader loaded successfully via StationShaders module")
+        else
+            print("✗ Failed to load Station shader via StationShaders module")
         end
 
-        -- Wormhole shader (AÑADIDO AQUÍ PARA QUE NO SE PIERDA EN ESTA SEGUNDA DEFINICIÓN)
-        success, shader = pcall(love.graphics.newShader, wormholeShaderCode)
-        if success then
-            ShaderManager.state.shaders.wormhole = shader
-            ShaderManager.state.preloadStatus.wormhole = true
-            -- Defaults seguros para uniforms
-            pcall(function()
-                shader:send("u_time", 0)
-                shader:send("u_intensity", 1.0)
-                shader:send("u_color", {0.5, 0.8, 1.0})
-                shader:send("u_pulsePhase", 0)
-                shader:send("u_playerPos", {0, 0})
-                shader:send("u_wormholePos", {0, 0})
-                shader:send("u_parallaxStrength", 1.0)
-                shader:send("u_cameraZoom", 1.0)
-            end)
-            print("✓ Wormhole shader loaded successfully (from second createBasicShaders)")
-        else
-            print("✗ Failed to load Wormhole shader (second createBasicShaders): " .. tostring(shader))
+        -- Wormhole shader - Consolidado con validación crítica de parámetros
+        if not ShaderManager.state.shaders.wormhole then
+            success, shader = pcall(love.graphics.newShader, wormholeShaderCode)
+            if success then
+                ShaderManager.state.shaders.wormhole = shader
+                ShaderManager.state.preloadStatus.wormhole = true
+                
+                -- Defaults seguros para uniforms con validación crítica
+                local wormholeParams = {
+                    u_time = 0,
+                    u_intensity = 1.0,
+                    u_color = {0.5, 0.8, 1.0},
+                    u_pulsePhase = 0,
+                    u_playerPos = {0, 0},
+                    u_wormholePos = {0, 0},
+                    u_parallaxStrength = 1.0,
+                    u_cameraZoom = 1.0
+                }
+                
+                -- Validar parámetros críticos antes del envío
+                local isValid, error = ShaderManager.validateShaderParams("wormhole", wormholeParams)
+                if isValid then
+                    ShaderManager.sendUniforms(shader, wormholeParams)
+                    print("✓ Wormhole shader loaded successfully with validated parameters")
+                else
+                    print("⚠ Wormhole shader parameter validation failed: " .. error)
+                    -- Usar parámetros mínimos seguros en caso de fallo
+                    ShaderManager.sendUniforms(shader, {
+                        u_time = 0,
+                        u_intensity = 1.0,
+                        u_color = {1.0, 1.0, 1.0},
+                        u_pulsePhase = 0,
+                        u_playerPos = {0, 0},
+                        u_wormholePos = {0, 0},
+                        u_parallaxStrength = 0.5,
+                        u_cameraZoom = 1.0
+                    })
+                end
+            else
+                print("✗ Failed to load Wormhole shader (createBasicShaders): " .. tostring(shader))
+            end
         end
         
         -- Galactic Background shader
@@ -509,8 +656,11 @@ function ShaderManager.update(dt)
     end
     
     if ShaderManager.state.shaders.wormhole then
-        ShaderManager.state.shaders.wormhole:send("u_time", currentTime)
+        ShaderManager.sendUniform(ShaderManager.state.shaders.wormhole, "u_time", currentTime)
     end
+    
+    -- Optimizar cache automáticamente
+    ShaderManager.optimizeCache()
     
     -- Verificar que todos los shaders estén cargados
     for _, shaderType in ipairs(ShaderManager.state.config.preloadPriority) do
@@ -560,26 +710,29 @@ function ShaderManager.ensureShaderLoaded(shaderType)
         end
         return ShaderManager.state.preloadStatus.star_instanced
     end
-    if shaderType == "wormhole" and love.graphics and love.graphics.newShader and wormholeShaderCode then
-        local ok, shader = pcall(love.graphics.newShader, wormholeShaderCode)
-        if ok then
-            ShaderManager.state.shaders.wormhole = shader
-            ShaderManager.state.preloadStatus.wormhole = true
-            pcall(function()
-                shader:send("u_time", love.timer.getTime() or 0)
-                shader:send("u_intensity", 1.0)
-                -- shader:send("u_size", 1.0) -- eliminado: el shader no usa u_size
-                shader:send("u_color", {0.5, 0.8, 1.0})
-                shader:send("u_pulsePhase", 0)
-                shader:send("u_playerPos", {0, 0})
-                shader:send("u_wormholePos", {0, 0})
-                shader:send("u_parallaxStrength", 1.0)
-                shader:send("u_cameraZoom", 1.0)
-            end)
-            print("✓ Wormhole shader ensured on-demand")
-        else
-            print("✗ ensureShaderLoaded(wormhole) failed: " .. tostring(shader))
+    if shaderType == "wormhole" then
+        -- Usar shader ya cargado o cargarlo si no existe
+        if not ShaderManager.state.shaders.wormhole and love.graphics and love.graphics.newShader and wormholeShaderCode then
+            local ok, shader = pcall(love.graphics.newShader, wormholeShaderCode)
+            if ok then
+                ShaderManager.state.shaders.wormhole = shader
+                ShaderManager.state.preloadStatus.wormhole = true
+                ShaderManager.sendUniforms(shader, {
+                    u_time = love.timer.getTime() or 0,
+                    u_intensity = 1.0,
+                    u_color = {0.5, 0.8, 1.0},
+                    u_pulsePhase = 0,
+                    u_playerPos = {0, 0},
+                    u_wormholePos = {0, 0},
+                    u_parallaxStrength = 1.0,
+                    u_cameraZoom = 1.0
+                })
+                print("✓ Wormhole shader ensured on-demand")
+            else
+                print("✗ ensureShaderLoaded(wormhole) failed: " .. tostring(shader))
+            end
         end
+        return ShaderManager.state.preloadStatus.wormhole
     end
     if shaderType == "galactic_background" and BackgroundManager then
         if not ShaderManager.state.shaders.galactic_background and BackgroundManager.init then
@@ -669,6 +822,194 @@ function ShaderManager.preloadAll()
     end
 end
 
+-- Sistema centralizado de gestión de estados de shaders
+local currentShader = nil
+local shaderStack = {}
+
+-- Función segura para establecer un shader
+function ShaderManager.setShader(shaderName, params)
+    local shader = nil
+    
+    if type(shaderName) == "string" then
+        shader = ShaderManager.getShader(shaderName)
+        if not shader then
+            print("⚠ Shader '" .. shaderName .. "' no encontrado, usando fallback")
+            return false
+        end
+    elseif shaderName and type(shaderName) == "userdata" then
+        shader = shaderName
+    end
+    
+    if shader then
+        -- Guardar shader anterior en stack
+        if currentShader then
+            table.insert(shaderStack, currentShader)
+        end
+        
+        love.graphics.setShader(shader)
+        currentShader = shader
+        
+        -- Enviar parámetros si se proporcionan
+        if params and type(params) == "table" then
+            ShaderManager.sendUniforms(shader, params)
+        end
+        
+        return true
+    end
+    
+    return false
+end
+
+-- Función para desactivar el shader actual
+function ShaderManager.unsetShader()
+    if currentShader then
+        love.graphics.setShader()
+        currentShader = nil
+        return true
+    end
+    return false
+end
+
+-- Función para restaurar el shader anterior del stack
+function ShaderManager.popShader()
+    if #shaderStack > 0 then
+        local previousShader = table.remove(shaderStack)
+        love.graphics.setShader(previousShader)
+        currentShader = previousShader
+        return true
+    else
+        ShaderManager.unsetShader()
+        return false
+    end
+end
+
+-- Función para obtener el shader actual
+function ShaderManager.getCurrentShader()
+    return currentShader
+end
+
+-- Función para limpiar el stack de shaders
+function ShaderManager.clearShaderStack()
+    shaderStack = {}
+    currentShader = nil
+    love.graphics.setShader()
+end
+
+-- Envío seguro de uniforms con validación mejorada
+function ShaderManager.sendUniform(shader, name, value)
+    if not shader or not name then
+        print("⚠ Shader o nombre de uniform inválido")
+        return false
+    end
+    
+    local valueType = type(value)
+    if valueType ~= "number" and valueType ~= "table" and valueType ~= "userdata" then
+        print("⚠ Tipo de uniform no válido: " .. valueType)
+        return false
+    end
+    
+    -- Validaciones específicas por tipo
+    if valueType == "table" then
+        for i, v in ipairs(value) do
+            if type(v) ~= "number" then
+                print("⚠ Array contiene valores no numéricos en posición " .. i)
+                return false
+            end
+        end
+        local len = #value
+        if len < 1 or len > 4 then
+            print("⚠ Longitud de vector inválida: " .. len)
+            return false
+        end
+    elseif valueType == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            print("⚠ Valor numérico inválido (NaN o infinito)")
+            return false
+        end
+    end
+    
+    local success = pcall(function()
+        shader:send(name, value)
+    end)
+    
+    if not success then
+        print("⚠ Failed to send uniform '" .. name .. "' to shader")
+        return false
+    end
+    
+    return true
+end
+
+-- Envío de múltiples uniforms de forma segura con validación crítica
+function ShaderManager.sendUniforms(shader, uniforms)
+    if not shader or not uniforms then
+        return false
+    end
+    
+    -- Determinar tipo de shader para validación crítica
+    local shaderType = nil
+    for sType, sShader in pairs(ShaderManager.state.shaders) do
+        if sShader == shader then
+            shaderType = sType
+            break
+        end
+    end
+    
+    -- Validar parámetros críticos si es un shader conocido
+    if shaderType and shaderDependencies.paramValidators[shaderType] then
+        local isValid, error = ShaderManager.validateShaderParams(shaderType, uniforms)
+        if not isValid then
+            print("⚠ Validación crítica falló para shader '" .. shaderType .. "': " .. error)
+            return false
+        end
+    end
+    
+    local allSuccess = true
+    for name, value in pairs(uniforms) do
+        if not ShaderManager.sendUniform(shader, name, value) then
+            allSuccess = false
+        end
+    end
+    
+    return allSuccess
+end
+
+-- Optimización del sistema de cache
+function ShaderManager.optimizeCache()
+    local currentTime = love.timer.getTime()
+    
+    -- Limpiar cache si es necesario
+    if currentTime - shaderCache.lastCleanup > shaderCache.cleanupInterval then
+        local cacheSize = 0
+        for _ in pairs(shaderCache.compiledShaders) do
+            cacheSize = cacheSize + 1
+        end
+        
+        if cacheSize > shaderCache.maxCacheSize then
+            -- Encontrar shaders menos usados
+            local sortedAccess = {}
+            for shaderName, accessTime in pairs(shaderCache.accessTimes) do
+                table.insert(sortedAccess, {name = shaderName, time = accessTime})
+            end
+            
+            table.sort(sortedAccess, function(a, b) return a.time < b.time end)
+            
+            -- Eliminar los 25% menos usados
+            local toRemove = math.floor(cacheSize * 0.25)
+            for i = 1, toRemove do
+                local shaderName = sortedAccess[i].name
+                shaderCache.compiledShaders[shaderName] = nil
+                shaderCache.shaderSources[shaderName] = nil
+                shaderCache.accessTimes[shaderName] = nil
+            end
+            
+            print("🧹 Cache optimizado: eliminados " .. toRemove .. " shaders")
+        end
+        
+        shaderCache.lastCleanup = currentTime
+    end
+end
+
 -- Obtener estadísticas de carga
 function ShaderManager.getStats()
     local loaded = ShaderManager.getLoadedCount()
@@ -678,7 +1019,9 @@ function ShaderManager.getStats()
         loaded = loaded,
         total = total,
         percentage = (loaded / total) * 100,
-        status = ShaderManager.state.preloadStatus
+        status = ShaderManager.state.preloadStatus,
+        current_shader = currentShader and "active" or "none",
+        shader_stack_depth = #shaderStack
     }
 end
 
@@ -691,27 +1034,7 @@ function ShaderManager.getLoadedCount()
     return count
 end
 
--- OPTIMIZACIÓN: Aplicar shader con cache para evitar cambios redundantes
-function ShaderManager.setShader(shaderType)
-    local shader = ShaderManager.getShader(shaderType)
-    if shader then
-        -- Solo cambiar si es diferente al actual
-        if ShaderManager.state.lastActiveShader ~= shader then
-            love.graphics.setShader(shader)
-            ShaderManager.state.lastActiveShader = shader
-        end
-        return true
-    end
-    return false
-end
-
--- OPTIMIZACIÓN: Remover shader actual con cache
-function ShaderManager.unsetShader()
-    if ShaderManager.state.lastActiveShader then
-        love.graphics.setShader()
-        ShaderManager.state.lastActiveShader = nil
-    end
-end
+-- Funciones duplicadas eliminadas - usar las del sistema centralizado arriba
 
 -- Debug: mostrar estado de shaders
 function ShaderManager.debugPrint()

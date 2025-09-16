@@ -775,13 +775,13 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size)
     shader:send("u_time", love.timer.getTime())
 
     -- Dibujar
-    love.graphics.setShader(shader)
+    ShaderManager.setShader(shader)
     love.graphics.setColor(r, g, b, a)
     local iw = img:getWidth()
     local ih = img:getHeight()
     local s = size / math.max(1, iw)
     love.graphics.draw(img, x, y, 0, s, s, iw * 0.5, ih * 0.5)
-    love.graphics.setShader()
+    ShaderManager.unsetShader()
     -- Nota: no agregamos nada al SpriteBatch de nebulosas a propósito.
     batch:clear()
     
@@ -995,9 +995,9 @@ function OptimizedRenderer.flushStarBatch()
     local batch = OptimizedRenderer.state.batches.stars
     if batch and batch:getCount() > 0 then
         local shader = ShaderManager.getShader("star")
-        if shader then love.graphics.setShader(shader) end
+        if shader then ShaderManager.setShader(shader) end
         love.graphics.draw(batch)
-        if shader then love.graphics.setShader() end
+        if shader then ShaderManager.unsetShader() end
         batch:clear()
     end
 end
@@ -1006,9 +1006,9 @@ function OptimizedRenderer.flushAsteroidBatch()
     local batch = OptimizedRenderer.state.batches.asteroids
     if batch and batch:getCount() > 0 then
         local shader = ShaderManager.getShader("asteroid")
-        if shader then love.graphics.setShader(shader) end
+        if shader then ShaderManager.setShader(shader) end
         love.graphics.draw(batch)
-        if shader then love.graphics.setShader() end
+        if shader then ShaderManager.unsetShader() end
         batch:clear()
     end
 end
@@ -1017,9 +1017,9 @@ function OptimizedRenderer.flushNebulaBatch()
     local batch = OptimizedRenderer.state.batches.nebulae
     if batch and batch:getCount() > 0 then
         local shader = ShaderManager.getShader("nebula")
-        if shader then love.graphics.setShader(shader) end
+        if shader then ShaderManager.setShader(shader) end
         love.graphics.draw(batch)
-        if shader then love.graphics.setShader() end
+        if shader then ShaderManager.unsetShader() end
         batch:clear()
     end
 end
@@ -1027,10 +1027,24 @@ end
 function OptimizedRenderer.flushStationBatch()
     local batch = OptimizedRenderer.state.batches.stations
     if batch and batch:getCount() > 0 then
-        local shader = ShaderManager.getShader("station")
-        if shader then love.graphics.setShader(shader) end
+        local StationShaders = require 'src.shaders.station_shaders'
+        local shader = StationShaders.getShader()
+        if shader then 
+            ShaderManager.setShader(shader)
+            -- Enviar uniforms base para batch rendering
+            StationShaders.sendUniforms({
+                time = love.timer.getTime(),
+                lod = 2, -- LOD medio para optimized renderer
+                rotation = 0,
+                damage = 0.2,
+                lightDir = {1, 0},
+                shapeType = 1,
+                seed = 0,
+                size = 50
+            })
+        end
         love.graphics.draw(batch)
-        if shader then love.graphics.setShader() end
+        if shader then ShaderManager.unsetShader() end
         batch:clear()
     end
 end

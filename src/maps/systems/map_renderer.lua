@@ -398,7 +398,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                     StarfieldInstanced.drawStarQuad(i, 0, 0, 1) -- Posición y tamaño ya están en el buffer
                 end
                 
-                love.graphics.setShader()
+                ShaderManager.unsetShader()
             end
             
             love.graphics.pop()
@@ -1035,7 +1035,7 @@ function MapRenderer.drawNebula(nebula, worldX, worldY, time, camera)
     local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
     if shader and img then
-        love.graphics.setShader(shader)
+        ShaderManager.setShader(shader)
         local iw, ih = img:getWidth(), img:getHeight()
         local scale = (radiusPx * 2) / math.max(1, iw)
         love.graphics.draw(img, screenX, screenY, 0, scale, scale, iw * 0.5, ih * 0.5)
@@ -1354,7 +1354,7 @@ function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
     end
 
     if wormholeShader then
-        love.graphics.setShader(wormholeShader)
+        ShaderManager.setShader(wormholeShader)
 
         wormholeShader:send("u_time", time)
         wormholeShader:send("u_intensity", 1.8)
@@ -1532,13 +1532,27 @@ function MapRenderer.drawBiomeFeature(feature, worldX, worldY, camera)
         love.graphics.circle("fill", screenX, screenY, renderSize * 3, 16)
 
     elseif feature.type == "ancient_station" then
-        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
+        local StationShaders = require 'src.shaders.station_shaders'
+        local shader = StationShaders.getShader()
         local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("white") or nil
         if shader and img then
             love.graphics.push()
             love.graphics.translate(screenX, screenY)
             love.graphics.rotate(time * 0.2)
             love.graphics.setShader(shader)
+            
+            -- Enviar uniforms base para coherencia visual
+            StationShaders.sendUniforms({
+                time = time,
+                lod = 3, -- LOD medio para map_renderer
+                rotation = time * 0.2,
+                damage = (feature.properties and feature.properties.damage) or 0.3,
+                lightDir = {1, 0},
+                shapeType = (feature.properties and feature.properties.shapeType) or 1,
+                seed = (feature.properties and feature.properties.seed) or 0,
+                size = renderSize
+            })
+            
             love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
             local iw, ih = img:getWidth(), img:getHeight()
             local scale = (renderSize * 2) / math.max(1, iw)

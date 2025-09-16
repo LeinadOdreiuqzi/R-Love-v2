@@ -136,8 +136,8 @@ AncientRuinsRenderer.config = {
     
     -- Configuración de LOD mejorada con más niveles de detalle
     lod = {
-        maxDistance = 12000,  -- Distancia máxima de renderizado aumentada
-        lodThresholds = {1200, 3000, 6000, 9000},  -- Umbrales aumentados para evitar transparencia
+        maxDistance = 16000,  -- Distancia máxima de renderizado aumentada
+        lodThresholds = {2000, 5000, 10000, 14000},  -- Umbrales desplazados para mantener más detalle desde lejos
         -- Configuración de detalles por LOD
         details = {
             [0] = { -- LOD máximo (muy cerca)
@@ -145,35 +145,50 @@ AncientRuinsRenderer.config = {
                 showLightingDetails = true,
                 showVolumeEffects = true,
                 segmentMultiplier = 1.5,
-                extraElements = true
+                extraElements = true,
+                -- Parámetros visuales de shader
+                specular = { intensity = 0.8, exponent = 32.0 },
+                rimLight = { intensity = 0.35, width = 2.0 }
             },
             [1] = { -- LOD alto (cerca)
                 showMicroStructures = true,
                 showLightingDetails = true,
                 showVolumeEffects = true,
                 segmentMultiplier = 1.2,
-                extraElements = false
+                extraElements = false,
+                -- Parámetros visuales de shader
+                specular = { intensity = 0.6, exponent = 24.0 },
+                rimLight = { intensity = 0.25, width = 2.2 }
             },
             [2] = { -- LOD medio (distancia media)
                 showMicroStructures = false,
                 showLightingDetails = true,
                 showVolumeEffects = true,
                 segmentMultiplier = 1.0,
-                extraElements = false
+                extraElements = false,
+                -- Parámetros visuales de shader
+                specular = { intensity = 0.4, exponent = 16.0 },
+                rimLight = { intensity = 0.15, width = 2.5 }
             },
             [3] = { -- LOD bajo (lejos)
                 showMicroStructures = false,
                 showLightingDetails = false,
                 showVolumeEffects = false,
                 segmentMultiplier = 0.8,
-                extraElements = false
+                extraElements = false,
+                -- Parámetros visuales de shader
+                specular = { intensity = 0.2, exponent = 12.0 },
+                rimLight = { intensity = 0.08, width = 3.0 }
             },
             [4] = { -- LOD mínimo (muy lejos)
                 showMicroStructures = false,
                 showLightingDetails = false,
                 showVolumeEffects = false,
-                segmentMultiplier = 0.6,
-                extraElements = false
+                segmentMultiplier = 0.85,
+                extraElements = false,
+                -- Parámetros visuales de shader
+                specular = { intensity = 0.1, exponent = 8.0 },
+                rimLight = { intensity = 0.05, width = 3.5 }
             }
         }
     }
@@ -611,18 +626,39 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     -- Transformaciones de perspectiva ahora se aplican dentro de cada forma y en la ruta con shader
     
     -- Usar shader si está disponible (solo para estaciones funcionales)
-    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("circle") or nil
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
     
     if shader and img and lod <= 3 and complexConfig.shape ~= "damaged" and complexConfig.shape ~= "ruins" then
         -- Renderizado con shader para mejor calidad
-        love.graphics.setShader(shader)
+        ShaderManager.setShader(shader)
         local iw, ih = img:getWidth(), img:getHeight()
         local scale = (finalSize * 2) / math.max(1, iw)
+
+        -- Usar StationShaders module para envío de uniforms optimizado por LOD
+        local StationShaders = require 'src.shaders.station_shaders'
+        local lightAngle = (volumeEffects and volumeEffects.lighting and volumeEffects.lighting.gradientAngle) or 0
+        local lightDir = {math.cos(lightAngle), math.sin(lightAngle)}
+        local shapeType = 1 -- modular por defecto
+        if baseType == "ring" then shapeType = 0 elseif baseType == "modular" then shapeType = 1 elseif baseType == "elongated" then shapeType = 2 end
+        local damageFactor = 1.0 - (complexConfig.structuralIntegrity or 1.0)
         
-        -- Resplandor exterior (solo en LOD alto)
-        if lod == 0 then
-            love.graphics.setColor(complexConfig.glowColor[1], complexConfig.glowColor[2], complexConfig.glowColor[3], complexConfig.glowColor[4] * alpha)
+        -- Enviar uniforms usando el módulo especializado
+        StationShaders.sendUniforms({
+            time = time,
+            lod = lod,
+            rotation = rotation,
+            damage = damageFactor,
+            lightDir = lightDir,
+            shapeType = shapeType,
+            seed = placeholder.seed or 0,
+            size = finalSize
+        })
+        
+        -- Resplandor exterior (LOD 0-2 y LOD 4 para mantener visibilidad a distancia)
+        if lod <= 2 or lod == 4 then
+            local glowIntensity = (lod == 4) and 0.7 or 1.0  -- Reducir intensidad en LOD 4
+            love.graphics.setColor(complexConfig.glowColor[1], complexConfig.glowColor[2], complexConfig.glowColor[3], complexConfig.glowColor[4] * alpha * glowIntensity)
             local glowScale = scale * 1.5
             love.graphics.draw(img, screenX, screenY, placeholder.rotation, glowScale, glowScale, iw * 0.5, ih * 0.5)
         end
@@ -631,7 +667,7 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
          love.graphics.setColor(complexConfig.color[1], complexConfig.color[2], complexConfig.color[3], complexConfig.color[4] * alpha)
          love.graphics.draw(img, screenX, screenY, rotation, scale, scale, iw * 0.5, ih * 0.5)
         
-        love.graphics.setShader()
+        ShaderManager.unsetShader()
     else
         -- Fallback sin shader con segmentos basados en LOD mejorado
         local lodConfig = AncientRuinsRenderer.config.lod.details[lod] or AncientRuinsRenderer.config.lod.details[4]
@@ -746,9 +782,10 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         love.graphics.scale(1.0, perspectiveData.scaleY)
         love.graphics.shear(perspectiveData.skewX, 0)
         
-        -- Resplandor específico para anillo
-        if glowColor and lod <= 2 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha)
+        -- Resplandor específico para anillo (LOD 0-2 y LOD 4)
+        if glowColor and (lod <= 2 or lod == 4) then
+            local glowIntensity = (lod == 4) and 0.7 or 1.0
+            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * glowIntensity)
             love.graphics.circle("fill", 0, 0, finalSize * 1.2, segments)
             love.graphics.setColor(love.graphics.getColor())
         end
@@ -1024,9 +1061,10 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         love.graphics.scale(1.0, perspectiveData.scaleY)
         love.graphics.shear(perspectiveData.skewX, 0)
         
-        -- Resplandor específico para estación modular
-        if glowColor and lod <= 2 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * 0.6)
+        -- Resplandor específico para estación modular (LOD 0-2 y LOD 4)
+        if glowColor and (lod <= 2 or lod == 4) then
+            local baseIntensity = (lod == 4) and 0.4 or 0.6
+            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
             love.graphics.rectangle("fill", -finalSize * 1.3, -finalSize * 0.3, finalSize * 2.6, finalSize * 0.6)
             love.graphics.setColor(love.graphics.getColor())
         end
@@ -1144,9 +1182,10 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         love.graphics.scale(1.0, perspectiveData.scaleY)
         love.graphics.shear(perspectiveData.skewX, 0)
         
-        -- Resplandor específico para nave alargada
-        if glowColor and lod <= 2 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * 0.5)
+        -- Resplandor específico para nave alargada (LOD 0-2 y LOD 4)
+        if glowColor and (lod <= 2 or lod == 4) then
+            local baseIntensity = (lod == 4) and 0.35 or 0.5
+            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
             love.graphics.ellipse("fill", 0, 0, finalSize * 1.8, finalSize * 0.6)
             love.graphics.setColor(love.graphics.getColor())
         end
@@ -1245,9 +1284,10 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         -- Establecer colores específicos para ruinas (grises fríos y azules apagados)
         love.graphics.setColor(color[1], color[2], color[3], color[4] * alpha)
         
-        -- Resplandor muy tenue para ruinas
-        if glowColor and lod <= 2 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * 0.3)
+        -- Resplandor muy tenue para ruinas (LOD 0-2 y LOD 4)
+        if glowColor and (lod <= 2 or lod == 4) then
+            local baseIntensity = (lod == 4) and 0.2 or 0.3
+            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
             if baseType == "ring" then
                 love.graphics.circle("fill", 0, 0, finalSize * 1.1, segments)
             elseif baseType == "modular" then
@@ -1395,9 +1435,10 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         -- Aplicar inclinación (skew) para efecto 3D
         love.graphics.shear(perspectiveData.skewX, 0)
         
-        -- Resplandor específico para estación dañada (más visible)
-        if glowColor and lod <= 2 then
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * 0.8)
+        -- Resplandor específico para estación dañada (más visible, LOD 0-2 y LOD 4)
+        if glowColor and (lod <= 2 or lod == 4) then
+            local baseIntensity = (lod == 4) and 0.55 or 0.8
+            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
             love.graphics.circle("fill", 0, 0, finalSize * 1.1, segments)
             love.graphics.setColor(love.graphics.getColor())
         end
@@ -1468,6 +1509,50 @@ function AncientRuinsRenderer.calculateEdgeFade(screenX, screenY, size, camera)
     end
     
     return math.max(0.7, math.min(1, fadeX * fadeY))  -- Garantizar mínimo 70% de opacidad
+end
+
+-- Configurar parámetros visuales por LOD en StationShaders
+function AncientRuinsRenderer.configureShaderParameters()
+    local StationShaders = require 'src.shaders.station_shaders'
+    
+    -- Sincronizar configuración LOD con StationShaders
+    for lod = 0, 4 do
+        local lodConfig = AncientRuinsRenderer.config.lod.details[lod]
+        if lodConfig and lodConfig.specular and lodConfig.rimLight then
+            StationShaders.setLODConfig(lod, lodConfig.specular, lodConfig.rimLight)
+        end
+    end
+    
+    print("✓ AncientRuinsRenderer: Parámetros visuales sincronizados con StationShaders")
+end
+
+-- Obtener configuración visual actual por LOD
+function AncientRuinsRenderer.getVisualConfig(lod)
+    local lodConfig = AncientRuinsRenderer.config.lod.details[lod] or AncientRuinsRenderer.config.lod.details[4]
+    return {
+        specular = lodConfig.specular or { intensity = 0.1, exponent = 8.0 },
+        rimLight = lodConfig.rimLight or { intensity = 0.05, width = 3.5 }
+    }
+end
+
+-- Actualizar parámetros visuales específicos por LOD
+function AncientRuinsRenderer.setVisualConfig(lod, specular, rimLight)
+    if lod >= 0 and lod <= 4 then
+        local lodConfig = AncientRuinsRenderer.config.lod.details[lod]
+        if lodConfig then
+            if specular then lodConfig.specular = specular end
+            if rimLight then lodConfig.rimLight = rimLight end
+            
+            -- Sincronizar con StationShaders
+            local StationShaders = require 'src.shaders.station_shaders'
+            StationShaders.setLODConfig(lod, lodConfig.specular, lodConfig.rimLight)
+        end
+    end
+end
+
+-- Inicializar configuración de shaders (llamar al inicio)
+function AncientRuinsRenderer.initShaderConfig()
+    AncientRuinsRenderer.configureShaderParameters()
 end
 
 return AncientRuinsRenderer
