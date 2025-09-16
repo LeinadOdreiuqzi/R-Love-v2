@@ -1,7 +1,11 @@
 -- src/states/station_scene.lua
--- Escena de Estación (Ancient Ruins) independiente del gameplay principal
+-- Escena de Estación (Rooms Grid estilo Metal Warriors) - usa módulos: generador, plantillas, jugador, decoración y fondo
 
 local StateBase = require 'src.states.state_base'
+local Generator = require 'src.states.station.generator'
+local Player = require 'src.states.station.platformer_player'
+local Decor = require 'src.states.station.decor'
+local BackgroundManager = require 'src.shaders.background_manager'
 
 local StationScene = setmetatable({}, { __index = StateBase })
 StationScene.__index = StationScene
@@ -9,98 +13,237 @@ StationScene.__index = StationScene
 function StationScene:new(placeholder)
     local o = StateBase.new(self, {
         name = "StationScene",
-        suspendUnderlying = true, -- Bloquea update/draw del gameplay mientras está activa
+        suspendUnderlying = true,
         isOverlay = false
     })
     o.placeholder = placeholder
     o.time = 0
-    -- Configuración de físicas y control del modo plataformero
-    o.physics = {
-        gravity = 1600,     -- px/s^2
-        moveAccel = 6000,   -- aceleración lateral
-        maxSpeed = 260,     -- velocidad máxima lateral
-        friction = 4200,    -- fricción cuando no hay input
-        jumpVelocity = 560, -- impulso de salto
-    }
-    o.level = nil
     o.player = nil
-    o.camera = { x = 0, y = 0 }
+    o.camera = { x = 0, y = 0, zoom = 1 }
+    o.seed = (placeholder and placeholder.seed) or 0
+    o.graph = nil
+    o.currentRoomId = nil
+    o._doorCooldown = 0
     return o
 end
 
 function StationScene:enter(params)
     self.time = 0
-    -- Inicializar nivel y jugador plataformero
-    self:setupLevel()
+
+    -- Generar grafo 2D estilo Metal Warriors (permite verticalidad y grandes salas)
+    local rows, cols = 3, 4
+    self.graph = Generator.generateGrid({ seed = self.seed, rows = rows, cols = cols, separation = 120 })
+    if not self.graph or not self.graph.rooms or #self.graph.rooms == 0 then return end
+
+    -- Decor por sala
+    for _, room in ipairs(self.graph.rooms) do
+        room.decor = Decor.decorateRoom(room, self.seed + room.id)
+    end
+
+    -- Definir sala inicial y jugador
+    self.currentRoomId = self.graph.startRoomId or 1
+    local startRoom = self.graph.rooms[self.currentRoomId]
+    self.player = Player.new({ x = startRoom.spawn.x, y = startRoom.spawn.y })
+
+    -- Inicializar cámara
+    self.camera = { x = startRoom.x, y = startRoom.y, zoom = 1 }
+    self:updateCamera(0)
+
+    -- Inicializar fondo
+    if BackgroundManager and BackgroundManager.init then
+        BackgroundManager.init()
+    end
 end
 
 function StationScene:update(dt)
     self.time = self.time + dt
-    -- Actualizar jugador y cámara del modo plataformero
-    self:updatePlayer(dt)
-    self:updateCamera()
+    if self._doorCooldown > 0 then self._doorCooldown = self._doorCooldown - dt end
+
+    local room = self:getCurrentRoom()
+    if not room then return end
+
+    -- Actualizar fondo (feedback visual de fondo, no debe quedar obstruido por plataformas)
+    if BackgroundManager and BackgroundManager.update then
+        BackgroundManager.update(dt, self.camera, { currentSeed = self.seed })
+    end
+
+    -- Construir level efímero para el jugador basado en la sala actual
+    local level = { x = room.x, y = room.y, width = room.width, height = room.height, platforms = room.platforms }
+    if self.player then
+        self.player:update(dt, level)
+    end
+
+    -- Ya no hacemos transición automática al tocar puertas; se hace con tecla 'E'
+
+    self:updateCamera(dt)
+end
+
+function StationScene:getCurrentRoom()
+    if not self.graph or not self.currentRoomId then return nil end
+    return self.graph.rooms[self.currentRoomId]
+end
+
+function StationScene:switchRoom(door)
+    local targetId = door.to and door.to.roomId
+    if not targetId then return end
+    local target = self.graph.rooms[targetId]
+    if not target then return end
+
+    -- Reposicionar jugador cercano a la puerta opuesta
+    local destSide = door.to.door -- 'left'|'right'|'up'|'down'
+    local td = target.doors and target.doors[destSide]
+    if td then
+        if destSide == 'left' then
+            self.player.x = td.x + td.w + 4
+            self.player.y = td.y - self.player.h * 0.5 + td.h * 0.5
+        elseif destSide == 'right' then
+            self.player.x = td.x - self.player.w - 4
+            self.player.y = td.y - self.player.h * 0.5 + td.h * 0.5
+        elseif destSide == 'up' then
+            self.player.x = td.x - self.player.w * 0.5 + td.w * 0.5
+            self.player.y = td.y + td.h + 4
+        elseif destSide == 'down' then
+            self.player.x = td.x - self.player.w * 0.5 + td.w * 0.5
+            self.player.y = td.y - self.player.h - 4
+        end
+    else
+        -- Fallback al spawn de la sala
+        self.player.x, self.player.y = target.spawn.x, target.spawn.y
+    end
+
+    -- Resetear velocidades y timers de salto
+    self.player.vx, self.player.vy = 0, 0
+    self.player.onGround = false
+    if self.player.coyote then self.player.coyote = 0 end
+    if self.player.jumpBuffer then self.player.jumpBuffer = 0 end
+
+    -- Cambiar sala
+    self.currentRoomId = targetId
 end
 
 function StationScene:draw()
-    -- Fondo
-    love.graphics.clear(0.03, 0.03, 0.05, 1)
+    -- Limpiar fondo base
+    love.graphics.clear(0.02, 0.02, 0.04, 1)
 
-    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+    local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
 
-    -- Visual base de la estación (marco)
-    local lr, lg, lb, la = love.graphics.getColor()
-    love.graphics.setColor(0.12, 0.14, 0.18, 1)
-    love.graphics.rectangle('fill', w*0.08, h*0.08, w*0.84, h*0.84, 12, 12)
+    -- Renderizar fondo procedural (feedback), por detrás de todo lo demás
+    if BackgroundManager and BackgroundManager.render then
+        BackgroundManager.render(self.camera, { currentSeed = self.seed })
+    end
 
-    -- Mundo 2D con cámara
+    -- Mundo 2D
     love.graphics.push()
     love.graphics.translate(-math.floor(self.camera.x), -math.floor(self.camera.y))
 
-    -- Dibujar nivel (suelo y plataformas)
-    if self.level then
-        -- Fondo del nivel
-        love.graphics.setColor(0.08, 0.09, 0.12, 1)
-        love.graphics.rectangle('fill', 0, 0, self.level.width, self.level.height)
-        -- Suelo/plataformas
-        love.graphics.setColor(0.22, 0.65, 0.85, 0.9)
-        for _, p in ipairs(self.level.platforms) do
-            love.graphics.rectangle('fill', p.x, p.y, p.w, p.h, 4, 4)
-        end
-    end
+    local room = self:getCurrentRoom()
+    if room then
+        -- Fondo de sala semitransparente para no ocultar el feedback
+        love.graphics.setColor(0.07, 0.09, 0.12, 0.35)
+        love.graphics.rectangle('fill', room.x, room.y, room.width, room.height)
 
-    -- Dibujar jugador
-    if self.player then
-        love.graphics.setColor(0.95, 0.95, 1.0, 1)
-        love.graphics.rectangle('fill', self.player.x, self.player.y, self.player.w, self.player.h, 4, 4)
-        -- Sombra simple
-        love.graphics.setColor(0,0,0,0.2)
-        love.graphics.ellipse('fill', self.player.x + self.player.w*0.5, self.player.y + self.player.h, self.player.w*0.45, 6)
+        -- Textura simple: franjas para suelos metálicos
+        love.graphics.setColor(0.12, 0.15, 0.20, 0.55)
+        for _, plat in ipairs(room.platforms or {}) do
+            love.graphics.rectangle('fill', plat.x, plat.y, plat.w, plat.h, 2, 2)
+            love.graphics.setColor(0.20, 0.25, 0.32, 0.55)
+            for ix = plat.x, plat.x + plat.w, 14 do
+                love.graphics.rectangle('fill', ix, plat.y, 8, math.min(plat.h, 4))
+            end
+            love.graphics.setColor(0.12, 0.15, 0.20, 0.55)
+        end
+
+        -- Puertas
+        local overlappingDoor = nil
+        for side, d in pairs(room.doors or {}) do
+            if d then
+                if side == 'left' or side == 'right' then
+                    love.graphics.setColor(0.70, 0.85, 1.0, 0.55)
+                else
+                    love.graphics.setColor(0.70, 1.0, 0.85, 0.55)
+                end
+                love.graphics.rectangle('line', d.x, d.y, d.w, d.h)
+
+                -- Chequeo de overlap para UI (solo mostrar si la puerta tiene destino)
+                if d.to and self.player and self:rectsIntersect(self.player.x, self.player.y, self.player.w, self.player.h, d.x, d.y, d.w, d.h) then
+                    overlappingDoor = d
+                end
+            end
+        end
+
+        -- Decoraciones
+        if room.decor then
+            for _, d in ipairs(room.decor) do
+                if d.kind == 'panel' then
+                    love.graphics.setColor(0.55, 0.65, 0.80, 0.55)
+                elseif d.kind == 'rubble' then
+                    love.graphics.setColor(0.40, 0.45, 0.50, 0.55)
+                else -- 'crate' u otros
+                    love.graphics.setColor(0.55, 0.50, 0.40, 0.65)
+                end
+                -- d.x, d.y ya están en coordenadas de mundo
+                love.graphics.rectangle('fill', d.x, d.y, d.w, d.h, 2, 2)
+                love.graphics.setColor(0, 0, 0, 0.25)
+                love.graphics.rectangle('line', d.x, d.y, d.w, d.h)
+            end
+        end
+
+        -- Jugador
+        if self.player then
+            love.graphics.setColor(0.9, 0.95, 1.0, 1)
+            love.graphics.rectangle('fill', self.player.x, self.player.y, self.player.w, self.player.h, 3, 3)
+            love.graphics.setColor(0,0,0,0.20)
+            love.graphics.ellipse('fill', self.player.x + self.player.w*0.5, self.player.y + self.player.h, self.player.w*0.45, 5)
+        end
+
+        -- Prompt de interacción con puerta (solo si tiene destino)
+        if overlappingDoor then
+            love.graphics.setColor(1,1,1,0.9)
+            love.graphics.print("Pulsa E para entrar", overlappingDoor.x, overlappingDoor.y - 18)
+        end
     end
 
     love.graphics.pop()
 
-    -- Header
-    love.graphics.setColor(0.75, 0.9, 1.0, 1)
-    love.graphics.printf("Estación Antigua - Modo Interno", w*0.1, h*0.1, w*0.8, 'left')
+    -- UI
+    love.graphics.setColor(0.82, 0.92, 1.0, 1)
+    love.graphics.printf("Estación - Grafo 2D (usa puertas ←→↑↓)", 16, 14, sw - 32, 'left')
+    love.graphics.setColor(0.90, 0.96, 1.0, 0.95)
+    love.graphics.printf("[A/D o ←/→] Mover   [W/↑/ESP/Z] Saltar   [Shift] Jetpack   [E] Usar puerta   [Q/ESC] Salir", 16, sh - 28, sw - 32, 'right')
+end
 
-    -- Información contextual de la estación
-    love.graphics.setColor(0.85, 0.9, 1.0, 0.9)
-    local info = {
-        "Estado: En órbita estable (ruinas)",
-        "Tipo: " .. (self.placeholder and (self.placeholder.complexType or self.placeholder.stationSize) or "desconocido"),
-        string.format("Coordenadas: x=%.0f  y=%.0f", self.placeholder and self.placeholder.x or 0, self.placeholder and self.placeholder.y or 0),
-    }
-    local y = h*0.1 + 30
-    for _, line in ipairs(info) do
-        love.graphics.print(line, w*0.1, y)
-        y = y + 22
+function StationScene:updateCamera(dt)
+    if not self.player then return end
+    local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
+    local room = self:getCurrentRoom()
+    if not room then return end
+
+    local targetX = (self.player.x + self.player.w*0.5) - sw*0.5
+    local targetY = (self.player.y + self.player.h*0.5) - sh*0.5
+
+    -- Clamping sin márgenes: aprovechar toda la pantalla
+    local minX = room.x
+    local minY = room.y
+    local maxX = room.x + room.width - sw
+    local maxY = room.y + room.height - sh
+
+    -- Si la sala es más pequeña que la pantalla, centrar
+    if maxX < minX then
+        targetX = room.x + room.width*0.5 - sw*0.5
+    else
+        targetX = math.max(minX, math.min(targetX, maxX))
+    end
+    if maxY < minY then
+        targetY = room.y + room.height*0.5 - sh*0.5
+    else
+        targetY = math.max(minY, math.min(targetY, maxY))
     end
 
-    -- Acciones simples
-    love.graphics.setColor(0.9, 0.95, 1.0, 0.9)
-    love.graphics.printf("[A/D o ←/→] Mover   [W/↑/ESP/Z] Saltar   [Q / ESC] Salir", w*0.1, h*0.84, w*0.8, 'right')
-
-    love.graphics.setColor(lr, lg, lb, la)
+    -- Suavizado dt-invariante: alpha = 1 - exp(-lambda*dt)
+    local lambda = 10.0
+    local alpha = 1 - math.exp(-lambda * (dt or 0.016))
+    self.camera.x = self.camera.x + (targetX - self.camera.x) * alpha
+    self.camera.y = self.camera.y + (targetY - self.camera.y) * alpha
 end
 
 function StationScene:keypressed(key)
@@ -108,137 +251,29 @@ function StationScene:keypressed(key)
         if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
         return true
     end
-    -- Salto
-    if key == 'space' or key == 'w' or key == 'up' or key == 'z' then
-        if self.player and self.player.onGround then
-            self.player.vy = -self.physics.jumpVelocity
-            self.player.onGround = false
-            return true
+    if key == 'e' and self.player and self._doorCooldown <= 0 then
+        local room = self:getCurrentRoom()
+        if room then
+            for _, door in pairs(room.doors or {}) do
+                if door and door.to and self:rectsIntersect(self.player.x, self.player.y, self.player.w, self.player.h, door.x, door.y, door.w, door.h) then
+                    self:switchRoom(door)
+                    self._doorCooldown = 0.15
+                    return true
+                end
+            end
         end
+    end
+    if self.player and self.player:keypressed(key) then
+        return true
     end
     return false
 end
 
--- Inicializa nivel (plataformas) y jugador
-function StationScene:setupLevel()
-    local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
-    -- Dimensión del nivel (más grande que la pantalla para poder desplazarse)
-    local lvlW, lvlH = math.max(2400, sw*2.5), math.max(1200, sh*1.6)
-
-    -- Crear plataformas simples: suelo y algunas elevaciones
-    local groundHeight = 56
-    local platforms = {
-        { x = 0, y = lvlH - groundHeight, w = lvlW, h = groundHeight }, -- suelo
-        { x = 220, y = lvlH - 220, w = 220, h = 24 },
-        { x = 560, y = lvlH - 340, w = 280, h = 24 },
-        { x = 980, y = lvlH - 420, w = 220, h = 24 },
-        { x = 1340, y = lvlH - 520, w = 260, h = 24 },
-        { x = 1780, y = lvlH - 300, w = 300, h = 24 },
-    }
-
-    self.level = {
-        width = lvlW,
-        height = lvlH,
-        platforms = platforms,
-    }
-
-    -- Jugador: caja simple
-    local startX, startY = 80, lvlH - groundHeight - 64
-    self.player = {
-        x = startX,
-        y = startY,
-        w = 32,
-        h = 48,
-        vx = 0,
-        vy = 0,
-        onGround = false,
-        facing = 1,
-    }
-
-    self.camera.x, self.camera.y = 0, math.max(0, self.player.y - sh*0.5)
-end
-
-function StationScene:updateCamera()
-    local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
-    if not self.player or not self.level then return end
-    -- Centrar cámara en el jugador, con márgenes
-    local targetX = (self.player.x + self.player.w*0.5) - sw*0.5
-    local targetY = (self.player.y + self.player.h*0.5) - sh*0.5
-    -- Clamp a límites del nivel
-    self.camera.x = math.max(0, math.min(self.level.width - sw, targetX))
-    self.camera.y = math.max(0, math.min(self.level.height - sh, targetY))
-end
-
-function StationScene:updatePlayer(dt)
-    if not self.player or not self.level then return end
-    local p = self.player
-    local phys = self.physics
-
-    -- Input lateral
-    local left = love.keyboard.isDown('a') or love.keyboard.isDown('left')
-    local right = love.keyboard.isDown('d') or love.keyboard.isDown('right')
-
-    if left == right then
-        -- Fricción cuando no hay input o inputs opuestos
-        if p.vx > 0 then
-            p.vx = math.max(0, p.vx - phys.friction*dt)
-        elseif p.vx < 0 then
-            p.vx = math.min(0, p.vx + phys.friction*dt)
-        end
-    else
-        local dir = right and 1 or -1
-        p.vx = p.vx + dir * phys.moveAccel * dt
-        p.facing = dir
+function StationScene:keyreleased(key)
+    if self.player and self.player.keyreleased then
+        return self.player:keyreleased(key)
     end
-
-    -- Clamp velocidad lateral
-    if p.vx > phys.maxSpeed then p.vx = phys.maxSpeed end
-    if p.vx < -phys.maxSpeed then p.vx = -phys.maxSpeed end
-
-    -- Gravedad
-    p.vy = p.vy + phys.gravity * dt
-
-    -- Integración y colisiones separadas por eje (AABB)
-    p.onGround = false
-
-    -- Movimiento horizontal
-    local newX = p.x + p.vx * dt
-    local px, py, pw, ph = newX, p.y, p.w, p.h
-    for _, plat in ipairs(self.level.platforms) do
-        if self:rectsIntersect(px, py, pw, ph, plat.x, plat.y, plat.w, plat.h) then
-            if p.vx > 0 then
-                newX = plat.x - pw
-            elseif p.vx < 0 then
-                newX = plat.x + plat.w
-            end
-            p.vx = 0
-            px = newX
-        end
-    end
-    p.x = newX
-
-    -- Movimiento vertical
-    local newY = p.y + p.vy * dt
-    px, py = p.x, newY
-    for _, plat in ipairs(self.level.platforms) do
-        if self:rectsIntersect(px, py, pw, ph, plat.x, plat.y, plat.w, plat.h) then
-            if p.vy > 0 then
-                newY = plat.y - ph
-                p.onGround = true
-            elseif p.vy < 0 then
-                newY = plat.y + plat.h
-            end
-            p.vy = 0
-            py = newY
-        end
-    end
-    p.y = newY
-
-    -- Evitar salir de los límites del nivel
-    if p.x < 0 then p.x = 0; p.vx = 0 end
-    if p.y < 0 then p.y = 0; p.vy = 0 end
-    if p.x + p.w > self.level.width then p.x = self.level.width - p.w; p.vx = 0 end
-    if p.y + p.h > self.level.height then p.y = self.level.height - p.h; p.vy = 0; p.onGround = true end
+    return false
 end
 
 function StationScene:rectsIntersect(ax, ay, aw, ah, bx, by, bw, bh)
