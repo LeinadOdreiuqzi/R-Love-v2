@@ -612,31 +612,100 @@ function HUD.draw()
     love.graphics.setColor(r, g, b, a)
 end
 
--- Nuevo: dibujar aviso/indicador de estación
+-- Nuevo: dibujar aviso/indicador de estación con información de tipo y estado
 function HUD.drawStationHint()
     local cfg = hudState.stationHint
     if not cfg or not cfg.show or not cfg.placeholder then return end
 
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+    local placeholder = cfg.placeholder
 
     -- Efecto de pulso para visibilidad
     local t = love.timer.getTime()
     local pulse = 0.5 + 0.5 * math.sin(t * 4)
 
-    -- Solo mostrar el prompt centrado inferior
-    local prompt = "Presiona E para entrar a la estación"
-    love.graphics.setFont(hudState.font or love.graphics.getFont())
-    local tw = love.graphics.getFont():getWidth(prompt)
-    local th = love.graphics.getFont():getHeight()
-    local px = (w - tw) * 0.5
-    local py = h - th - 20
+    -- Extraer información de tipo y estado
+    local stationType = "Unknown"
+    local stationState = "Unknown"
+    local typeColor = {0.7, 0.7, 0.7}
+    local stateColor = {0.7, 0.7, 0.7}
+    
+    if placeholder.complexType then
+        local base, state = tostring(placeholder.complexType):match("([^_]+)_([^_]+)")
+        if base and state then
+            -- Mapear tipos a nombres legibles
+            if base == "ring" then
+                stationType = "Ring Station"
+                typeColor = {0.3, 0.8, 1.0}
+            elseif base == "modular" then
+                stationType = "Modular Station"
+                typeColor = {0.8, 0.6, 1.0}
+            elseif base == "elongated" then
+                stationType = "Elongated Station"
+                typeColor = {1.0, 0.7, 0.3}
+            end
+            
+            -- Mapear estados a nombres legibles y colores
+            if state == "operational" then
+                stationState = "Operational"
+                stateColor = {0.3, 1.0, 0.3}
+            elseif state == "damaged" then
+                stationState = "Damaged"
+                stateColor = {1.0, 0.8, 0.2}
+            elseif state == "ruins" then
+                stationState = "Ruins"
+                stateColor = {1.0, 0.4, 0.2}
+            end
+        end
+    end
 
-    love.graphics.setColor(0, 0, 0, 0.6 * (0.6 + 0.4 * pulse))
-    love.graphics.rectangle("fill", px - 12, py - 6, tw + 24, th + 12, 6, 6)
+    -- Configurar fuentes
+    local mainFont = hudState.font or love.graphics.getFont()
+    local smallFont = hudState.smallFont or mainFont
+    
+    -- Textos a mostrar
+    local prompt = "Presiona E para entrar"
+    local typeText = "Tipo: " .. stationType
+    local stateText = "Estado: " .. stationState
+    
+    -- Calcular dimensiones
+    love.graphics.setFont(mainFont)
+    local promptWidth = mainFont:getWidth(prompt)
+    local promptHeight = mainFont:getHeight()
+    
+    love.graphics.setFont(smallFont)
+    local typeWidth = smallFont:getWidth(typeText)
+    local stateWidth = smallFont:getWidth(stateText)
+    local infoHeight = smallFont:getHeight()
+    
+    local maxWidth = math.max(promptWidth, typeWidth, stateWidth)
+    local totalHeight = promptHeight + infoHeight * 2 + 16 -- espaciado
+    
+    -- Posición centrada
+    local px = (w - maxWidth) * 0.5
+    local py = h - totalHeight - 30
+    
+    -- Fondo con transparencia pulsante
+    love.graphics.setColor(0, 0, 0, 0.7 * (0.6 + 0.4 * pulse))
+    love.graphics.rectangle("fill", px - 16, py - 8, maxWidth + 32, totalHeight + 16, 8, 8)
+    
+    -- Borde
     love.graphics.setColor(0.2, 0.8, 1.0, 1)
-    love.graphics.rectangle("line", px - 12, py - 6, tw + 24, th + 12, 6, 6)
+    love.graphics.rectangle("line", px - 16, py - 8, maxWidth + 32, totalHeight + 16, 8, 8)
+    
+    -- Texto principal (prompt)
+    love.graphics.setFont(mainFont)
     love.graphics.setColor(0.85, 1.0, 1.0, 1)
-    love.graphics.print(prompt, px, py)
+    love.graphics.print(prompt, px + (maxWidth - promptWidth) * 0.5, py)
+    
+    -- Información de tipo
+    love.graphics.setFont(smallFont)
+    love.graphics.setColor(typeColor[1], typeColor[2], typeColor[3], 0.9)
+    love.graphics.print(typeText, px + (maxWidth - typeWidth) * 0.5, py + promptHeight + 4)
+    
+    -- Información de estado
+    love.graphics.setColor(stateColor[1], stateColor[2], stateColor[3], 0.9)
+    love.graphics.print(stateText, px + (maxWidth - stateWidth) * 0.5, py + promptHeight + infoHeight + 8)
 end
 
 -- Panel de información de biomas optimizado

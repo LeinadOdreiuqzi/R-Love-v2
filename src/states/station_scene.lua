@@ -24,6 +24,8 @@ function StationScene:new(placeholder)
     o.graph = nil
     o.currentRoomId = nil
     o._doorCooldown = 0
+    -- Recordar estado previo del fondo para restaurarlo al salir
+    o._prevBgEnabled = nil
     return o
 end
 
@@ -52,6 +54,12 @@ function StationScene:enter(params)
     -- Inicializar fondo
     if BackgroundManager and BackgroundManager.init then
         BackgroundManager.init()
+    end
+
+    -- Desactivar fondo galáctico dentro de la estación para evitar niebla/grumos sobre la escena
+    if BackgroundManager and BackgroundManager.isEnabled and BackgroundManager.setEnabled then
+        self._prevBgEnabled = BackgroundManager.isEnabled()
+        BackgroundManager.setEnabled(false)
     end
 end
 
@@ -278,6 +286,17 @@ end
 
 function StationScene:rectsIntersect(ax, ay, aw, ah, bx, by, bw, bh)
     return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+end
+
+-- Restaurar el estado del fondo al salir de la escena de estación
+function StationScene:exit()
+    if BackgroundManager and BackgroundManager.setEnabled then
+        if self._prevBgEnabled == nil then
+            BackgroundManager.setEnabled(true)
+        else
+            BackgroundManager.setEnabled(self._prevBgEnabled)
+        end
+    end
 end
 
 return StationScene

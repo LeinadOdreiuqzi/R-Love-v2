@@ -159,8 +159,10 @@ local shaderCode = [[
         // Movimiento y rotación sutil del fondo para dinamismo
         float time = u_time * u_movementSpeed;
         float angle = time * 0.02;
-        mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-        vec2 rotatedPos = rot * parallaxPos;
+        // Rotación manual (sin mat2 para compatibilidad GLSL ES)
+        float c = cos(angle);
+        float s = sin(angle);
+        vec2 rotatedPos = vec2(c * parallaxPos.x - s * parallaxPos.y, s * parallaxPos.x + c * parallaxPos.y);
         // Escalar coordenadas para el ruido sobre posición rotada
         vec2 noisePos = rotatedPos * 0.001 * u_detailLevel;
         

@@ -1295,7 +1295,7 @@ function MapRenderer.drawStation(station, worldX, worldY, camera)
     love.graphics.origin()
     love.graphics.translate(screenX, screenY)
     
-    local rotation = station.rotation + love.timer.getTime() * 0.1
+    local rotation = station.rotation or 0
     love.graphics.rotate(rotation)
     
     -- Forzar el estilo anterior (vectorial) y NO usar shader ni imagen base

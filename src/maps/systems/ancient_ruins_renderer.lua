@@ -44,10 +44,10 @@ AncientRuinsRenderer.config = {
         
         -- Estados de daño para cada tipo base
         damageStates = {
-            intact = {
-                name = "intacta",
-                weight = 0.3,  -- 30% probabilidad de estar intacta
-                suffix = "_intact"
+            operational = {
+                name = "operacional",
+                weight = 0.3,  -- 30% probabilidad de estar operacional
+                suffix = "_operational"
             },
             damaged = {
                 name = "parcialmente_destruida",
@@ -64,8 +64,8 @@ AncientRuinsRenderer.config = {
         -- Configuraciones específicas por tipo y estado
         stationConfigs = {
             -- Estaciones tipo anillo
-            ring_intact = {
-                shape = "ring_intact",
+            ring_operational = {
+                shape = "ring_operational",
                 color = {0.45, 0.5, 0.55, 1.0},  -- Metálico brillante
                 glowColor = {0.7, 0.8, 0.9, 1.0},  -- Resplandor azul intenso
                 alpha = 1.0,
@@ -86,48 +86,48 @@ AncientRuinsRenderer.config = {
                 structuralIntegrity = 0.2
             },
             
-            -- Estaciones modulares
-            modular_intact = {
-                shape = "modular_intact",
-                color = {0.4, 0.45, 0.5, 1.0},  -- Gris azulado sólido
-                glowColor = {0.6, 0.7, 0.8, 1.0},  -- Resplandor azul
+            -- Estaciones modulares (tonos azul-verdosos industriales)
+            modular_operational = {
+                shape = "modular_operational",
+                color = {0.3, 0.5, 0.45, 1.0},  -- Verde azulado industrial
+                glowColor = {0.4, 0.8, 0.7, 1.0},  -- Resplandor verde-azul brillante
                 alpha = 1.0,
                 structuralIntegrity = 1.0
             },
             modular_damaged = {
                 shape = "modular_damaged",
-                color = {0.28, 0.32, 0.38, 1.0},  -- Gris azulado espacial dañado
-                glowColor = {0.38, 0.45, 0.55, 1.0},  -- Resplandor azul frío
+                color = {0.25, 0.35, 0.32, 1.0},  -- Verde azulado apagado
+                glowColor = {0.3, 0.5, 0.45, 1.0},  -- Resplandor verde-azul tenue
                 alpha = 1.0,
                 structuralIntegrity = 0.5
             },
             modular_ruins = {
                 shape = "modular_ruins",
-                color = {0.12, 0.15, 0.20, 1.0},  -- Gris espacial muy oscuro
-                glowColor = {0.18, 0.22, 0.32, 1.0},  -- Resplandor azul muy débil
+                color = {0.15, 0.20, 0.18, 1.0},  -- Verde grisáceo muy oscuro
+                glowColor = {0.2, 0.3, 0.25, 1.0},  -- Resplandor verde muy débil
                 alpha = 1.0,
                 structuralIntegrity = 0.15
             },
             
-            -- Naves alargadas
-            elongated_intact = {
-                shape = "elongated_intact",
-                color = {0.35, 0.4, 0.45, 1.0},  -- Gris oscuro sólido
-                glowColor = {0.5, 0.6, 0.7, 1.0},  -- Resplandor azul
+            -- Naves alargadas (tonos rojizo-naranjas militares)
+            elongated_operational = {
+                shape = "elongated_operational",
+                color = {0.5, 0.35, 0.25, 1.0},  -- Bronce militar sólido
+                glowColor = {0.8, 0.5, 0.3, 1.0},  -- Resplandor naranja cálido
                 alpha = 1.0,
                 structuralIntegrity = 1.0
             },
             elongated_damaged = {
                 shape = "elongated_damaged",
-                color = {0.32, 0.36, 0.42, 1.0},  -- Gris metálico espacial dañado
-                glowColor = {0.42, 0.48, 0.58, 1.0},  -- Resplandor azul frío
+                color = {0.42, 0.28, 0.20, 1.0},  -- Bronce oxidado dañado
+                glowColor = {0.6, 0.35, 0.22, 1.0},  -- Resplandor naranja apagado
                 alpha = 1.0,
                 structuralIntegrity = 0.4
             },
             elongated_ruins = {
                 shape = "elongated_ruins",
-                color = {0.14, 0.17, 0.23, 1.0},  -- Gris espacial muy oscuro
-                glowColor = {0.19, 0.23, 0.33, 1.0},  -- Resplandor azul muy tenue
+                color = {0.25, 0.15, 0.12, 1.0},  -- Óxido muy oscuro
+                glowColor = {0.35, 0.20, 0.15, 1.0},  -- Resplandor rojizo muy tenue
                 alpha = 1.0,
                 structuralIntegrity = 0.1
             }
@@ -313,7 +313,7 @@ function AncientRuinsRenderer.selectDamageState(chunkX, chunkY)
     
     -- Orden determinístico de estados
     local orderedStates = {
-        {"intact", config.intact},
+        {"operational", config.operational},
         {"damaged", config.damaged},
         {"ruins", config.ruins}
     }
@@ -340,7 +340,7 @@ function AncientRuinsRenderer.getDamageEffects(damageState, seed)
         structuralIntegrity = 1.0
     }
     
-    if damageState == "intact" then
+    if damageState == "operational" then
         effects.alphaMultiplier = 1.0
         effects.sizeMultiplier = 1.0
         effects.glowReduction = 1.0
@@ -466,8 +466,8 @@ local function calculateAdvanced3DEffects(placeholder, camera, perspectiveData)
     local depthScale = 1.0 + (math.sin(placeholder.seed * 0.1) * 0.15 * distanceFactor)
     local heightVariation = 1.0 + (math.cos(placeholder.seed * 0.07) * 0.2)
     
-    -- Orientación aparente basada en ángulo de vista
-    local apparentRotation = viewAngle * 0.1 + (placeholder.seed * 0.05)
+    -- Rotación aparente fija basada solo en la seed (sin depender del ángulo de vista)
+    local apparentRotation = (placeholder.seed * 0.05)
     
     return {
         depthScale = depthScale,
@@ -593,7 +593,7 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     local baseType, damageState = complexConfig.shape:match("([^_]+)_(.+)")
     if not baseType then
         baseType = complexConfig.shape
-        damageState = "intact"
+        damageState = "operational"
     end
     
     -- Rotación con perspectiva dinámica mejorada y efectos 3D
@@ -771,7 +771,7 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
     local baseType, damageState = shape:match("([^_]+)_(.+)")
     if not baseType then
         baseType = shape
-        damageState = "intact"
+        damageState = "operational"
     end
     
     if baseType == "ring" then

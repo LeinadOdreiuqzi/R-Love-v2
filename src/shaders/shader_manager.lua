@@ -6,6 +6,7 @@ local StarShader = require 'src.shaders.star_shader'
 local StarfieldInstanced = require 'src.shaders.starfield_instanced'
 local BackgroundManager = require 'src.shaders.background_manager'
 local NebulasShaders = require 'src.shaders.nebulas_shaders'
+local AncientRuinsStations = require 'src.shaders.ancient_ruins_stations'
 
 -- Cache de shaders optimizado
 local shaderCache = {
@@ -31,7 +32,8 @@ ShaderManager.state = {
         station = nil,
         wormhole = nil,
         star_instanced = nil,
-        galactic_background = nil
+        galactic_background = nil,
+        ancient_ruins = nil
     },
     
     -- Status de precarga
@@ -42,7 +44,8 @@ ShaderManager.state = {
         station = false,
         wormhole = false,
         star_instanced = false,
-        galactic_background = false
+        galactic_background = false,
+        ancient_ruins = false
     },
     
     -- Imágenes base para batching
@@ -67,7 +70,7 @@ ShaderManager.state = {
     config = {
         preloadIncrementally = true,
         maxPreloadTimePerFrame = 0.002, -- 2ms max por frame
-        preloadPriority = {"galactic_background", "star", "star_instanced", "asteroid", "nebula", "station", "wormhole"}
+        preloadPriority = {"galactic_background", "star", "star_instanced", "asteroid", "nebula", "station", "wormhole", "ancient_ruins"}
     },
     
     -- Estadísticas
@@ -180,7 +183,8 @@ local shaderDependencies = {
         "nebula",           -- Nebulosas (independiente)
         "asteroid",         -- Asteroides (independiente)
         "station",          -- Estaciones (independiente)
-        "wormhole"          -- Efectos visuales críticos (último)
+        "wormhole",         -- Efectos visuales críticos
+        "ancient_ruins"     -- Ruinas antiguas (último)
     },
     
     -- Dependencias explícitas
@@ -344,6 +348,18 @@ function ShaderManager.initializeShaderByType(shaderType)
         
     elseif shaderType == "asteroid" or shaderType == "station" or shaderType == "wormhole" then
         ShaderManager.createBasicShaders()
+        
+    elseif shaderType == "ancient_ruins" then
+        if AncientRuinsStations and AncientRuinsStations.init then
+            local success = AncientRuinsStations.init()
+            if success then
+                ShaderManager.state.shaders.ancient_ruins = AncientRuinsStations.getShader()
+                ShaderManager.state.preloadStatus.ancient_ruins = true
+                print("✓ Ancient Ruins shader preloaded")
+            else
+                print("✗ Ancient Ruins shader failed to preload")
+            end
+        end
     end
 end
 
@@ -417,31 +433,29 @@ local wormholeShaderCode = [[
         // Perspectiva 3D mejorada
         float perspective = 0.2 + 0.8 * (1.0 - min(1.0, distance * 0.0005));
         
-        // Rotación de la esfera según el ángulo de vista
-        mat2 rotation = mat2(
-            cos(viewAngle), -sin(viewAngle),
-            sin(viewAngle), cos(viewAngle)
-        );
+        // Rotación de la esfera según el ángulo de vista (sin mat2 para compatibilidad GLSL ES)
+        float c = cos(viewAngle);
+        float s = sin(viewAngle);
         
         float sphere = 0.0;
         
         // Capa externa con parallax
         vec2 outerParallax = calculateParallax(uv, playerOffset, 0.3);
-        vec2 outerRotated = rotation * outerParallax;
+        vec2 outerRotated = vec2(c * outerParallax.x - s * outerParallax.y, s * outerParallax.x + c * outerParallax.y);
         vec2 outerScale = vec2(radius, radius * (0.3 + perspective * 0.5));
         float outerDist = length(outerRotated / outerScale);
         sphere += smoothstep(1.0, 0.6, outerDist) * 0.15;
         
         // Capa media con parallax más fuerte
         vec2 midParallax = calculateParallax(uv, playerOffset, 0.6);
-        vec2 midRotated = rotation * midParallax;
+        vec2 midRotated = vec2(c * midParallax.x - s * midParallax.y, s * midParallax.x + c * midParallax.y);
         vec2 midScale = vec2(radius * 0.7, radius * (0.2 + perspective * 0.4));
         float midDist = length(midRotated / midScale);
         sphere += smoothstep(1.0, 0.4, midDist) * 0.35;
         
         // Núcleo con parallax máximo
         vec2 coreParallax = calculateParallax(uv, playerOffset, 1.0);
-        vec2 coreRotated = rotation * coreParallax;
+        vec2 coreRotated = vec2(c * coreParallax.x - s * coreParallax.y, s * coreParallax.x + c * coreParallax.y);
         vec2 coreScale = vec2(radius * 0.4, radius * (0.1 + perspective * 0.3));
         float coreDist = length(coreRotated / coreScale);
         sphere += smoothstep(1.0, 0.1, coreDist) * 0.7;
@@ -521,8 +535,9 @@ function ShaderManager.createBasicShaders()
             vec2 uv = texcoord - vec2(0.5);
             float c = cos(u_rotation);
             float s = sin(u_rotation);
-            mat2 rot = mat2(c, -s, s, c);
-            uv = rot * uv;
+            // Rotación manual (sin mat2 para compatibilidad GLSL ES)
+            vec2 rotated_uv = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
+            uv = rotated_uv;
 
             // squash elíptico
             uv.x /= max(0.001, u_squashX);

@@ -57,34 +57,50 @@ local function getStationShaderCode()
 
         vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords) {
             vec2 uv = texcoord - vec2(0.5);
-            // Rotación
+            // Rotación manual (sin mat2 para compatibilidad GLSL ES)
             float c = cos(u_rotation);
             float s = sin(u_rotation);
-            uv = mat2(c, -s, s, c) * uv;
+            vec2 rotated_uv = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
+            uv = rotated_uv;
 
             float r = length(uv) * 2.0;
             float texA = Texel(tex, texcoord).a;
 
-            // Máscara base y variantes según shapeType
-            float mask = smoothstep(1.0, 0.97, r);
+            // Máscara estructural independiente de la textura base
+            float mask = 0.0;
+            float structureMask = 0.0;
+            float angle = atan(uv.y, uv.x);
             if (u_shapeType < 0.5) {
-                // Ring: anillo con hueco interior
-                float inner = 0.55 + 0.05 * step(2.0, u_lod);
+                // Ring: anillo con hueco interior y radios visibles
+                float inner = 0.48 + 0.04 * step(2.0, u_lod);
                 float outerEdge = smoothstep(1.0, 0.97, r);
-                float innerEdge = 1.0 - smoothstep(inner, inner - 0.03, r);
-                mask = clamp(outerEdge * innerEdge, 0.0, 1.0);
+                float innerEdge = 1.0 - smoothstep(inner, inner - 0.04, r);
+                float ringBand = clamp(outerEdge * innerEdge, 0.0, 1.0);
+                float spokes = smoothstep(0.86, 1.0, abs(sin(angle * 8.0 + u_seed * 2.0)));
+                structureMask = clamp(ringBand * (0.85 + 0.15 * spokes), 0.0, 1.0);
+                mask = structureMask;
             } else if (u_shapeType < 1.5) {
-                // Modular: facetas sutiles para estructura modular
-                float angle = atan(uv.y, uv.x);
+                // Modular: ligera facetación + paneles
                 float facets = 0.04 * sin(angle * 6.0 + u_seed * 10.0);
-                float rr = length(uv * (1.0 + facets)) * 2.0;
-                mask = smoothstep(1.0, 0.96, rr);
+                vec2 muv = uv * (1.0 + facets);
+                float rr = length(muv) * 2.0;
+                float hull = smoothstep(1.0, 0.96, rr);
+                vec2 grid = fract(muv * 8.0 + u_seed) - 0.5;
+                float panelLines = 1.0 - smoothstep(0.02, 0.03, min(abs(grid.x), abs(grid.y)));
+                structureMask = clamp(hull * (0.9 + 0.1 * panelLines), 0.0, 1.0);
+                mask = structureMask;
             } else {
-                // Elongated: compresión elíptica para naves alargadas
+                // Elongated: elipse alargada + bandas longitudinales
                 vec2 e = uv; e.x *= 0.55;
                 float rr = length(e) * 2.0;
-                mask = smoothstep(1.0, 0.965, rr);
+                float hull = smoothstep(1.0, 0.965, rr);
+                float bands = 0.85 + 0.15 * smoothstep(0.7, 1.0, abs(sin(e.y * 20.0 + u_seed * 5.0)));
+                structureMask = clamp(hull * bands, 0.0, 1.0);
+                mask = structureMask;
             }
+
+            // Alpha independiente de la textura base: combinar con texA para compatibilidad
+            float maskAlpha = max(texA, structureMask);
 
             // Normal esférica aproximada para iluminación
             float zz = clamp(1.0 - dot(uv, uv) * 4.0, 0.0, 1.0);
@@ -114,7 +130,7 @@ local function getStationShaderCode()
             vec3 lit = baseColor * (0.6 + 0.6 * lambert) + vec3(1.0) * spec + baseColor * rim;
             vec3 damaged = mix(lit, lit * vec3(0.45, 0.48, 0.55), damageMask);
 
-            float outAlpha = color.a * texA * mask * (0.9 - 0.25 * u_damage);
+            float outAlpha = color.a * maskAlpha * mask * (0.9 - 0.25 * u_damage);
             return vec4(damaged, outAlpha);
         }
     ]]

@@ -850,10 +850,20 @@ function OptimizedRenderer.hierarchicalLayerCulling(camera, zoom, layer_config)
     
     return frustum
 end
--- Renderizar estación con batching
+-- Renderizar estación con batching y soporte para ancient_ruins
 function OptimizedRenderer.renderStationBatched(station, x, y, size, lodLevel)
     if lodLevel >= 2 then return end
     
+    -- Detectar si es una estación ancient_ruins y usar shader especializado
+    local biome = station.biome or "default"
+    local complexType = station.complexType or "modular_operational"
+    
+    if biome == "ancient_ruins" then
+        OptimizedRenderer.renderAncientRuinsStation(station, x, y, size, lodLevel, complexType)
+        return
+    end
+    
+    -- Renderizado normal para otras estaciones
     local batch = OptimizedRenderer.state.batches.stations
     if not batch then
         OptimizedRenderer.renderStation(station, x, y, size, lodLevel)
@@ -870,6 +880,41 @@ function OptimizedRenderer.renderStationBatched(station, x, y, size, lodLevel)
     
     batch:setColor(color[1], color[2], color[3], color[4])
     batch:add(x, y, station.rotation or 0, size, size, 0.5, 0.5)
+end
+
+-- Renderizar estación ancient_ruins con shader especializado
+function OptimizedRenderer.renderAncientRuinsStation(station, x, y, size, lodLevel, complexType)
+    local AncientRuinsStations = require 'src.shaders.ancient_ruins_stations'
+    
+    -- Obtener parámetros deterministas basados en complexType
+    local seed = station.seed or (station.x and station.y and (station.x * 1000 + station.y) or 0)
+    local shaderParams = AncientRuinsStations.getShaderParams(complexType, seed)
+    
+    -- Configurar parámetros adicionales
+    shaderParams.time = love.timer.getTime()
+    shaderParams.lod = lodLevel
+    shaderParams.rotation = station.rotation or 0
+    shaderParams.lightDir = {1, 0.5} -- Dirección de luz por defecto
+    
+    -- Aplicar shader y enviar uniforms
+    if AncientRuinsStations.setShader() then
+        AncientRuinsStations.sendUniforms(shaderParams)
+        
+        -- Renderizar con imagen base
+        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("white")
+        if img then
+            love.graphics.setColor(1, 1, 1, 1)
+            local iw = img:getWidth()
+            local ih = img:getHeight()
+            local s = size / math.max(1, iw)
+            love.graphics.draw(img, x, y, station.rotation or 0, s, s, iw * 0.5, ih * 0.5)
+        end
+        
+        AncientRuinsStations.unsetShader()
+    else
+        -- Fallback a renderizado normal si el shader falla
+        OptimizedRenderer.renderStation(station, x, y, size, lodLevel)
+    end
 end
 
 -- Renderizar estación individual (fallback sin batching)
