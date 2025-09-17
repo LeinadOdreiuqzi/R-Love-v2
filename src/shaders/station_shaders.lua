@@ -80,22 +80,191 @@ local function getStationShaderCode()
                 structureMask = clamp(ringBand * (0.85 + 0.15 * spokes), 0.0, 1.0);
                 mask = structureMask;
             } else if (u_shapeType < 1.5) {
-                // Modular: ligera facetación + paneles
-                float facets = 0.04 * sin(angle * 6.0 + u_seed * 10.0);
-                vec2 muv = uv * (1.0 + facets);
-                float rr = length(muv) * 2.0;
-                float hull = smoothstep(1.0, 0.96, rr);
-                vec2 grid = fract(muv * 8.0 + u_seed) - 0.5;
-                float panelLines = 1.0 - smoothstep(0.02, 0.03, min(abs(grid.x), abs(grid.y)));
-                structureMask = clamp(hull * (0.9 + 0.1 * panelLines), 0.0, 1.0);
+                // Modular: estación espacial modular con diseño orgánico y funcional
+                float r_central = length(uv) * 2.0;
+                
+                // Núcleo central circular más grande y prominente
+                float coreRadius = 0.18;
+                float centralCore = 1.0 - smoothstep(coreRadius - 0.02, coreRadius + 0.02, length(uv));
+                
+                // Anillo interno de soporte estructural
+                float innerRingRadius = 0.25;
+                float innerRing = abs(length(uv) - innerRingRadius);
+                innerRing = 1.0 - smoothstep(0.015, 0.025, innerRing);
+                
+                // Módulos principales distribuidos simétricamente
+                float mainModules = 0.0;
+                float mainModuleCount = 6.0;
+                for (int i = 0; i < 6; i++) {
+                    float moduleAngle = float(i) * 2.0 * 3.14159 / mainModuleCount + u_seed * 0.1;
+                    vec2 moduleCenter = vec2(cos(moduleAngle), sin(moduleAngle)) * 0.38;
+                    
+                    // Módulos hexagonales más orgánicos
+                    vec2 moduleUV = uv - moduleCenter;
+                    float moduleHexAngle = atan(moduleUV.y, moduleUV.x) + moduleAngle;
+                    float moduleHexRadius = length(moduleUV);
+                    float moduleHexSides = 6.0;
+                    float moduleHexPattern = cos(floor(0.5 + moduleHexAngle * moduleHexSides / (2.0 * 3.14159)) * 2.0 * 3.14159 / moduleHexSides - moduleHexAngle);
+                    
+                    float moduleShape = smoothstep(0.12, 0.08, moduleHexRadius) * smoothstep(0.7, 1.0, moduleHexPattern);
+                    
+                    // Detalles internos del módulo
+                    float moduleDetail = 1.0 - smoothstep(0.04, 0.06, length(moduleUV));
+                    moduleShape = max(moduleShape, moduleDetail * 0.8);
+                    
+                    mainModules = max(mainModules, moduleShape);
+                }
+                
+                // Módulos secundarios más pequeños
+                float secondaryModules = 0.0;
+                float secModuleCount = 12.0;
+                for (int j = 0; j < 12; j++) {
+                    float secAngle = float(j) * 2.0 * 3.14159 / secModuleCount + u_seed * 0.3;
+                    vec2 secCenter = vec2(cos(secAngle), sin(secAngle)) * 0.55;
+                    
+                    float secDist = length(uv - secCenter);
+                    float secModule = 1.0 - smoothstep(0.04, 0.06, secDist);
+                    
+                    // Solo algunos módulos secundarios existen
+                    float secExists = step(0.4, hash(u_seed + float(j) * 10.0));
+                    secModule *= secExists;
+                    
+                    secondaryModules = max(secondaryModules, secModule * 0.6);
+                }
+                
+                // Conectores estructurales mejorados
+                float connectors = 0.0;
+                for (int k = 0; k < 6; k++) {
+                    float connAngle = float(k) * 2.0 * 3.14159 / 6.0 + u_seed * 0.1;
+                    vec2 connDir = vec2(cos(connAngle), sin(connAngle));
+                    
+                    // Conectores radiales desde el núcleo
+                    float radialDist = abs(dot(uv, vec2(-connDir.y, connDir.x)));
+                    float radialLength = dot(uv, connDir);
+                    
+                    if (radialLength > 0.15 && radialLength < 0.42) {
+                        float connectorWidth = mix(0.02, 0.015, (radialLength - 0.15) / 0.27);
+                        float connector = 1.0 - smoothstep(connectorWidth * 0.5, connectorWidth, radialDist);
+                        connectors = max(connectors, connector * 0.7);
+                    }
+                }
+                
+                // Anillo exterior decorativo
+                float outerRingRadius = 0.65;
+                float outerRing = abs(length(uv) - outerRingRadius);
+                outerRing = (1.0 - smoothstep(0.008, 0.015, outerRing)) * 0.4;
+                
+                structureMask = clamp(centralCore + innerRing + mainModules + secondaryModules + connectors + outerRing, 0.0, 1.0);
                 mask = structureMask;
             } else {
-                // Elongated: elipse alargada + bandas longitudinales
-                vec2 e = uv; e.x *= 0.55;
-                float rr = length(e) * 2.0;
-                float hull = smoothstep(1.0, 0.965, rr);
-                float bands = 0.85 + 0.15 * smoothstep(0.7, 1.0, abs(sin(e.y * 20.0 + u_seed * 5.0)));
-                structureMask = clamp(hull * bands, 0.0, 1.0);
+                // Elongated: Estación espacial alargada agresiva basada en la imagen
+                
+                // Cuerpo principal alargado y agresivo - forma de daga espacial
+                vec2 stationUV = uv;
+                
+                // Casco principal con forma triangular alargada
+                float mainBodyLength = abs(stationUV.y);
+                float mainBodyWidth = abs(stationUV.x);
+                
+                // Forma básica triangular alargada (como en la imagen)
+                float triangularHull = 1.0 - smoothstep(0.15 - mainBodyLength * 0.25, 0.18 - mainBodyLength * 0.25, mainBodyWidth);
+                triangularHull *= smoothstep(0.9, 0.1, mainBodyLength); // Se estrecha hacia los extremos
+                
+                // Estructura central elevada (espina dorsal prominente)
+                float centralSpine = 1.0 - smoothstep(0.02, 0.05, abs(stationUV.x));
+                centralSpine *= smoothstep(0.8, 0.2, mainBodyLength);
+                centralSpine *= 1.3; // Más prominente
+                
+                // Estructuras laterales con profundidad (como costillas)
+                float lateralStructures = 0.0;
+                for (int i = 0; i < 8; i++) {
+                    float ribPosition = -0.6 + float(i) * 0.15;
+                    float ribDistance = abs(stationUV.y - ribPosition);
+                    
+                    // Costillas estructurales que se extienden desde el centro
+                    float ribWidth = mix(0.12, 0.08, abs(ribPosition) / 0.6); // Más anchas en el centro
+                    float rib = 1.0 - smoothstep(ribWidth - 0.02, ribWidth + 0.02, mainBodyWidth);
+                    rib *= 1.0 - smoothstep(0.01, 0.03, ribDistance);
+                    rib *= 0.8; // Intensidad de las costillas
+                    
+                    lateralStructures = max(lateralStructures, rib);
+                }
+                
+                // Detalles estructurales profundos - paneles hundidos
+                float panelDetails = 0.0;
+                for (int j = 0; j < 6; j++) {
+                    float panelY = -0.5 + float(j) * 0.2;
+                    
+                    // Paneles laterales hundidos
+                    for (int side = 0; side < 2; side++) {
+                        float panelX = (float(side) * 2.0 - 1.0) * 0.08; // Posiciones laterales
+                        vec2 panelCenter = vec2(panelX, panelY);
+                        
+                        float panelDist = length(stationUV - panelCenter);
+                        float panel = 1.0 - smoothstep(0.04, 0.06, panelDist);
+                        panel *= 0.4; // Depresión sutil
+                        
+                        panelDetails = max(panelDetails, panel);
+                    }
+                }
+                
+                // Secciones de comando elevadas (torres de control)
+                float commandSections = 0.0;
+                for (int k = 0; k < 3; k++) {
+                    float commandY = -0.3 + float(k) * 0.3;
+                    float commandX = 0.0;
+                    
+                    vec2 commandPos = vec2(commandX, commandY);
+                    float commandDist = length(stationUV - commandPos);
+                    
+                    float commandTower = 1.0 - smoothstep(0.03, 0.05, commandDist);
+                    commandTower *= 1.2; // Elevadas
+                    
+                    commandSections = max(commandSections, commandTower);
+                }
+                
+                // Estructuras de soporte transversales
+                float supportBeams = 0.0;
+                for (int l = 0; l < 5; l++) {
+                    float beamX = -0.1 + float(l) * 0.05;
+                    float beamDistance = abs(stationUV.x - beamX);
+                    
+                    float beam = 1.0 - smoothstep(0.001, 0.003, beamDistance);
+                    beam *= smoothstep(0.7, 0.3, mainBodyLength); // Solo en la parte central
+                    beam *= 0.6;
+                    
+                    supportBeams = max(supportBeams, beam);
+                }
+                
+                // Extremos puntiagudos agresivos
+                float aggressiveTips = 0.0;
+                
+                // Punta frontal
+                if (stationUV.y > 0.7) {
+                    float tipProgress = (stationUV.y - 0.7) / 0.2;
+                    float tipWidth = (1.0 - tipProgress) * 0.08;
+                    float frontTip = 1.0 - smoothstep(tipWidth - 0.01, tipWidth + 0.01, mainBodyWidth);
+                    aggressiveTips = max(aggressiveTips, frontTip * 1.1);
+                }
+                
+                // Punta trasera
+                if (stationUV.y < -0.7) {
+                    float tipProgress = (abs(stationUV.y) - 0.7) / 0.2;
+                    float tipWidth = (1.0 - tipProgress) * 0.08;
+                    float backTip = 1.0 - smoothstep(tipWidth - 0.01, tipWidth + 0.01, mainBodyWidth);
+                    aggressiveTips = max(aggressiveTips, backTip * 1.1);
+                }
+                
+                // Combinación final de la estructura alargada agresiva
+                float elongatedMask = triangularHull;
+                elongatedMask = max(elongatedMask, centralSpine);
+                elongatedMask = max(elongatedMask, lateralStructures);
+                elongatedMask = max(elongatedMask, commandSections);
+                elongatedMask = max(elongatedMask, supportBeams);
+                elongatedMask = max(elongatedMask, aggressiveTips);
+                elongatedMask = max(elongatedMask - panelDetails, 0.0); // Restar paneles hundidos
+                
+                structureMask = clamp(elongatedMask, 0.0, 1.0);
                 mask = structureMask;
             }
 
