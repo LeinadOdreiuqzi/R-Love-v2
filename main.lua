@@ -366,6 +366,19 @@ function love.update(dt)
     if EVAInventoryUI and EVAInventoryUI.update and player and player.isInEVA and player.evaPlayer then
         EVAInventoryUI:update(dt, player.evaPlayer)
     end
+
+    -- Forzar exclusividad de inventarios según modo EVA (cierre automático)
+    if player then
+        if player.isInEVA then
+            if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+                if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
+            end
+        else
+            if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+                if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
+            end
+        end
+    end
     
     -- Actualizar jugador
         if player and type(player.update) == "function" then

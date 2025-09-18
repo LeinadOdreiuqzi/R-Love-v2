@@ -75,10 +75,20 @@ end
 
 -- Abrir/cerrar inventario EVA
 function EVAInventoryUI:toggle()
-    evaUIState.isOpen = not evaUIState.isOpen
-    if not evaUIState.isOpen then
-        evaUIState.selectedSlot = nil
+    if evaUIState.isOpen then
+        self:close()
+    else
+        evaUIState.isOpen = true
     end
+end
+
+-- Cerrar inventario EVA explícitamente
+function EVAInventoryUI:close()
+    if not evaUIState.isOpen then return end
+    evaUIState.isOpen = false
+    evaUIState.selectedSlot = nil
+    evaUIState.modal.isOpen = false
+    evaUIState.modal.slotIndex = nil
 end
 
 -- Verificar si está abierto
@@ -136,7 +146,7 @@ function EVAInventoryUI:drawEVAInventoryPanel(inventory)
     love.graphics.setColor(colors.text)
     love.graphics.print("Inventario EVA (Tab para abrir/cerrar)", layout.panelX + panelPadding, layout.panelY + 5)
     
-    -- Slots de inventario (3 slots horizontales)
+    -- Slots de inventario EVA (3 slots horizontales)
     local startX = layout.panelX + panelPadding
     local startY = layout.panelY + 25
     

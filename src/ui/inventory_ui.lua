@@ -134,13 +134,23 @@ end
 
 -- Abrir/cerrar inventario
 function InventoryUI:toggle()
-    uiState.isOpen = not uiState.isOpen
-    if not uiState.isOpen then
-        -- Limpiar estado de drag al cerrar
-        uiState.draggedItem = nil
-        uiState.draggedFromSlot = nil
-        uiState.draggedFromType = nil
+    if uiState.isOpen then
+        self:close()
+    else
+        uiState.isOpen = true
     end
+end
+
+-- Cerrar inventario explícitamente (usado al cambiar de estado, p.ej. entrar en EVA)
+function InventoryUI:close()
+    if not uiState.isOpen then return end
+    uiState.isOpen = false
+    -- Limpiar estado de drag y modal al cerrar
+    uiState.draggedItem = nil
+    uiState.draggedFromSlot = nil
+    uiState.draggedFromType = nil
+    uiState.draggedFromUpgradeType = nil
+    uiState.modal.isOpen = false
 end
 
 -- Verificar si está abierto

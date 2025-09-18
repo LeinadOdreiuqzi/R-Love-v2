@@ -1,10 +1,12 @@
--- src/entities/naves.lua
+﻿-- src/entities/naves.lua
 -- Sistema de gestión de naves con persistencia de estado individual
 
 local Naves = {}
 local PlayerStats = require 'src.entities.player_stats'
 local EVAPlayer = require 'src.entities.eva_player'
 local InventorySystem = require 'src.maps.systems.inventory_system'
+local InventoryUI = require 'src.ui.inventory_ui'
+local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 
 -- Configuración de tipos de naves
 local SHIP_TYPES = {
@@ -986,6 +988,16 @@ function Naves:enterEVA()
         self.evaPlayer.y = self.y
     end
     self.isInEVA = true
+
+    -- Cerrar inventario de la nave si estuviera abierto al salir a EVA
+    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+        if InventoryUI.close then
+            InventoryUI:close()
+        else
+            -- Fallback por si no existe close
+            InventoryUI:toggle()
+        end
+    end
     
     print("Player entered EVA mode")
     return true
@@ -1000,6 +1012,15 @@ function Naves:exitEVA()
     
     -- Keep EVA player but change state
     self.isInEVA = false
+
+    -- Cerrar inventario EVA si estuviera abierto al volver a la nave
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+        if EVAInventoryUI.close then
+            EVAInventoryUI:close()
+        else
+            EVAInventoryUI:toggle()
+        end
+    end
     
     print("Player returned to ship")
     return true
