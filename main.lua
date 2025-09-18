@@ -4,6 +4,8 @@ local Camera = require 'src.utils.camera'
 local Map = require 'src.maps.map'
 local Naves = require 'src.entities.naves'
 local HUD = require 'src.ui.hud'
+local InventoryUI = require 'src.ui.inventory_ui'
+local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local BiomeSystem = require 'src.maps.biome_system'
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local ChunkManager = require 'src.maps.chunk_manager'
@@ -263,6 +265,15 @@ function love.load()
     -- Inicializar pantalla de carga
     LoadingScreen.init()
     
+    -- Inicializar InventoryUI
+    if InventoryUI and InventoryUI.init then
+        InventoryUI:init()
+    end
+    
+    if EVAInventoryUI and EVAInventoryUI.init then
+        EVAInventoryUI:init()
+    end
+    
     -- Comenzar proceso de carga con la función creadora de iterador
     gameState.isLoading = true
     LoadingScreen.start(loadWorld, function()
@@ -318,6 +329,16 @@ function love.update(dt)
     -- Actualizar HUD (incluye tracking de biomas)
     if HUD and HUD.update then
         HUD.update(dt)
+    end
+    
+    -- Actualizar InventoryUI
+    if InventoryUI and InventoryUI.update then
+        InventoryUI:update(dt)
+    end
+    
+    -- Actualizar EVAInventoryUI
+    if EVAInventoryUI and EVAInventoryUI.update and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:update(dt, player.evaPlayer)
     end
     
     -- Actualizar jugador
@@ -465,6 +486,16 @@ function love.draw()
     
     -- Dibujar HUD (no afectado por la cámara)
     HUD.draw()
+    
+    -- Dibujar InventoryUI (no afectado por la cámara)
+    if InventoryUI and InventoryUI.draw then
+        InventoryUI:draw(player)
+    end
+    
+    -- Dibujar EVAInventoryUI (no afectado por la cámara)
+    if EVAInventoryUI and EVAInventoryUI.draw and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:draw(player.evaPlayer)
+    end
     
     -- Dibujar información de debug de biomas y sistemas en pantalla
     if biomeDebug.enabled then
@@ -932,7 +963,32 @@ function love.keypressed(key)
             player:addFuel(25)
             print("Fuel added")
         end
-    elseif key == "0" then
+    elseif key == "tab" then
+        -- Alternar inventario según el estado del jugador
+        if player and not player.isInEVA then
+            -- Inventario de la nave
+            if InventoryUI then
+                InventoryUI:toggle()
+            end
+        elseif player and player.isInEVA and player.evaPlayer then
+            -- Inventario EVA
+            if EVAInventoryUI then
+                EVAInventoryUI:toggle()
+            end
+        end
+    end
+    
+    -- Manejar teclas específicas del inventario EVA cuando está abierto
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:keypressed(key, player.evaPlayer)
+    end
+    
+    -- Manejar teclas específicas del inventario de la nave cuando está abierto
+    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() and player and not player.isInEVA then
+        InventoryUI:keypressed(key, player)
+    end
+    
+    if key == "0" then
         if player and player.toggleHyperTravel then
             local enabled = player:toggleHyperTravel(100000)
             print("Hyper travel (100k): " .. (enabled and "ON" or "OFF"))
@@ -1012,6 +1068,14 @@ function changeSeedWithLoading(newSeed)
     gameState.loaded = false
     gameState.isLoading = true
     
+    -- Cerrar inventarios si están abiertos
+    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+        InventoryUI:toggle()
+    end
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+        EVAInventoryUI:toggle()
+    end
+    
     -- Limpiar todos los estados (salir de estaciones, etc.)
     if stateManager and stateManager.clear then
         stateManager:clear()
@@ -1057,6 +1121,14 @@ function changeSeed(newSeed)
 end
 
 function regenerateMap(seed)
+    -- Cerrar inventarios si están abiertos
+    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+        InventoryUI:toggle()
+    end
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+        EVAInventoryUI:toggle()
+    end
+    
     -- Regenerar mapa con nueva semilla usando el sistema mejorado
     Map.regenerate(seed)
     
@@ -1096,6 +1168,40 @@ function regenerateMap(seed)
     print("=== NEW ENHANCED GALAXY GENERATED ===")
     print("Alphanumeric Seed: " .. seed)
     print("Numeric Seed: " .. SeedSystem.toNumeric(seed))
+end
+
+function love.mousepressed(x, y, button)
+    if not gameState.loaded then return end
+    
+    -- Delegar primero al gestor de estados
+    if stateManager and stateManager.mousepressed and stateManager:mousepressed(x, y, button) then
+        return
+    end
+    
+    -- Manejar input del inventario EVA
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:mousepressed(x, y, button, player.evaPlayer)
+        return
+    end
+    
+    -- Manejar input del inventario de la nave
+    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+        InventoryUI:mousepressed(x, y, button, player)
+    end
+end
+
+function love.mousereleased(x, y, button)
+    if not gameState.loaded then return end
+    
+    -- Delegar primero al gestor de estados
+    if stateManager and stateManager.mousereleased and stateManager:mousereleased(x, y, button) then
+        return
+    end
+    
+    -- Manejar input del inventario
+    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+        InventoryUI:mousereleased(x, y, button, player)
+    end
 end
 
 function love.resize(w, h)

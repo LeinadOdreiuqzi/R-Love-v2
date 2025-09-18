@@ -4,6 +4,7 @@
 local Naves = {}
 local PlayerStats = require 'src.entities.player_stats'
 local EVAPlayer = require 'src.entities.eva_player'
+local InventorySystem = require 'src.maps.systems.inventory_system'
 
 -- Configuración de tipos de naves
 local SHIP_TYPES = {
@@ -139,6 +140,9 @@ function Naves:new(x, y, shipType)
     player.stats.shield.currentShield = shipConfig.maxShield
     player.stats.fuel.maxFuel = shipConfig.maxFuel
     player.stats.fuel.currentFuel = shipConfig.maxFuel
+    
+    -- Sistema de inventario
+    player.inventory = InventorySystem:new(shipType)
     
     -- Configuraciones específicas de la nave
     player.shipSettings = {

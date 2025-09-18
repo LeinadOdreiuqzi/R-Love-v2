@@ -3,6 +3,7 @@
 
 local EVAPlayer = {}
 local PlayerStats = require 'src.entities.player_stats'
+local EVAInventorySystem = require 'src.maps.systems.eva_inventory_system'
 
 function EVAPlayer:new(x, y, shipRef)
     local evaPlayer = {}
@@ -50,6 +51,9 @@ function EVAPlayer:new(x, y, shipRef)
     
     -- Stats system (compartido con la nave)
     evaPlayer.stats = PlayerStats:new()
+    
+    -- Sistema de inventario específico para EVA (3 slots)
+    evaPlayer.inventory = EVAInventorySystem:new()
     
     return evaPlayer
 end
