@@ -43,6 +43,7 @@ local SHIP_TYPES = {
 -- Registro global de naves
 local shipRegistry = {}
 local nextShipId = 1
+local allShips = {}  -- Lista de todas las naves creadas
 
 function Naves:new(x, y, shipType)
     shipType = shipType or "EXPLORER"
@@ -172,6 +173,11 @@ function Naves:new(x, y, shipType)
         stats = player.stats,
         settings = player.shipSettings,
         damageState = player.damageState,
+        inventory = {
+            items = player.inventory.items,
+            upgradeSlots = player.inventory.upgradeSlots,
+            shipType = player.inventory.shipType
+        },
         lastSeen = love.timer.getTime()
     }
     
@@ -180,6 +186,9 @@ function Naves:new(x, y, shipType)
     player.evaPlayer = nil
     player.evaKeyPressed = false  -- Para evitar activación múltiple
     player.sKeyPressed = false    -- Para detectar combinación S+E
+    
+    -- Agregar nave a la lista global
+    table.insert(allShips, player)
     
     return player
 end
@@ -830,6 +839,12 @@ function Naves:updateShipRegistry()
         shipRegistry[self.shipId].stats = self.stats
         shipRegistry[self.shipId].settings = self.shipSettings
         shipRegistry[self.shipId].damageState = self.damageState
+        -- Actualizar inventario en el registro
+        shipRegistry[self.shipId].inventory = self.inventory and {
+            items = self.inventory.items,
+            upgradeSlots = self.inventory.upgradeSlots,
+            shipType = self.inventory.shipType
+        } or nil
         shipRegistry[self.shipId].lastSeen = love.timer.getTime()
     end
 end
@@ -859,6 +874,12 @@ function Naves:saveShipState()
         },
         settings = self.shipSettings,
         damageState = self.damageState,
+        -- Guardar inventario específico de la nave
+        inventory = self.inventory and {
+            items = self.inventory.items,
+            upgradeSlots = self.inventory.upgradeSlots,
+            shipType = self.inventory.shipType
+        } or nil,
         timestamp = love.timer.getTime()
     }
     return state
@@ -895,6 +916,22 @@ function Naves:loadShipState(state)
     end
     if state.damageState then
         self.damageState = state.damageState
+    end
+    
+    -- Restaurar inventario específico de la nave
+    if state.inventory then
+        -- Si ya existe un inventario, restaurar su estado
+        if self.inventory then
+            self.inventory.items = state.inventory.items or {}
+            self.inventory.upgradeSlots = state.inventory.upgradeSlots or {}
+            self.inventory.shipType = state.inventory.shipType or self.shipType
+        else
+            -- Crear nuevo inventario con el estado guardado
+            local InventorySystem = require 'src.maps.systems.inventory_system'
+            self.inventory = InventorySystem:new(state.inventory.shipType or self.shipType)
+            self.inventory.items = state.inventory.items or {}
+            self.inventory.upgradeSlots = state.inventory.upgradeSlots or {}
+        end
     end
     
     self:updateShipRegistry()
@@ -1079,6 +1116,58 @@ function Naves:drawAbandonedShip()
     
     -- Restore the graphics state
     love.graphics.pop()
+end
+
+-- Funciones estáticas para gestión de naves
+function Naves.getAllShips()
+    return allShips
+end
+
+function Naves.getShipById(shipId)
+    for _, ship in ipairs(allShips) do
+        if ship.shipId == shipId then
+            return ship
+        end
+    end
+    return nil
+end
+
+function Naves.getShipRegistry()
+    return shipRegistry
+end
+
+function Naves.switchToShip(targetShip, currentShip)
+    if not targetShip or not currentShip then
+        print("[SHIP SWITCH] Error: Invalid ships provided")
+        return false
+    end
+    
+    -- Guardar estado de la nave actual
+    local currentState = currentShip:saveShipState()
+    print("[SHIP SWITCH] Saved state for ship", currentShip.shipId, "(", currentShip.shipName, ")")
+    
+    -- Cargar estado de la nave objetivo
+    local targetState = targetShip:saveShipState()
+    print("[SHIP SWITCH] Switching to ship", targetShip.shipId, "(", targetShip.shipName, ")")
+    
+    -- Transferir posición de cámara/jugador
+    targetShip.x = currentShip.x
+    targetShip.y = currentShip.y
+    
+    print("[SHIP SWITCH] Ship switch completed successfully")
+    print("  From:", currentShip.shipName, "(Type:", currentShip.shipType, ")")
+    print("  To:", targetShip.shipName, "(Type:", targetShip.shipType, ")")
+    
+    -- Mostrar inventario de la nueva nave para verificar persistencia
+    if targetShip.inventory and targetShip.inventory.items then
+        local itemCount = 0
+        for slot, item in pairs(targetShip.inventory.items) do
+            if item then itemCount = itemCount + 1 end
+        end
+        print("  Inventory items:", itemCount)
+    end
+    
+    return true
 end
 
 return Naves

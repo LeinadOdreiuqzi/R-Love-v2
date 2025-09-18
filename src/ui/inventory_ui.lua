@@ -619,10 +619,38 @@ function InventoryUI:useItem(slotIndex, slotType, upgradeType, player)
         item = player.inventory.upgradeSlots[upgradeType] and player.inventory.upgradeSlots[upgradeType][slotIndex]
     end
     
-    if item then
-        -- Aquí puedes agregar lógica específica para usar/equipar items
-        print("Usando item: " .. (item.data.name or "Unknown"))
-        -- Por ahora solo mostramos un mensaje
+    if item and item.data then
+        -- Integración con el sistema de items
+        local ItemSystem = require 'src.item_systems.items.init'
+        local itemData = ItemSystem.getItem(item.data.id)
+        
+        if itemData then
+            if itemData.category == "consumable" then
+                -- Usar item consumible
+                local success = ItemSystem.useItem(item.data.id, player)
+                if success then
+                    -- Remover item del inventario si se usó exitosamente
+                    if slotType == "inventory" then
+                        player.inventory.items[slotIndex] = nil
+                    end
+                    print("Usado: " .. itemData.name)
+                else
+                    print("No se pudo usar: " .. itemData.name)
+                end
+            elseif itemData.category == "equipable" then
+                -- Equipar item
+                local success = ItemSystem.equipItem(item.data.id, player)
+                if success then
+                    print("Equipado: " .. itemData.name)
+                else
+                    print("No se pudo equipar: " .. itemData.name)
+                end
+            else
+                print("Item: " .. itemData.name .. " (" .. itemData.category .. ")")
+            end
+        else
+            print("Usando item: " .. (item.data.name or "Unknown"))
+        end
     end
 end
 
@@ -687,6 +715,83 @@ function InventoryUI:getUpgradeSlotAt(x, y)
     end
     
     return nil, nil
+end
+
+-- Obtener color por rareza de item
+function InventoryUI:getItemRarityColor(item)
+    if not item or not item.data then
+        return uiState.colors.rarity.common
+    end
+    
+    local ItemSystem = require 'src.item_systems.items.init'
+    local itemData = ItemSystem.getItem(item.data.id)
+    
+    if itemData and itemData.rarity then
+        return uiState.colors.rarity[itemData.rarity] or uiState.colors.rarity.common
+    end
+    
+    return uiState.colors.rarity.common
+end
+
+-- Obtener información detallada de item
+function InventoryUI:getItemInfo(item)
+    if not item or not item.data then
+        return nil
+    end
+    
+    local ItemSystem = require 'src.item_systems.items.init'
+    local itemData = ItemSystem.getItem(item.data.id)
+    
+    if itemData then
+        return {
+            name = itemData.name,
+            description = itemData.description,
+            category = itemData.category,
+            rarity = itemData.rarity,
+            effects = itemData.effects
+        }
+    end
+    
+    return {
+        name = item.data.name or "Unknown Item",
+        description = "No description available",
+        category = "unknown",
+        rarity = "common",
+        effects = {}
+    }
+end
+
+-- Crear inventario de prueba con items del sistema
+function InventoryUI:createTestInventory(player)
+    local ItemSystem = require 'src.item_systems.items.init'
+    
+    -- Limpiar inventario actual
+    player.inventory.items = {}
+    
+    -- Agregar algunos items de prueba
+    local testItems = {
+        "eva_repair_kit",
+        "energy_cell",
+        "neural_implant_basic",
+        "laser_pistol_basic",
+        "metal_scrap",
+        "energy_crystal"
+    }
+    
+    for i, itemId in ipairs(testItems) do
+        local itemData = ItemSystem.getItem(itemId)
+        if itemData then
+            player.inventory.items[i] = {
+                data = {
+                    id = itemId,
+                    name = itemData.name,
+                    quantity = 1
+                }
+            }
+        end
+    end
+    
+    print("[INVENTORY] Inventario de prueba creado con " .. #testItems .. " items")
 end
 
 return InventoryUI

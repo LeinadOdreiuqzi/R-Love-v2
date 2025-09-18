@@ -17,6 +17,9 @@ local StateManager = require 'src.states.state_manager'
 local StationScene = require 'src.states.station_scene'
 local stateManager = StateManager:new()
 
+-- Sistema de items
+local ItemSystem = require 'src.item_systems.items.init'
+
 -- Nuevos módulos de gameplay (esqueleto, sin efectos en comportamiento)
 local RunState = require 'src.gameplay.run_state'
 local GameDirector = require 'src.gameplay.game_director'
@@ -181,12 +184,27 @@ local function loadWorld(updateProgress)
     end
     
     table.insert(loadSteps, function()
-        -- Paso 9: Crear jugador
-        updateProgress("player", "Creating player entity...")
+        -- Paso 9: Crear jugador y naves adicionales para testing
+        updateProgress("player", "Creating player entity and test ships...")
         
-        -- Crear jugador en el centro
+        -- Crear jugador principal (Explorer) en el centro
         local playerX, playerY = 0, 0
-        player = Naves:new(playerX, playerY)
+        player = Naves:new(playerX, playerY, "EXPLORER")
+        
+        -- Crear naves adicionales de diferentes tipos para testing de persistencia
+        -- Fighter a 500 unidades al este
+        local fighterShip = Naves:new(playerX + 500, playerY, "FIGHTER")
+        
+        -- Cargo a 500 unidades al oeste
+        local cargoShip = Naves:new(playerX - 500, playerY, "CARGO")
+        
+        -- Las naves se crean con inventarios vacíos para testing de persistencia
+        -- Los items se pueden agregar manualmente durante el juego para probar la persistencia
+        
+        print("[TESTING] Naves creadas para testing de persistencia:")
+        print("  Player (Explorer): ID", player.shipId, "en posición (0, 0)")
+        print("  Fighter: ID", fighterShip.shipId, "en posición (500, 0)")
+        print("  Cargo: ID", cargoShip.shipId, "en posición (-500, 0)")
         
         -- Configurar iluminación inicial
         if lighting then
@@ -264,6 +282,12 @@ function love.load()
     
     -- Inicializar pantalla de carga
     LoadingScreen.init()
+    
+    -- Inicializar sistema de items
+    if ItemSystem and ItemSystem.initialize then
+        ItemSystem.initialize()
+        print("[MAIN] Sistema de items inicializado")
+    end
     
     -- Inicializar InventoryUI
     if InventoryUI and InventoryUI.init then
@@ -889,7 +913,12 @@ function love.keypressed(key)
         print("Enhanced grid display: " .. (_G.showGrid and "ON" or "OFF"))
     elseif key == "f5" then
         HUD.toggleDebugMenu()
-    -- Toggle de iluminación eliminado
+    elseif key == "1" then
+        -- Crear inventario de prueba con items del sistema
+        if player and InventoryUI then
+            InventoryUI:createTestInventory(player)
+            print("[DEBUG] Presiona 'I' para abrir el inventario y probar los items")
+        end
     elseif key == "f6" then
         -- Toggle del overlay de performance (antes: daño de prueba)
         biomeDebug.showPerformanceOverlay = not biomeDebug.showPerformanceOverlay
@@ -1039,6 +1068,7 @@ function love.keypressed(key)
                 end
             end
         end
+
     end
 end
 
