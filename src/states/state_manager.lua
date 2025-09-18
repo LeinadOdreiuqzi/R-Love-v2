@@ -154,4 +154,22 @@ function StateManager:resize(w, h)
     end
 end
 
+-- Limpiar todos los estados de la pila (útil para regeneración de mundo)
+function StateManager:clear()
+    -- Llamar exit en todos los estados antes de limpiar
+    for i = #self.stack, 1, -1 do
+        local st = self.stack[i]
+        if st and st.exit then
+            st:exit()
+        end
+    end
+    
+    -- Limpiar la pila
+    self.stack = {}
+    
+    -- Resetear transición
+    self.transition.active = false
+    self.transition.t = 0
+end
+
 return StateManager

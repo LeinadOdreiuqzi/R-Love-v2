@@ -1012,6 +1012,12 @@ function changeSeedWithLoading(newSeed)
     gameState.loaded = false
     gameState.isLoading = true
     
+    -- Limpiar todos los estados (salir de estaciones, etc.)
+    if stateManager and stateManager.clear then
+        stateManager:clear()
+        print("[DEBUG] Estados limpiados - jugador fuera de estaciones")
+    end
+    
     -- Limpiar recursos existentes
     if ChunkManager and ChunkManager.cleanup then
         ChunkManager.cleanup()
@@ -1056,6 +1062,12 @@ function regenerateMap(seed)
     
     -- Reposicionar jugador al centro
     if player then
+        -- Forzar salida del modo EVA si está activo
+        if player.isInEVA and player.exitEVA then
+            player:exitEVA()
+            print("[DEBUG] Forced exit from EVA mode during world regeneration")
+        end
+        
         player.x = 0
         player.y = 0
         player.dx = 0
