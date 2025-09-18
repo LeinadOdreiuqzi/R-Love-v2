@@ -14,7 +14,7 @@ StationShaders.state = {
             [1] = { intensity = 0.6, exponent = 24.0 },  -- LOD alto: especular medio
             [2] = { intensity = 0.4, exponent = 16.0 },  -- LOD medio: especular reducido
             [3] = { intensity = 0.2, exponent = 12.0 },  -- LOD bajo: especular mínimo
-            [4] = { intensity = 0.1, exponent = 8.0 }    -- LOD mínimo: especular muy bajo
+            [4] = { intensity = 0.2, exponent = 8.0 }    -- LOD mínimo: especular muy bajo
         },
         rimLight = {
             [0] = { intensity = 0.35, width = 2.0 },     -- LOD máximo: rim intenso

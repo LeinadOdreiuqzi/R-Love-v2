@@ -2,7 +2,7 @@
 
 local Camera = require 'src.utils.camera'
 local Map = require 'src.maps.map'
-local Player = require 'src.entities.player'
+local Naves = require 'src.entities.naves'
 local HUD = require 'src.ui.hud'
 local BiomeSystem = require 'src.maps.biome_system'
 local CoordinateSystem = require 'src.maps.coordinate_system'
@@ -14,6 +14,10 @@ local FullscreenManager = require 'src.utils.fullscreen_manager'
 local StateManager = require 'src.states.state_manager'
 local StationScene = require 'src.states.station_scene'
 local stateManager = StateManager:new()
+
+-- Nuevos módulos de gameplay (esqueleto, sin efectos en comportamiento)
+local RunState = require 'src.gameplay.run_state'
+local GameDirector = require 'src.gameplay.game_director'
 
 -- Estado del juego con semilla alfanumérica
 local gameState = {
@@ -29,6 +33,7 @@ local gameState = {
 _G.camera = nil
 _G.showGrid = false
 local player
+local runState, gameDirector
 
 -- Sistema de debug para biomas y sistemas avanzados
 local biomeDebug = {
@@ -179,7 +184,7 @@ local function loadWorld(updateProgress)
         
         -- Crear jugador en el centro
         local playerX, playerY = 0, 0
-        player = Player:new(playerX, playerY)
+        player = Naves:new(playerX, playerY)
         
         -- Configurar iluminación inicial
         if lighting then
@@ -190,16 +195,31 @@ local function loadWorld(updateProgress)
     end)
     
     table.insert(loadSteps, function()
-        -- Paso 10: Cargar interfaz
-        updateProgress("hud", "Loading user interface...")
+        -- Paso 10: Inicializar sistemas de juego
+        updateProgress("game_systems", "Initializing game systems...")
         
-        -- Inicializar HUD
-        HUD.init(gameState, player, Map)
+        -- Inicializar RunState y GameDirector
+        runState = RunState:new({ seed = gameState.currentSeed })
+        gameDirector = GameDirector:new(runState)
+        
+        print("[MAIN DEBUG] Sistemas inicializados:")
+        print("  runState:", runState and "CREADO" or "NIL")
+        print("  gameDirector:", gameDirector and "CREADO" or "NIL")
+        
         return true
     end)
     
     table.insert(loadSteps, function()
-        -- Paso 11: Finalizar
+        -- Paso 11: Cargar interfaz
+        updateProgress("hud", "Loading user interface...")
+        
+        -- Inicializar HUD
+        HUD.init(gameState, player, Map, gameDirector, runState)
+        return true
+    end)
+    
+    table.insert(loadSteps, function()
+        -- Paso 12: Finalizar
         updateProgress("finalize", "Finalizing universe generation...")
         
         -- Últimas verificaciones y configuraciones
@@ -249,6 +269,11 @@ function love.load()
         -- Callback cuando termina la carga
         print("=== LOADING COMPLETE ===")
         print("Welcome to the universe!")
+        
+        -- Los sistemas ya fueron inicializados durante la carga
+        print("[MAIN DEBUG] Sistemas ya disponibles:")
+        print("  runState:", runState and "DISPONIBLE" or "NIL")
+        print("  gameDirector:", gameDirector and "DISPONIBLE" or "NIL")
     end)
 end
 
@@ -277,7 +302,11 @@ function love.update(dt)
             return
         end
     end
-    
+
+    -- Actualizar RunState y GameDirector (no-op por ahora)
+    if runState then runState:update(dt) end
+    if gameDirector then gameDirector:update(dt) end
+
     -- Actualizar estadísticas avanzadas
     updateAdvancedStats(dt)
     
@@ -292,12 +321,17 @@ function love.update(dt)
     end
     
     -- Actualizar jugador
-    if player and type(player.update) == "function" then
-        local success, err = pcall(function() player:update(dt) end)
-        if not success then
-            print("Error updating player:", err)
+        if player and type(player.update) == "function" then
+            local success, err = pcall(function() player:update(dt) end)
+            if not success then
+                print("Error updating player:", err)
+            end
+            
+            -- Conectar estado de boost del jugador con GameDirector
+            if gameDirector and player.isBoostActive ~= nil then
+                gameDirector:setPlayerBoosting(player.isBoostActive)
+            end
         end
-    end
     
     -- Obtener velocidad del jugador para precarga direccional
     local playerVelX, playerVelY = 0, 0
@@ -325,10 +359,11 @@ function love.update(dt)
         OptimizedRenderer.update(dt, player and player.x or 0, player and player.y or 0, _G.camera)
     end
     
-    -- Actualizar cámara para seguir al jugador
+    -- Actualizar cámara para seguir la entidad activa (nave o EVA player)
     if _G.camera and type(_G.camera.follow) == "function" then
         local success, err = pcall(function()
-            _G.camera:follow(player, dt)
+            local activeEntity = player:getActiveEntity()
+            _G.camera:follow(activeEntity, dt)
         end)
         if not success then
             print("Error updating camera:", err)
@@ -821,6 +856,8 @@ function love.keypressed(key)
     elseif key == "f4" then
         _G.showGrid = not _G.showGrid
         print("Enhanced grid display: " .. (_G.showGrid and "ON" or "OFF"))
+    elseif key == "f5" then
+        HUD.toggleDebugMenu()
     -- Toggle de iluminación eliminado
     elseif key == "f6" then
         -- Toggle del overlay de performance (antes: daño de prueba)
@@ -983,6 +1020,18 @@ function changeSeedWithLoading(newSeed)
     -- Comenzar nueva carga usando la función creadora de iterador
     LoadingScreen.start(loadWorld, function()
         print("New world generated with seed: " .. newSeed)
+        -- Sincronizar estado de la run y director con la nueva semilla (no-op visual)
+        if runState and runState.reset then
+            runState:reset(newSeed)
+        else
+            runState = RunState:new({ seed = newSeed })
+        end
+        if gameDirector and gameDirector.reset then
+            gameDirector:reset()
+            if gameDirector.setRunState then gameDirector:setRunState(runState) end
+        else
+            gameDirector = GameDirector:new(runState)
+        end
     end)
 end
 
@@ -1030,7 +1079,7 @@ function regenerateMap(seed)
     CoordinateSystem.init(0, 0)
     
     -- Actualizar referencias del HUD
-    HUD.updateReferences(gameState, player, Map)
+    HUD.updateReferences(gameState, player, Map, gameDirector, runState)
     
     print("=== NEW ENHANCED GALAXY GENERATED ===")
     print("Alphanumeric Seed: " .. seed)

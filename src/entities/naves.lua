@@ -1,12 +1,62 @@
--- src/entities/player.lua
+-- src/entities/naves.lua
+-- Sistema de gestión de naves con persistencia de estado individual
 
-local Player = {}
+local Naves = {}
 local PlayerStats = require 'src.entities.player_stats'
+local EVAPlayer = require 'src.entities.eva_player'
 
-function Player:new(x, y)
+-- Configuración de tipos de naves
+local SHIP_TYPES = {
+    EXPLORER = {
+        name = "Explorer",
+        maxFuel = 1000,
+        maxHealth = 100,
+        maxShield = 50,
+        hyperTravelCapable = true,
+        boostMultiplier = 1.8,
+        maxSpeed = 80,
+        acceleration = 12
+    },
+    FIGHTER = {
+        name = "Fighter",
+        maxFuel = 600,
+        maxHealth = 80,
+        maxShield = 30,
+        hyperTravelCapable = false,
+        boostMultiplier = 2.2,
+        maxSpeed = 120,
+        acceleration = 18
+    },
+    CARGO = {
+        name = "Cargo",
+        maxFuel = 1500,
+        maxHealth = 150,
+        maxShield = 80,
+        hyperTravelCapable = true,
+        boostMultiplier = 1.3,
+        maxSpeed = 50,
+        acceleration = 8
+    }
+}
+
+-- Registro global de naves
+local shipRegistry = {}
+local nextShipId = 1
+
+function Naves:new(x, y, shipType)
+    shipType = shipType or "EXPLORER"
+    local shipConfig = SHIP_TYPES[shipType] or SHIP_TYPES.EXPLORER
+    
     local player = {}
     setmetatable(player, self)
     self.__index = self
+    
+    -- Información de la nave
+    player.shipId = nextShipId
+    nextShipId = nextShipId + 1
+    player.shipType = shipType
+    player.shipName = shipConfig.name .. " #" .. player.shipId
+    player.shipConfig = shipConfig
     
     -- Position and movement
     player.x = x or 0
@@ -14,11 +64,11 @@ function Player:new(x, y)
     player.dx = 0  -- Velocity X
     player.dy = 0  -- Velocity Y
     
-    -- Movement parameters (VELOCIDADES REDUCIDAS Y BALANCEADAS)
-    player.maxSpeed = 80            -- Maximum speed (reducido significativamente)
-    player.forwardAccel = 12        -- Forward acceleration (reducido)
-    player.strafeAccel = 8          -- Strafe acceleration (A/D keys) - reducido
-    player.backwardAccel = 6        -- Backward acceleration (S key) - reducido
+    -- Movement parameters basados en configuración de nave
+    player.maxSpeed = shipConfig.maxSpeed
+    player.forwardAccel = shipConfig.acceleration
+    player.strafeAccel = shipConfig.acceleration * 0.7
+    player.backwardAccel = shipConfig.acceleration * 0.5
     player.drag = 0.94              -- More drag for better control
     player.brakePower = 0.8         -- Improved drift braking
     
@@ -28,7 +78,7 @@ function Player:new(x, y)
      player.driftActivation = 6      -- Umbral reducido para activar drift
      player.driftTransition = 0.95   -- Transición más controlada
      player.gradualBraking = 0.85    -- Frenado más efectivo
-     player.boostMultiplier = 1.8    -- Multiplicador para boost temporal (reducido)
+     player.boostMultiplier = shipConfig.boostMultiplier
      player.boostDuration = 0        -- Duración actual del boost
      player.maxBoostDuration = 1.2   -- Duración máxima del boost (reducida)
      
@@ -81,13 +131,100 @@ function Player:new(x, y)
     player.engineGlow = 0
     player.thrusterParticles = {}
     
-    -- Stats system
+    -- Stats system basados en configuración de nave
     player.stats = PlayerStats:new()
+    player.stats.health.maxHealth = shipConfig.maxHealth
+    player.stats.health.currentHealth = shipConfig.maxHealth
+    player.stats.shield.maxShield = shipConfig.maxShield
+    player.stats.shield.currentShield = shipConfig.maxShield
+    player.stats.fuel.maxFuel = shipConfig.maxFuel
+    player.stats.fuel.currentFuel = shipConfig.maxFuel
+    
+    -- Configuraciones específicas de la nave
+    player.shipSettings = {
+        hyperTravelEnabled = shipConfig.hyperTravelCapable,
+        hyperTravelRange = shipConfig.hyperTravelCapable and 100000 or 0,
+        autoRepairEnabled = true,
+        shieldRegenRate = 1.0,
+        fuelEfficiency = 1.0,
+        damageResistance = 1.0
+    }
+    
+    -- Estado de daño específico de la nave
+    player.damageState = {
+        hullIntegrity = 100,
+        engineEfficiency = 100,
+        shieldGeneratorStatus = 100,
+        hyperDriveStatus = shipConfig.hyperTravelCapable and 100 or 0,
+        lifeSupportStatus = 100
+    }
+    
+    -- Registrar nave en el sistema
+    shipRegistry[player.shipId] = {
+        id = player.shipId,
+        type = shipType,
+        name = player.shipName,
+        position = {x = x or 0, y = y or 0},
+        stats = player.stats,
+        settings = player.shipSettings,
+        damageState = player.damageState,
+        lastSeen = love.timer.getTime()
+    }
+    
+    -- EVA (Extra-Vehicular Activity) system
+    player.isInEVA = false
+    player.evaPlayer = nil
+    player.evaKeyPressed = false  -- Para evitar activación múltiple
+    player.sKeyPressed = false    -- Para detectar combinación S+E
     
     return player
 end
 
-function Player:loadSprite()
+-- Métodos estáticos para gestión de naves
+function Naves.getShipRegistry()
+    return shipRegistry
+end
+
+function Naves.getShipById(shipId)
+    return shipRegistry[shipId]
+end
+
+function Naves.getAllShips()
+    local ships = {}
+    for id, ship in pairs(shipRegistry) do
+        table.insert(ships, ship)
+    end
+    return ships
+end
+
+function Naves.getNearbyShips(x, y, radius)
+    local nearbyShips = {}
+    radius = radius or 500
+    
+    for id, ship in pairs(shipRegistry) do
+        local distance = math.sqrt((ship.position.x - x)^2 + (ship.position.y - y)^2)
+        if distance <= radius then
+            table.insert(nearbyShips, {
+                ship = ship,
+                distance = distance
+            })
+        end
+    end
+    
+    -- Ordenar por distancia
+    table.sort(nearbyShips, function(a, b) return a.distance < b.distance end)
+    return nearbyShips
+end
+
+function Naves.createShip(x, y, shipType)
+    return Naves:new(x, y, shipType)
+end
+
+function Naves.removeShip(shipId)
+    shipRegistry[shipId] = nil
+end
+
+function Naves:loadSprite()
     -- Try to load the ship sprite
     local spritePath = "assets/images/nave.png"
     
@@ -112,9 +249,20 @@ function Player:loadSprite()
     end
 end
 
-function Player:update(dt)
+function Naves:update(dt)
+    -- Actualizar registro de nave
+    self:updateShipRegistry()
     -- Ensure we have a valid delta time
     dt = math.min(dt or 1/60, 1/30)
+    
+    -- Handle EVA controls first
+    self:handleEVAControls()
+    
+    -- If in EVA mode, update EVA player instead of ship
+    if self.isInEVA then
+        self:updateEVA(dt)
+        return  -- Don't update ship physics when in EVA
+    end
     
     -- Update input state and handle rotation
     self:handleInput()
@@ -150,8 +298,14 @@ function Player:update(dt)
     
     -- SISTEMA DE BOOST TEMPORAL
     if self.input.boost and self.boostDuration < self.maxBoostDuration then
+        local wasBoostActive = self.isBoostActive
         self.boostDuration = math.min(self.maxBoostDuration, self.boostDuration + dt)
         self.isBoostActive = true
+        
+        -- Incrementar contador de boosts en RunState cuando se activa por primera vez
+        if not wasBoostActive and _G.runState and _G.runState.incrementBoosts then
+            _G.runState:incrementBoosts()
+        end
     else
         self.boostDuration = math.max(0, self.boostDuration - dt * 2)  -- Se agota más rápido
         self.isBoostActive = false
@@ -328,7 +482,7 @@ function Player:update(dt)
     self.stats:update(dt, isMoving)
 end
 
-function Player:handleInput()
+function Naves:handleInput()
     -- Update input states
     self.input = {
         -- Movement controls
@@ -368,7 +522,7 @@ function Player:handleInput()
     end
 end
 
-function Player:updateThrusterParticles(dt)
+function Naves:updateThrusterParticles(dt)
     -- Add new particles when moving forward
     if self.input.forward and math.random() < 0.8 and self.stats:canMove() then
         -- Calculate thruster position based on sprite or fallback size
@@ -408,19 +562,26 @@ function Player:updateThrusterParticles(dt)
 end
 
 -- Functions for testing damage and fuel
-function Player:takeDamage(damage)
+function Naves:takeDamage(damage)
     return self.stats:takeDamage(damage)
 end
 
-function Player:heal(amount)
+function Naves:heal(amount)
     self.stats:heal(amount)
 end
 
-function Player:addFuel(amount)
+function Naves:addFuel(amount)
     self.stats:addFuel(amount)
 end
 
-function Player:draw()
+function Naves:draw()
+    -- If in EVA mode, draw both the abandoned ship and the EVA player
+    if self.isInEVA then
+        self:drawAbandonedShip()
+        self:drawEVA()
+        return
+    end
+    
     -- Thruster particles have been removed as requested
     
     -- Save the current graphics state
@@ -628,7 +789,7 @@ function Player:draw()
     -- Restore the graphics state
     love.graphics.pop()
 end
-function Player:toggleHyperTravel(targetMaxSpeed)
+function Naves:toggleHyperTravel(targetMaxSpeed)
     self.hyperTravelEnabled = not self.hyperTravelEnabled
     
     if self.hyperTravelEnabled then
@@ -657,4 +818,263 @@ function Player:toggleHyperTravel(targetMaxSpeed)
     
     return self.hyperTravelEnabled
 end
-return Player
+
+-- Métodos de persistencia de estado
+function Naves:updateShipRegistry()
+    if shipRegistry[self.shipId] then
+        shipRegistry[self.shipId].position = {x = self.x, y = self.y}
+        shipRegistry[self.shipId].stats = self.stats
+        shipRegistry[self.shipId].settings = self.shipSettings
+        shipRegistry[self.shipId].damageState = self.damageState
+        shipRegistry[self.shipId].lastSeen = love.timer.getTime()
+    end
+end
+
+function Naves:saveShipState()
+    -- Guardar estado completo de la nave
+    local state = {
+        shipId = self.shipId,
+        shipType = self.shipType,
+        shipName = self.shipName,
+        position = {x = self.x, y = self.y},
+        velocity = {dx = self.dx, dy = self.dy},
+        rotation = self.rotation,
+        stats = {
+            health = {
+                current = self.stats.health.currentHealth,
+                max = self.stats.health.maxHealth
+            },
+            shield = {
+                current = self.stats.shield.currentShield,
+                max = self.stats.shield.maxShield
+            },
+            fuel = {
+                current = self.stats.fuel.currentFuel,
+                max = self.stats.fuel.maxFuel
+            }
+        },
+        settings = self.shipSettings,
+        damageState = self.damageState,
+        timestamp = love.timer.getTime()
+    }
+    return state
+end
+
+function Naves:loadShipState(state)
+    if not state then return false end
+    
+    self.x = state.position.x
+    self.y = state.position.y
+    self.dx = state.velocity.dx or 0
+    self.dy = state.velocity.dy or 0
+    self.rotation = state.rotation or 0
+    
+    -- Restaurar estadísticas
+    if state.stats then
+        if state.stats.health then
+            self.stats.health.currentHealth = state.stats.health.current
+            self.stats.health.maxHealth = state.stats.health.max
+        end
+        if state.stats.shield then
+            self.stats.shield.currentShield = state.stats.shield.current
+            self.stats.shield.maxShield = state.stats.shield.max
+        end
+        if state.stats.fuel then
+            self.stats.fuel.currentFuel = state.stats.fuel.current
+            self.stats.fuel.maxFuel = state.stats.fuel.max
+        end
+    end
+    
+    -- Restaurar configuraciones y estado de daño
+    if state.settings then
+        self.shipSettings = state.settings
+    end
+    if state.damageState then
+        self.damageState = state.damageState
+    end
+    
+    self:updateShipRegistry()
+    return true
+end
+
+function Naves:applyDamage(damageType, amount)
+    -- Aplicar daño específico por tipo
+    amount = amount * (self.shipSettings.damageResistance or 1.0)
+    
+    if damageType == "hull" then
+        self.damageState.hullIntegrity = math.max(0, self.damageState.hullIntegrity - amount)
+        self.stats.health.currentHealth = math.max(0, self.stats.health.currentHealth - amount)
+    elseif damageType == "engine" then
+        self.damageState.engineEfficiency = math.max(0, self.damageState.engineEfficiency - amount)
+    elseif damageType == "shield" then
+        self.damageState.shieldGeneratorStatus = math.max(0, self.damageState.shieldGeneratorStatus - amount)
+    elseif damageType == "hyperdrive" then
+        self.damageState.hyperDriveStatus = math.max(0, self.damageState.hyperDriveStatus - amount)
+    elseif damageType == "lifesupport" then
+        self.damageState.lifeSupportStatus = math.max(0, self.damageState.lifeSupportStatus - amount)
+    end
+    
+    self:updateShipRegistry()
+end
+
+function Naves:repairSystem(systemType, amount)
+    -- Reparar sistema específico
+    if systemType == "hull" then
+        self.damageState.hullIntegrity = math.min(100, self.damageState.hullIntegrity + amount)
+    elseif systemType == "engine" then
+        self.damageState.engineEfficiency = math.min(100, self.damageState.engineEfficiency + amount)
+    elseif systemType == "shield" then
+        self.damageState.shieldGeneratorStatus = math.min(100, self.damageState.shieldGeneratorStatus + amount)
+    elseif systemType == "hyperdrive" then
+        self.damageState.hyperDriveStatus = math.min(100, self.damageState.hyperDriveStatus + amount)
+    elseif systemType == "lifesupport" then
+        self.damageState.lifeSupportStatus = math.min(100, self.damageState.lifeSupportStatus + amount)
+    end
+    
+    self:updateShipRegistry()
+end
+
+-- EVA System Methods
+function Naves:enterEVA()
+    if self.isInEVA then return false end
+    
+    -- Create EVA player at ship position
+    self.evaPlayer = EVAPlayer:new(self.x, self.y, self)
+    self.evaPlayer.stats = self.stats  -- Share stats
+    self.isInEVA = true
+    
+    print("Player entered EVA mode")
+    return true
+end
+
+function Naves:exitEVA()
+    if not self.isInEVA or not self.evaPlayer then return false end
+    
+    -- Return player to ship position
+    self.x = self.evaPlayer.x
+    self.y = self.evaPlayer.y
+    
+    -- Clean up EVA player
+    self.evaPlayer = nil
+    self.isInEVA = false
+    
+    print("Player returned to ship")
+    return true
+end
+
+function Naves:handleEVAControls()
+    -- Check for S+E combination to exit ship
+    if not self.isInEVA then
+        local sPressed = love.keyboard.isDown('s')
+        local ePressed = love.keyboard.isDown('e')
+        
+        if sPressed and ePressed and not self.evaKeyPressed then
+            self.evaKeyPressed = true
+            self:enterEVA()
+        elseif not (sPressed and ePressed) then
+            self.evaKeyPressed = false
+        end
+    else
+        -- Check for E to enter ship (only if near ship)
+        local ePressed = love.keyboard.isDown('e')
+        
+        if ePressed and not self.evaKeyPressed and self.evaPlayer:canEnterShip() then
+            self.evaKeyPressed = true
+            self:exitEVA()
+        elseif not ePressed then
+            self.evaKeyPressed = false
+        end
+    end
+end
+
+function Naves:updateEVA(dt)
+    if self.isInEVA and self.evaPlayer then
+        self.evaPlayer:update(dt)
+    end
+end
+
+function Naves:drawEVA()
+    if self.isInEVA and self.evaPlayer then
+        self.evaPlayer:draw()
+    end
+end
+
+function Naves:getActiveEntity()
+    if self.isInEVA and self.evaPlayer then
+        return self.evaPlayer
+    else
+        return self
+    end
+end
+
+function Naves:drawAbandonedShip()
+    -- Draw the ship as abandoned (dimmed and without effects)
+    love.graphics.push()
+    
+    -- Move to ship position
+    love.graphics.translate(self.x, self.y)
+    
+    -- Rotate around the center
+    love.graphics.rotate(self.rotation)
+    
+    -- Save the current color
+    local r, g, b, a = love.graphics.getColor()
+    
+    -- Draw shadow first
+    if self.sprite then
+        love.graphics.setColor(0, 0, 0, 0.2)
+        love.graphics.push()
+        love.graphics.translate(3, 3)  -- Shadow offset
+        love.graphics.draw(self.sprite, 
+                          -self.spriteOffsetX * self.spriteScale, 
+                          -self.spriteOffsetY * self.spriteScale, 
+                          0, 
+                          self.spriteScale, 
+                          self.spriteScale)
+        love.graphics.pop()
+    end
+    
+    -- Draw the main ship (dimmed)
+    if self.sprite then
+        -- Dimmed sprite version
+        love.graphics.setColor(0.5, 0.5, 0.5, 0.8)  -- Dimmed color
+        
+        -- Draw the sprite centered
+        love.graphics.draw(self.sprite, 
+                          -self.spriteOffsetX * self.spriteScale, 
+                          -self.spriteOffsetY * self.spriteScale, 
+                          0, 
+                          self.spriteScale, 
+                          self.spriteScale)
+    else
+        -- FALLBACK GEOMETRIC VERSION (dimmed)
+        local size = self.size * self.worldScale
+        
+        -- Main body (dimmed)
+        love.graphics.setColor(0.1, 0.2, 0.4, 0.8)
+        love.graphics.polygon("fill", 
+            size * 1.5, 0,        -- Front point
+            -size, -size,         -- Back left point
+            -size * 0.5, 0,       -- Back center
+            -size, size           -- Back right point
+        )
+        
+        -- Cockpit window (dimmed)
+        love.graphics.setColor(0.1, 0.3, 0.5, 0.6)
+        love.graphics.polygon("fill",
+            size * 1.2, 0,
+            size * 0.3, -size * 0.3,
+            size * 0.3, size * 0.3
+        )
+    end
+    
+    -- Indicador visual sutil (sin texto)
+    
+    -- Restore the color
+    love.graphics.setColor(r, g, b, a)
+    
+    -- Restore the graphics state
+    love.graphics.pop()
+end
+
+return Naves

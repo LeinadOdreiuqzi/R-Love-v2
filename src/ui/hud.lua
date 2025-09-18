@@ -9,6 +9,7 @@ local hudState = {
     showInfo = true,
     showSeedInput = false,
     showBiomeInfo = true,
+    showDebugMenu = false,
     seedInputText = "",
     font = nil,
     smallFont = nil,
@@ -193,10 +194,12 @@ local presetSeeds = {
 }
 local currentPresetIndex = 1
 
--- Referencias externas
+-- Referencias globales
 local gameState = nil
 local player = nil
 local Map = nil
+local gameDirector = nil
+local runState = nil
 local BiomeSystem = nil
 
 -- Cache de información de bioma del jugador
@@ -213,7 +216,7 @@ local biomeCache = {
 }
 
 -- Inicialización del HUD
-function HUD.init(gameStateRef, playerRef, mapRef)
+function HUD.init(gameStateRef, playerRef, mapRef, gameDirectorRef, runStateRef)
     -- Cargar fuentes de forma segura
     hudState.font = love.graphics.newFont(13)
     hudState.smallFont = love.graphics.newFont(11)
@@ -223,6 +226,16 @@ function HUD.init(gameStateRef, playerRef, mapRef)
     gameState = gameStateRef
     player = playerRef
     Map = mapRef
+    gameDirector = gameDirectorRef
+    runState = runStateRef
+    
+    -- Debug: verificar referencias
+    print("[HUD DEBUG] Referencias recibidas:")
+    print("  gameState:", gameState and "OK" or "NIL")
+    print("  player:", player and "OK" or "NIL")
+    print("  Map:", Map and "OK" or "NIL")
+    print("  gameDirector:", gameDirector and "OK" or "NIL")
+    print("  runState:", runState and "OK" or "NIL")
     
     -- Obtener referencia al sistema de biomas de forma segura
     local success, biomeSystemModule = pcall(function()
@@ -607,6 +620,11 @@ function HUD.draw()
     -- Aviso contextual para entrar a estación
     if hudState.stationHint and hudState.stationHint.enabled then
         HUD.drawStationHint()
+    end
+    
+    -- Menú de debug unificado
+    if hudState.showDebugMenu then
+        HUD.drawDebugMenu()
     end
     
     love.graphics.setColor(r, g, b, a)
@@ -1282,7 +1300,7 @@ function HUD.drawCurrentSeedInfo()
     love.graphics.print("Type: " .. validText, x, y + 15)
 end
 
--- HUD del jugador (barras de vida, escudo, combustible) - SIN CAMBIOS
+-- HUD del jugador (barras de vida, escudo, combustible) - CON SOPORTE EVA
 function HUD.drawPlayerHUD()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
@@ -1296,8 +1314,28 @@ function HUD.drawPlayerHUD()
     -- Guardar color actual
     local r, g, b, a = love.graphics.getColor()
     
+    -- Verificar si el jugador está en modo EVA
+    local isInEVA = player.isInEVA or false
+    
     -- Dibujar corazones
     HUD.drawHearts(heartStartX, hudY - 30)
+    
+    -- Indicador de estado EVA
+    if isInEVA then
+        love.graphics.setColor(1, 0.5, 0, 1)
+        love.graphics.setFont(hudState.font)
+        love.graphics.print("EVA MODE", heartStartX, hudY - 50)
+        
+        -- Instrucciones específicas para EVA
+        love.graphics.setColor(0.8, 0.8, 0.8, 1)
+        love.graphics.setFont(hudState.tinyFont)
+        love.graphics.print("Press E near ship to enter", heartStartX, hudY - 35)
+    else
+        -- Instrucciones para salir de la nave
+        love.graphics.setColor(0.8, 0.8, 0.8, 1)
+        love.graphics.setFont(hudState.tinyFont)
+        love.graphics.print("Hold S+E to exit ship", heartStartX, hudY - 35)
+    end
     
     -- Dibujar barra de escudo
     love.graphics.setColor(1, 1, 1, 1)
@@ -1306,11 +1344,28 @@ function HUD.drawPlayerHUD()
     HUD.drawBar(heartStartX + 60, hudY + 2, barWidth, barHeight, 
                  player.stats:getShieldPercentage(), {0.2, 0.6, 1, 1}, {0.1, 0.3, 0.5, 0.8})
     
-    -- Dibujar barra de combustible
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("FUEL", heartStartX, hudY + 20)
-    HUD.drawBar(heartStartX + 60, hudY + 22, barWidth, barHeight, 
-                 player.stats:getFuelPercentage(), {1, 0.8, 0.2, 1}, {0.5, 0.4, 0.1, 0.8})
+    -- Dibujar barra de combustible (solo si no está en EVA)
+    if not isInEVA then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.print("FUEL", heartStartX, hudY + 20)
+        HUD.drawBar(heartStartX + 60, hudY + 22, barWidth, barHeight, 
+                     player.stats:getFuelPercentage(), {1, 0.8, 0.2, 1}, {0.5, 0.4, 0.1, 0.8})
+    else
+        -- En modo EVA, mostrar información de oxígeno o distancia a la nave
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.print("DISTANCE TO SHIP", heartStartX, hudY + 20)
+        
+        -- Calcular distancia a la nave
+        local distance = 0
+        if player.evaPlayer and player.shipX and player.shipY then
+            local dx = player.evaPlayer.x - player.shipX
+            local dy = player.evaPlayer.y - player.shipY
+            distance = math.sqrt(dx * dx + dy * dy)
+        end
+        
+        love.graphics.setColor(0.8, 0.8, 0.8, 1)
+        love.graphics.print(string.format("%.1f units", distance), heartStartX + 60, hudY + 22)
+    end
     
     -- Restaurar color
     love.graphics.setColor(r, g, b, a)
@@ -1409,6 +1464,94 @@ function HUD.drawBar(x, y, width, height, percentage, color, backgroundColor)
     love.graphics.print(text, x + width/2 - textWidth/2, y - 1)
 end
 
+function HUD.drawDebugMenu()
+    -- Debug: verificar estado de variables al renderizar
+    if love.keyboard.isDown("lshift") then
+        print("[HUD DEBUG] Estado al renderizar:")
+        print("  runState:", runState and "EXISTE" or "NIL")
+        print("  gameDirector:", gameDirector and "EXISTE" or "NIL")
+        if runState then
+            print("  runState.currentSector:", runState.currentSector)
+            print("  runState.distanceTraveled:", runState.distanceTraveled)
+        end
+        if gameDirector then
+            print("  gameDirector.playerBoosting:", gameDirector.playerBoosting)
+        end
+    end
+    
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    
+    -- Configuración del panel
+    local panelWidth = 400
+    local panelHeight = 300
+    local panelX = screenWidth - panelWidth - 20
+    local panelY = 20
+    
+    -- Fondo del panel
+    love.graphics.setColor(0, 0, 0, 0.8)
+    love.graphics.rectangle("fill", panelX, panelY, panelWidth, panelHeight)
+    
+    -- Borde del panel
+    love.graphics.setColor(0.3, 0.7, 1, 1)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", panelX, panelY, panelWidth, panelHeight)
+    
+    -- Título
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setFont(hudState.font or love.graphics.getFont())
+    love.graphics.print("DEBUG MENU (F5)", panelX + 10, panelY + 10)
+    
+    -- Información de RunState
+    local yOffset = panelY + 40
+    love.graphics.setFont(hudState.smallFont or love.graphics.getFont())
+    love.graphics.setColor(0.8, 1, 0.8, 1)
+    love.graphics.print("=== RUN STATE ===", panelX + 10, yOffset)
+    
+    yOffset = yOffset + 20
+    love.graphics.setColor(1, 1, 1, 1)
+    
+    if runState then
+        love.graphics.print("Current Sector: " .. (runState.sector or "N/A"), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Phase: " .. (runState.phase or "N/A"), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Distance: " .. string.format("%.1f", runState.meta.distanceTravelled or 0), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Boosts Used: " .. (runState.meta.boostsUsed or 0), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Time: " .. string.format("%.1fs", runState.time or 0), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Debug Mode: " .. (runState.debug and "ON" or "OFF"), panelX + 10, yOffset)
+    else
+        love.graphics.print("RunState not available", panelX + 10, yOffset)
+    end
+    
+    -- Información de GameDirector
+    yOffset = yOffset + 30
+    love.graphics.setColor(1, 0.8, 0.8, 1)
+    love.graphics.print("=== GAME DIRECTOR ===", panelX + 10, yOffset)
+    
+    yOffset = yOffset + 20
+    love.graphics.setColor(1, 1, 1, 1)
+    
+    if gameDirector then
+        love.graphics.print("Player Boosting: " .. (gameDirector.playerActions.isBoosting and "YES" or "NO"), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Player in Station: " .. (gameDirector.playerActions.isInStation and "YES" or "NO"), panelX + 10, yOffset)
+        yOffset = yOffset + 15
+        love.graphics.print("Debug Mode: " .. (gameDirector.debug and "ON" or "OFF"), panelX + 10, yOffset)
+    else
+        love.graphics.print("GameDirector not available", panelX + 10, yOffset)
+    end
+    
+    -- Instrucciones
+    yOffset = yOffset + 30
+    love.graphics.setColor(0.7, 0.7, 0.7, 1)
+    love.graphics.setFont(hudState.tinyFont or hudState.smallFont or love.graphics.getFont())
+    love.graphics.print("Press F5 to toggle this menu", panelX + 10, yOffset)
+end
+
 -- Manejo de entrada para el HUD alfanumérico (COMPLETAMENTE NUEVO)
 function HUD.handleSeedInput(key)
     if key == "escape" then
@@ -1477,6 +1620,12 @@ function HUD.toggleBiomeInfo()
     print("Biome info panel: " .. status)
 end
 
+function HUD.toggleDebugMenu()
+    hudState.showDebugMenu = not hudState.showDebugMenu
+    local status = hudState.showDebugMenu and "ON" or "OFF"
+    print("Debug menu: " .. status)
+end
+
 function HUD.showSeedInput()
     hudState.showSeedInput = true
     hudState.seedInputText = ""
@@ -1501,10 +1650,20 @@ function HUD.isBiomeInfoVisible()
     return hudState.showBiomeInfo
 end
 
-function HUD.updateReferences(gameStateRef, playerRef, mapRef)
+function HUD.updateReferences(gameStateRef, playerRef, mapRef, gameDirectorRef, runStateRef)
     gameState = gameStateRef
     player = playerRef
     Map = mapRef
+    gameDirector = gameDirectorRef
+    runState = runStateRef
+    
+    -- Debug: verificar referencias en updateReferences
+    print("[HUD DEBUG] updateReferences llamado:")
+    print("  gameState:", gameState and "OK" or "NIL")
+    print("  player:", player and "OK" or "NIL")
+    print("  Map:", Map and "OK" or "NIL")
+    print("  gameDirector:", gameDirector and "OK" or "NIL")
+    print("  runState:", runState and "OK" or "NIL")
     
     -- Recargar sistema de biomas de forma segura
     local success, biomeSystemModule = pcall(function()
