@@ -667,15 +667,6 @@ function InventoryUI:mousepressed(x, y, button, player, evaPlayer)
                 return
             end
         end
-        
-        -- Verificar clic derecho en EVA
-        if evaPlayer and evaPlayer.inventory then
-            local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
-            if evaSlot and evaPlayer.inventory.items[evaSlot] then
-                self:openModal(x, y, evaSlot, "eva")
-                return
-            end
-        end
     end
 end
 
