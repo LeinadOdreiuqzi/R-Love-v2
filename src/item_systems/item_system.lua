@@ -18,7 +18,9 @@ ItemSystem.EQUIPABLE_TYPES = {
     WEAPON = "weapon",
     ARMOR = "armor",
     TOOL = "tool",
-    ACCESSORY = "accessory"
+    ACCESSORY = "accessory",
+    UTILITY = "utility",
+    SHIELD = "shield"
 }
 
 -- Rareza de items
@@ -108,17 +110,22 @@ function ItemSystem:createItemInstance(id, quantity)
         error("Item con ID '" .. id .. "' no encontrado")
     end
     
-    local instance = {}
+    local instanceData = {}
     for key, value in pairs(template) do
         if type(value) ~= "function" then
-            instance[key] = value
+            instanceData[key] = value
         else
-            instance[key] = value
+            instanceData[key] = value
         end
     end
     
-    instance.quantity = quantity or 1
-    instance.isInstance = true
+    instanceData.quantity = quantity or 1
+    instanceData.isInstance = true
+    
+    -- Crear estructura compatible con el inventario
+    local instance = {
+        data = instanceData
+    }
     
     return instance
 end

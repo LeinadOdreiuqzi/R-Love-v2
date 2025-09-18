@@ -183,7 +183,8 @@ function Naves:new(x, y, shipType)
     
     -- EVA (Extra-Vehicular Activity) system
     player.isInEVA = false
-    player.evaPlayer = nil
+    player.evaPlayer = EVAPlayer:new(player.x, player.y, player)  -- Crear EVA player desde el inicio
+    player.evaPlayer.stats = player.stats  -- Compartir stats
     player.evaKeyPressed = false  -- Para evitar activación múltiple
     player.sKeyPressed = false    -- Para detectar combinación S+E
     
@@ -979,9 +980,11 @@ end
 function Naves:enterEVA()
     if self.isInEVA then return false end
     
-    -- Create EVA player at ship position
-    self.evaPlayer = EVAPlayer:new(self.x, self.y, self)
-    self.evaPlayer.stats = self.stats  -- Share stats
+    -- Update EVA player position to ship position
+    if self.evaPlayer then
+        self.evaPlayer.x = self.x
+        self.evaPlayer.y = self.y
+    end
     self.isInEVA = true
     
     print("Player entered EVA mode")
@@ -995,8 +998,7 @@ function Naves:exitEVA()
     self.x = self.evaPlayer.x
     self.y = self.evaPlayer.y
     
-    -- Clean up EVA player
-    self.evaPlayer = nil
+    -- Keep EVA player but change state
     self.isInEVA = false
     
     print("Player returned to ship")

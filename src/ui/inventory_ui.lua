@@ -33,6 +33,7 @@ local uiState = {
     -- Colores
     colors = {
         background = {0.1, 0.1, 0.15, 0.95},
+        panelBackground = {0.15, 0.15, 0.2, 0.9},
         slotEmpty = {0.2, 0.2, 0.25, 1},
         slotFilled = {0.3, 0.3, 0.35, 1},
         slotHover = {0.4, 0.4, 0.45, 1},
@@ -48,6 +49,13 @@ local uiState = {
             rare = {0.2, 0.4, 1, 1},
             epic = {0.6, 0.2, 1, 1},
             legendary = {1, 0.6, 0.2, 1}
+        },
+        
+        -- Colores por tipo de item EVA
+        itemType = {
+            tool = {0.4, 0.6, 0.8, 1},
+            consumable = {0.6, 0.8, 0.4, 1},
+            resource = {0.8, 0.6, 0.4, 1}
         }
     },
     
@@ -105,15 +113,23 @@ function InventoryUI:calculateLayout()
     uiState.layout.upgradeWidth = upgradeColumns * (slotSize + padding) - padding + panelPadding * 2
     uiState.layout.upgradeHeight = upgradeRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
     
-    -- Posicionamiento centrado
-    uiState.layout.totalWidth = uiState.layout.inventoryWidth + uiState.layout.upgradeWidth + panelPadding
-    uiState.layout.totalHeight = math.max(uiState.layout.inventoryHeight, uiState.layout.upgradeHeight)
+    -- Configuración del panel EVA (3 slots horizontales)
+    local evaColumns = 3
+    uiState.layout.evaWidth = evaColumns * (slotSize + padding) - padding + panelPadding * 2
+    uiState.layout.evaHeight = slotSize + panelPadding * 2 + 40 -- +40 para título
+    
+    -- Posicionamiento centrado (incluyendo panel EVA)
+    uiState.layout.totalWidth = uiState.layout.inventoryWidth + uiState.layout.upgradeWidth + uiState.layout.evaWidth + panelPadding * 2
+    uiState.layout.totalHeight = math.max(uiState.layout.inventoryHeight, uiState.layout.upgradeHeight, uiState.layout.evaHeight)
     
     uiState.layout.inventoryX = (screenWidth - uiState.layout.totalWidth) / 2
     uiState.layout.inventoryY = (screenHeight - uiState.layout.totalHeight) / 2
     
     uiState.layout.upgradeX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
     uiState.layout.upgradeY = uiState.layout.inventoryY
+    
+    uiState.layout.evaX = uiState.layout.upgradeX + uiState.layout.upgradeWidth + panelPadding
+    uiState.layout.evaY = uiState.layout.upgradeY
 end
 
 -- Abrir/cerrar inventario
@@ -133,11 +149,12 @@ function InventoryUI:isOpen()
 end
 
 -- Actualizar UI
-function InventoryUI:update(dt, player)
+function InventoryUI:update(dt, player, evaPlayer)
     if not uiState.isOpen then return end
     
     -- Actualizar posición del mouse
-    uiState.mouseX, uiState.mouseY = love.mouse.getPosition()
+    uiState.mouseX = love.mouse.getX()
+    uiState.mouseY = love.mouse.getY()
     
     -- Recalcular layout si cambió el tamaño de pantalla
     local screenWidth = love.graphics.getWidth()
@@ -150,7 +167,7 @@ function InventoryUI:update(dt, player)
 end
 
 -- Renderizar UI
-function InventoryUI:draw(player)
+function InventoryUI:draw(player, evaPlayer)
     if not uiState.isOpen or not player or not player.inventory then 
         return 
     end
@@ -163,7 +180,12 @@ function InventoryUI:draw(player)
     -- Dibujar panel de mejoras
     self:drawUpgradePanel(player.inventory)
     
-    -- Dibujar item siendo arrastrado
+    -- Dibujar panel de inventario EVA si está disponible
+    if evaPlayer and evaPlayer.inventory then
+        self:drawEVAInventoryPanel(evaPlayer.inventory)
+    end
+    
+    -- Dibujar item arrastrado
     if uiState.draggedItem then
         self:drawDraggedItem()
     end
@@ -260,6 +282,122 @@ function InventoryUI:drawUpgradePanel(inventory)
     end
 end
 
+-- Dibujar panel de inventario EVA
+function InventoryUI:drawEVAInventoryPanel(evaInventory)
+    local colors = uiState.colors
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    -- Usar coordenadas del layout calculado
+    local evaStartX = uiState.layout.evaX
+    local evaStartY = uiState.layout.evaY
+    local evaWidth = uiState.layout.evaWidth
+    local evaHeight = uiState.layout.evaHeight
+    
+    -- Fondo del panel EVA
+    love.graphics.setColor(colors.panelBackground)
+    love.graphics.rectangle("fill", evaStartX, evaStartY, evaWidth, evaHeight)
+    
+    -- Borde del panel EVA
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", evaStartX, evaStartY, evaWidth, evaHeight)
+    
+    -- Título del panel EVA
+    love.graphics.setColor(colors.text)
+    love.graphics.print("Inventario EVA", evaStartX + panelPadding, evaStartY + 5)
+    
+    -- Dibujar slots del EVA (3 slots horizontales)
+    local slotStartX = evaStartX + panelPadding
+    local slotStartY = evaStartY + 25
+    
+    for i = 1, evaInventory.maxSlots do
+        local x = slotStartX + (i - 1) * (slotSize + padding)
+        local y = slotStartY
+        
+        self:drawEVASlot(x, y, i, evaInventory.items[i])
+    end
+end
+
+-- Dibujar slot de inventario EVA
+function InventoryUI:drawEVASlot(x, y, slotIndex, item)
+    local colors = uiState.colors
+    local slotSize = uiState.slotSize
+    
+    -- Determinar color del slot
+    local slotColor = colors.slotEmpty
+    if item then
+        slotColor = colors.slotFilled
+    end
+    
+    -- Verificar hover
+    if self:isMouseOverSlot(x, y, slotSize) then
+        slotColor = colors.slotHover
+    end
+    
+    -- Verificar si es target válido para drag
+    if uiState.draggedItem and self:isValidDropTarget("eva", slotIndex) then
+        slotColor = colors.slotDragTarget
+    end
+    
+    -- Dibujar fondo del slot
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    
+    -- Dibujar borde del slot
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    
+    -- Dibujar item si existe
+    if item then
+        self:drawEVAItem(x, y, slotSize, item)
+    end
+    
+    -- Dibujar número del slot
+    love.graphics.setColor(colors.textSecondary)
+    love.graphics.print(tostring(slotIndex), x + 2, y + 2)
+end
+
+-- Dibujar item del EVA
+function InventoryUI:drawEVAItem(x, y, size, item)
+    local colors = uiState.colors
+    local itemPadding = 4
+    local itemSize = size - itemPadding * 2
+    local itemX = x + itemPadding
+    local itemY = y + itemPadding
+    
+    -- Color basado en el tipo de item EVA
+    local itemColor = colors.itemType.tool -- Color por defecto
+    if item.data and item.data.type then
+        if item.data.type == "consumable" then
+            itemColor = colors.itemType.consumable
+        elseif item.data.type == "resource" then
+            itemColor = colors.itemType.resource
+        end
+    end
+    
+    -- Dibujar fondo del item
+    love.graphics.setColor(itemColor)
+    love.graphics.rectangle("fill", itemX, itemY, itemSize, itemSize)
+    
+    -- Dibujar borde del item
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", itemX, itemY, itemSize, itemSize)
+    
+    -- Dibujar texto del item (primera letra del nombre)
+    if item.data and item.data.name then
+        love.graphics.setColor(colors.text)
+        local firstLetter = string.sub(item.data.name, 1, 1)
+        love.graphics.print(firstLetter, itemX + itemSize/2 - 4, itemY + itemSize/2 - 6)
+    end
+    
+    -- Dibujar cantidad si es mayor a 1
+    if item.quantity and item.quantity > 1 then
+        love.graphics.setColor(colors.text)
+        love.graphics.print(tostring(item.quantity), itemX + itemSize - 10, itemY + itemSize - 12)
+    end
+end
+
 -- Dibujar slot de inventario
 function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
     local colors = uiState.colors
@@ -337,6 +475,11 @@ end
 function InventoryUI:drawItem(x, y, size, item)
     local colors = uiState.colors
     
+    -- Verificar que el item y sus datos existan
+    if not item or not item.data then
+        return
+    end
+    
     -- Color por rareza
     local rarityColor = colors.rarity[item.data.rarity] or colors.rarity.common
     love.graphics.setColor(rarityColor)
@@ -388,14 +531,16 @@ function InventoryUI:drawModal()
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", modal.x, modal.y, modal.width, modal.height)
     
-    -- Línea divisoria
-    local midY = modal.y + modal.height / 2
-    love.graphics.line(modal.x, midY, modal.x + modal.width, midY)
+    -- Líneas divisorias
+    local optionHeight = modal.height / 3
+    local firstDividerY = modal.y + optionHeight
+    local secondDividerY = modal.y + optionHeight * 2
+    love.graphics.line(modal.x, firstDividerY, modal.x + modal.width, firstDividerY)
+    love.graphics.line(modal.x, secondDividerY, modal.x + modal.width, secondDividerY)
     
     -- Texto de opciones
     love.graphics.setColor(colors.text)
     local font = love.graphics.getFont()
-    local optionHeight = modal.height / 2
     
     -- Opción "Usar/Equipar"
     local useText = "Usar/Equipar"
@@ -404,11 +549,18 @@ function InventoryUI:drawModal()
     local useTextY = modal.y + (optionHeight - font:getHeight()) / 2
     love.graphics.print(useText, useTextX, useTextY)
     
+    -- Opción "Lanzar al mundo"
+    local dropText = "Lanzar al mundo"
+    local dropTextWidth = font:getWidth(dropText)
+    local dropTextX = modal.x + (modal.width - dropTextWidth) / 2
+    local dropTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
+    love.graphics.print(dropText, dropTextX, dropTextY)
+    
     -- Opción "Eliminar"
     local deleteText = "Eliminar"
     local deleteTextWidth = font:getWidth(deleteText)
     local deleteTextX = modal.x + (modal.width - deleteTextWidth) / 2
-    local deleteTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
+    local deleteTextY = modal.y + optionHeight * 2 + (optionHeight - font:getHeight()) / 2
     love.graphics.print(deleteText, deleteTextX, deleteTextY)
 end
 
@@ -420,20 +572,22 @@ end
 
 -- Verificar si es un target válido para drop
 function InventoryUI:isValidDropTarget(targetType, targetSlot, targetUpgradeSlot)
-    if not uiState.draggedItem then return false end
+    if not uiState.draggedItem or not uiState.draggedItem.data then return false end
     
     if targetType == "inventory" then
         return true -- Siempre se puede mover a inventario
     elseif targetType == "upgrade" then
         -- Solo se puede equipar si el tipo coincide
         return uiState.draggedItem.data.type == targetSlot
+    elseif targetType == "eva" then
+        return true -- Siempre se puede mover al inventario EVA
     end
     
     return false
 end
 
 -- Manejar click del mouse
-function InventoryUI:mousepressed(x, y, button, player)
+function InventoryUI:mousepressed(x, y, button, player, evaPlayer)
     if not uiState.isOpen or not player or not player.inventory then return end
     
     -- Si hay modal abierto, verificar clics en él
@@ -471,6 +625,21 @@ function InventoryUI:mousepressed(x, y, button, player)
             end
             return
         end
+        
+        -- Verificar click en EVA
+        if evaPlayer and evaPlayer.inventory then
+            local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
+            if evaSlot then
+                local item = evaPlayer.inventory.items[evaSlot]
+                if item then
+                    uiState.draggedItem = item
+                    uiState.draggedFromSlot = evaSlot
+                    uiState.draggedFromType = "eva"
+                    evaPlayer.inventory.items[evaSlot] = nil
+                end
+                return
+            end
+        end
     elseif button == 2 then -- Clic derecho
         -- Verificar clic derecho en inventario
         local inventorySlot = self:getInventorySlotAt(x, y, player.inventory)
@@ -489,11 +658,29 @@ function InventoryUI:mousepressed(x, y, button, player)
             end
             return
         end
+        
+        -- Verificar clic derecho en EVA
+        if evaPlayer and evaPlayer.inventory then
+            local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
+            if evaSlot and evaPlayer.inventory.items[evaSlot] then
+                self:openModal(x, y, evaSlot, "eva")
+                return
+            end
+        end
+        
+        -- Verificar clic derecho en EVA
+        if evaPlayer and evaPlayer.inventory then
+            local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
+            if evaSlot and evaPlayer.inventory.items[evaSlot] then
+                self:openModal(x, y, evaSlot, "eva")
+                return
+            end
+        end
     end
 end
 
 -- Manejar release del mouse
-function InventoryUI:mousereleased(x, y, button, player)
+function InventoryUI:mousereleased(x, y, button, player, evaPlayer)
     if not uiState.isOpen or button ~= 1 or not uiState.draggedItem or not player or not player.inventory then 
         return 
     end
@@ -515,6 +702,8 @@ function InventoryUI:mousereleased(x, y, button, player)
                     player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
                 end
                 player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = existingItem
+            elseif uiState.draggedFromType == "eva" then
+                evaPlayer.inventory.items[uiState.draggedFromSlot] = existingItem
             end
         end
         dropped = true
@@ -540,21 +729,76 @@ function InventoryUI:mousereleased(x, y, button, player)
                         player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
                     end
                     player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = existingItem
+                elseif uiState.draggedFromType == "eva" then
+                    evaPlayer.inventory.items[uiState.draggedFromSlot] = existingItem
                 end
             end
             dropped = true
         end
     end
     
-    -- Si no se pudo hacer drop, devolver item a su lugar original
-    if not dropped then
-        if uiState.draggedFromType == "inventory" then
-            player.inventory.items[uiState.draggedFromSlot] = uiState.draggedItem
-        elseif uiState.draggedFromType == "upgrade" then
-            if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
-                player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
+    -- Verificar drop en EVA
+    if not dropped and evaPlayer and evaPlayer.inventory then
+        local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
+        if evaSlot then
+            local existingItem = evaPlayer.inventory.items[evaSlot]
+            evaPlayer.inventory.items[evaSlot] = uiState.draggedItem
+            
+            -- Si había un item, intercambiar
+            if existingItem then
+                if uiState.draggedFromType == "inventory" then
+                    player.inventory.items[uiState.draggedFromSlot] = existingItem
+                elseif uiState.draggedFromType == "upgrade" then
+                    if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
+                        player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
+                    end
+                    player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = existingItem
+                elseif uiState.draggedFromType == "eva" then
+                    evaPlayer.inventory.items[uiState.draggedFromSlot] = existingItem
+                end
             end
-            player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = uiState.draggedItem
+            dropped = true
+        end
+    end
+    
+    -- Si no se pudo hacer drop en el inventario, verificar drop al mundo
+    if not dropped then
+        -- Verificar si el mouse está fuera de todos los paneles
+        local layout = uiState.layout
+        local mouseOutsideInventory = uiState.mouseX < layout.inventoryX or 
+                                     uiState.mouseX > layout.inventoryX + layout.inventoryWidth or
+                                     uiState.mouseY < layout.inventoryY or 
+                                     uiState.mouseY > layout.inventoryY + layout.inventoryHeight
+        
+        local mouseOutsideUpgrade = uiState.mouseX < layout.upgradeX or 
+                                   uiState.mouseX > layout.upgradeX + layout.upgradeWidth or
+                                   uiState.mouseY < layout.upgradeY or 
+                                   uiState.mouseY > layout.upgradeY + layout.upgradeHeight
+        
+        local mouseOutsideEVA = true
+        if evaPlayer and evaPlayer.inventory then
+            mouseOutsideEVA = uiState.mouseX < layout.evaX or 
+                             uiState.mouseX > layout.evaX + layout.evaWidth or
+                             uiState.mouseY < layout.evaY or 
+                             uiState.mouseY > layout.evaY + layout.evaHeight
+        end
+        
+        if mouseOutsideInventory and mouseOutsideUpgrade and mouseOutsideEVA then
+            -- Drop al mundo
+            self:dropItemToWorld(uiState.draggedItem, player, uiState.mouseX, uiState.mouseY)
+            dropped = true
+        else
+            -- Devolver item a su lugar original
+            if uiState.draggedFromType == "inventory" then
+                player.inventory.items[uiState.draggedFromSlot] = uiState.draggedItem
+            elseif uiState.draggedFromType == "upgrade" then
+                if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
+                    player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
+                end
+                player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = uiState.draggedItem
+            elseif uiState.draggedFromType == "eva" and evaPlayer then
+                evaPlayer.inventory.items[uiState.draggedFromSlot] = uiState.draggedItem
+            end
         end
     end
     
@@ -594,11 +838,14 @@ function InventoryUI:handleModalClick(x, y, button, player)
     
     -- Verificar si el clic está dentro del modal
     if x >= modal.x and x <= modal.x + modal.width and y >= modal.y and y <= modal.y + modal.height then
-        local optionHeight = modal.height / 2
+        local optionHeight = modal.height / 3 -- Ahora hay 3 opciones
         
         if y <= modal.y + optionHeight then
             -- Opción "Usar/Equipar"
             self:useItem(modal.slotIndex, modal.slotType, modal.upgradeType, player)
+        elseif y <= modal.y + optionHeight * 2 then
+            -- Opción "Lanzar al mundo"
+            self:dropItemFromModal(modal.slotIndex, modal.slotType, modal.upgradeType, player)
         else
             -- Opción "Eliminar"
             self:deleteItem(modal.slotIndex, modal.slotType, modal.upgradeType, player)
@@ -612,11 +859,14 @@ end
 -- Usar/equipar item
 function InventoryUI:useItem(slotIndex, slotType, upgradeType, player)
     local item = nil
+    local evaPlayer = (player and player.evaPlayer) or nil
     
     if slotType == "inventory" then
         item = player.inventory.items[slotIndex]
     elseif slotType == "upgrade" and upgradeType then
         item = player.inventory.upgradeSlots[upgradeType] and player.inventory.upgradeSlots[upgradeType][slotIndex]
+    elseif slotType == "eva" and evaPlayer then
+        item = evaPlayer.inventory.items[slotIndex]
     end
     
     if item and item.data then
@@ -632,6 +882,8 @@ function InventoryUI:useItem(slotIndex, slotType, upgradeType, player)
                     -- Remover item del inventario si se usó exitosamente
                     if slotType == "inventory" then
                         player.inventory.items[slotIndex] = nil
+                    elseif slotType == "eva" and evaPlayer then
+                        evaPlayer.inventory.items[slotIndex] = nil
                     end
                     print("Usado: " .. itemData.name)
                 else
@@ -656,6 +908,8 @@ end
 
 -- Eliminar item
 function InventoryUI:deleteItem(slotIndex, slotType, upgradeType, player)
+    local evaPlayer = (player and player.evaPlayer) or nil
+    
     if slotType == "inventory" then
         player.inventory.items[slotIndex] = nil
         print("Item eliminado del inventario")
@@ -664,6 +918,69 @@ function InventoryUI:deleteItem(slotIndex, slotType, upgradeType, player)
             player.inventory.upgradeSlots[upgradeType][slotIndex] = nil
             print("Item eliminado de mejoras")
         end
+    elseif slotType == "eva" and evaPlayer then
+        evaPlayer.inventory.items[slotIndex] = nil
+        print("Item eliminado del inventario EVA")
+    end
+end
+
+-- Lanzar item al mundo desde modal
+function InventoryUI:dropItemFromModal(slotIndex, slotType, upgradeType, player)
+    local item = nil
+    local evaPlayer = (player and player.evaPlayer) or nil
+    
+    if slotType == "inventory" then
+        item = player.inventory.items[slotIndex]
+    elseif slotType == "upgrade" and upgradeType then
+        item = player.inventory.upgradeSlots[upgradeType] and player.inventory.upgradeSlots[upgradeType][slotIndex]
+    elseif slotType == "eva" and evaPlayer then
+        item = evaPlayer.inventory.items[slotIndex]
+    end
+    
+    if not item then
+        print("[DROP MODAL] Error: No se encontró el item")
+        return
+    end
+    
+    -- Obtener posición del jugador para lanzar cerca
+    local activeEntity = player:getActiveEntity()
+    if not activeEntity then
+        print("[DROP MODAL] Error: No se pudo obtener la entidad activa")
+        return
+    end
+    
+    -- Lanzar cerca del jugador con un offset aleatorio
+    local offsetX = (math.random() - 0.5) * 100 -- Offset aleatorio de -50 a 50
+    local offsetY = (math.random() - 0.5) * 100
+    local targetX = activeEntity.x + offsetX
+    local targetY = activeEntity.y + offsetY
+    
+    -- Usar la función dropItemToWorld con coordenadas del mundo
+    local WorldItems = require 'src.item_systems.world_items'
+    local ItemSystem = require 'src.item_systems.items.init'
+    
+    local itemData = ItemSystem.getItem(item.data.id)
+    if not itemData then
+        print("[DROP MODAL] Error: No se encontraron datos para el item", item.data.id)
+        return
+    end
+    
+    local quantity = item.data.quantity or 1
+    local worldItem = WorldItems.drop(itemData, activeEntity.x, activeEntity.y, targetX, targetY, quantity)
+    
+    if worldItem then
+        -- Eliminar item del inventario
+        if slotType == "inventory" then
+            player.inventory.items[slotIndex] = nil
+        elseif slotType == "upgrade" and upgradeType then
+            player.inventory.upgradeSlots[upgradeType][slotIndex] = nil
+        elseif slotType == "eva" and evaPlayer then
+            evaPlayer.inventory.items[slotIndex] = nil
+        end
+        
+        print("[DROP MODAL] Item lanzado:", itemData.name, "x" .. quantity)
+    else
+        print("[DROP MODAL] Error: No se pudo crear el item en el mundo")
     end
 end
 
@@ -715,6 +1032,33 @@ function InventoryUI:getUpgradeSlotAt(x, y)
     end
     
     return nil, nil
+end
+
+-- Obtener slot de EVA en posición
+function InventoryUI:getEVASlotAt(x, y, evaInventory)
+    if not evaInventory then return nil end
+    
+    local layout = uiState.layout
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    -- Usar coordenadas del layout calculado
+    local evaStartX = layout.evaX
+    local evaStartY = layout.evaY
+    local slotStartX = evaStartX + panelPadding
+    local slotStartY = evaStartY + 25
+    
+    for i = 1, evaInventory.maxSlots do
+        local slotX = slotStartX + (i - 1) * (slotSize + padding)
+        local slotY = slotStartY
+        
+        if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
+            return i
+        end
+    end
+    
+    return nil
 end
 
 -- Obtener color por rareza de item
@@ -792,6 +1136,58 @@ function InventoryUI:createTestInventory(player)
     end
     
     print("[INVENTORY] Inventario de prueba creado con " .. #testItems .. " items")
+end
+
+-- Lanzar item al mundo
+function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
+    if not item or not item.data or not player or not _G.camera then return end
+    
+    local WorldItems = require 'src.item_systems.world_items'
+    local ItemSystem = require 'src.item_systems.items.init'
+    
+    -- Obtener datos del item
+    local itemData = ItemSystem.getItem(item.data.id)
+    if not itemData then
+        print("[DROP] Error: No se encontraron datos para el item", item.data.id)
+        return
+    end
+    
+    -- Obtener posición del jugador en el mundo
+    local activeEntity = player:getActiveEntity()
+    if not activeEntity then
+        print("[DROP] Error: No se pudo obtener la entidad activa")
+        return
+    end
+    
+    local playerWorldX = activeEntity.x
+    local playerWorldY = activeEntity.y
+    
+    -- Convertir posición del mouse a coordenadas del mundo usando la función de la cámara
+    local targetWorldX, targetWorldY = _G.camera:screenToWorld(mouseX, mouseY)
+    
+    -- Limitar la distancia máxima de drop para mantener items cerca del jugador
+    local maxDropDistance = 100
+    local dx = targetWorldX - playerWorldX
+    local dy = targetWorldY - playerWorldY
+    local distance = math.sqrt(dx * dx + dy * dy)
+    
+    if distance > maxDropDistance then
+        local factor = maxDropDistance / distance
+        targetWorldX = playerWorldX + dx * factor
+        targetWorldY = playerWorldY + dy * factor
+    end
+    
+    -- Crear item en el mundo
+    local quantity = item.data.quantity or 1
+    local worldItem = WorldItems.drop(itemData, playerWorldX, playerWorldY, targetWorldX, targetWorldY, quantity)
+    
+    if worldItem then
+        print("[DROP] Item lanzado:", itemData.name, "x" .. quantity, "desde", 
+              string.format("(%.1f, %.1f)", playerWorldX, playerWorldY), 
+              "hacia", string.format("(%.1f, %.1f)", targetWorldX, targetWorldY))
+    else
+        print("[DROP] Error: No se pudo crear el item en el mundo")
+    end
 end
 
 return InventoryUI

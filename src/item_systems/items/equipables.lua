@@ -15,7 +15,9 @@ Equipables.SLOTS = {
     TOOL_MINING = "tool_mining",
     TOOL_REPAIR = "tool_repair",
     ACCESSORY_1 = "accessory_1",
-    ACCESSORY_2 = "accessory_2"
+    ACCESSORY_2 = "accessory_2",
+    UTILITY = "utility",
+    SHIELD = "shield"
 }
 
 -- Tipos de daño para armas
@@ -352,7 +354,144 @@ function Equipables.registerAll()
         end
     })
     
-    print("Items equipables registrados: 8 items")
+    -- === UTILIDADES ===
+    
+    -- Escáner Básico
+    ItemSystem:registerItem({
+        id = "scanner_basic",
+        name = "Escáner Básico",
+        description = "Detecta recursos cercanos",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.UTILITY,
+        slot = Equipables.SLOTS.UTILITY,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 150,
+        weight = 0.5,
+        icon = "scanner",
+        tags = {"utility", "scanner", "detection"},
+        
+        stats = {
+            range = 100
+        },
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Escáner básico equipado"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Escáner básico desequipado"
+        end
+    })
+    
+    -- Escudo Básico
+    ItemSystem:registerItem({
+        id = "shield_basic",
+        name = "Escudo Básico",
+        description = "Protección estándar",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.SHIELD,
+        slot = Equipables.SLOTS.SHIELD,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 200,
+        weight = 2.0,
+        icon = "shield",
+        tags = {"shield", "defense", "protection"},
+        
+        stats = {
+            shield = 50,
+            regen = 2
+        },
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Escudo básico equipado"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Escudo básico desequipado"
+        end
+    })
+    
+    -- Láser Básico
+    ItemSystem:registerItem({
+        id = "laser_basic",
+        name = "Láser Básico",
+        description = "Arma láser estándar",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
+        slot = Equipables.SLOTS.WEAPON_PRIMARY,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 100,
+        weight = 1.0,
+        icon = "laser",
+        tags = {"weapon", "laser", "energy"},
+        
+        stats = {
+            damage = 10,
+            energy = 5
+        },
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Láser básico equipado"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Láser básico desequipado"
+        end
+    })
+    
+    -- Motor Básico
+    ItemSystem:registerItem({
+        id = "engine_basic",
+        name = "Motor Básico",
+        description = "Propulsión estándar",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.TOOL,
+        slot = Equipables.SLOTS.TOOL_REPAIR,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 250,
+        weight = 5.0,
+        icon = "engine",
+        tags = {"engine", "propulsion", "speed"},
+        
+        stats = {
+            speed = 10,
+            acceleration = 5
+        },
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Motor básico equipado"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Motor básico desequipado"
+        end
+    })
+    
+    print("Items equipables registrados: 12 items")
 end
 
 -- Función para obtener el daño total de un arma

@@ -195,8 +195,12 @@ function Camera:worldToScreen(worldX, worldY)
         end
     end
 
-    return (worldX - self.x) * self.zoom + self.offsetX,
-           (worldY - self.y) * self.zoom + self.offsetY
+    -- Calculate relative position from camera
+    local relX = (worldX - (self.x or 0)) * (self.zoom or 1)
+    local relY = (worldY - (self.y or 0)) * (self.zoom or 1)
+    
+    -- Convert to screen coordinates
+    return relX + (self.offsetX or 0), relY + (self.offsetY or 0)
 end
 
 -- Handle mouse wheel for zooming

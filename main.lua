@@ -19,6 +19,7 @@ local stateManager = StateManager:new()
 
 -- Sistema de items
 local ItemSystem = require 'src.item_systems.items.init'
+local WorldItems = require 'src.item_systems.world_items'
 
 -- Nuevos módulos de gameplay (esqueleto, sin efectos en comportamiento)
 local RunState = require 'src.gameplay.run_state'
@@ -357,7 +358,8 @@ function love.update(dt)
     
     -- Actualizar InventoryUI
     if InventoryUI and InventoryUI.update then
-        InventoryUI:update(dt)
+        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
+        InventoryUI:update(dt, player, evaPlayer)
     end
     
     -- Actualizar EVAInventoryUI
@@ -467,6 +469,9 @@ function love.update(dt)
     if _G.camera then
         _G.camera:updateScreenDimensions()
     end
+    
+    -- Actualizar items en el mundo
+    WorldItems.update(dt)
 end
 
 function love.draw()
@@ -501,6 +506,16 @@ function love.draw()
         player:draw()
     end
     
+    -- Dibujar items en el mundo
+    local playerX, playerY = 0, 0
+    if player then
+        local activeEntity = player:getActiveEntity()
+        if activeEntity then
+            playerX, playerY = activeEntity.x or 0, activeEntity.y or 0
+        end
+    end
+    WorldItems.draw(_G.camera, playerX, playerY)
+    
     -- Efectos de iluminación eliminados
     
     -- Restaurar transformación de cámara
@@ -513,7 +528,8 @@ function love.draw()
     
     -- Dibujar InventoryUI (no afectado por la cámara)
     if InventoryUI and InventoryUI.draw then
-        InventoryUI:draw(player)
+        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
+        InventoryUI:draw(player, evaPlayer)
     end
     
     -- Dibujar EVAInventoryUI (no afectado por la cámara)
@@ -1037,7 +1053,13 @@ function love.keypressed(key)
             end
         end
     elseif key == "e" and (not stateManager or not stateManager:blocksUnderlying()) then
-        -- Entrar a estación si existe una cercana en Ancient Ruins
+        -- Intentar recolectar item manualmente
+        local WorldItems = require 'src.item_systems.world_items'
+        local collected = WorldItems.tryManualCollection()
+        
+        -- Si no se recolectó ningún item, intentar entrar a estación
+        if not collected then
+            -- Entrar a estación si existe una cercana en Ancient Ruins
         if player and player.x and player.y then
             local biomeInfo = BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
             if biomeInfo and biomeInfo.type == BiomeSystem.BiomeType.ANCIENT_RUINS then
@@ -1068,6 +1090,7 @@ function love.keypressed(key)
                 end
             end
         end
+        end -- Cerrar el bloque if not collected
 
     end
 end
@@ -1216,7 +1239,8 @@ function love.mousepressed(x, y, button)
     
     -- Manejar input del inventario de la nave
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousepressed(x, y, button, player)
+        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
+        InventoryUI:mousepressed(x, y, button, player, evaPlayer)
     end
 end
 
@@ -1230,7 +1254,8 @@ function love.mousereleased(x, y, button)
     
     -- Manejar input del inventario
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousereleased(x, y, button, player)
+        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
+        InventoryUI:mousereleased(x, y, button, player, evaPlayer)
     end
 end
 

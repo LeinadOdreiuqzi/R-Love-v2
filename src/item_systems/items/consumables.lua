@@ -220,7 +220,27 @@ function Consumables.registerAll()
         end
     })
     
-    print("Consumibles registrados: 7 items")
+    -- Kit de Reparación
+    ItemSystem:registerItem({
+        id = "repair_kit",
+        name = "Kit de Reparación",
+        description = "Restaura 50 puntos de vida de la nave.",
+        category = ItemSystem.CATEGORIES.CONSUMABLE,
+        rarity = ItemSystem.RARITY.COMMON,
+        stackable = true,
+        maxStack = 10,
+        value = 50,
+        weight = 0.5,
+        icon = "repair_kit",
+        tags = {"repair", "healing", "ship"},
+        
+        use = function(self, player)
+            local heal_result = Effects.heal(player, 50)
+            return "Nave reparada. " .. heal_result
+        end
+    })
+    
+    print("Items consumibles registrados: 8 items")
 end
 
 return Consumables

@@ -31,6 +31,9 @@ function EVAPlayer:new(x, y, shipRef)
     evaPlayer.mouseDirection = {x = 1, y = 0}  -- Default direction (right)
     evaPlayer.minMouseDistance = 20    -- Minimum distance to avoid erratic behavior
     
+    -- Input state tracking
+    evaPlayer.fKeyPressed = false      -- Para evitar activación múltiple del pickup
+    
     -- Get world scale from map
     local Map = require 'src.maps.map' 
     evaPlayer.worldScale = Map.tileSize / 64 
@@ -156,6 +159,14 @@ function EVAPlayer:handleInput(dt)
         self.dx = self.dx + moveX * self.acceleration * dt
         self.dy = self.dy + moveY * self.acceleration * dt
     end
+    
+    -- Manual pickup with F key
+    if love.keyboard.isDown('f') and not self.fKeyPressed then
+        self.fKeyPressed = true
+        self:attemptPickup()
+    elseif not love.keyboard.isDown('f') then
+        self.fKeyPressed = false
+    end
 end
 
 function EVAPlayer:updateMovement(dt)
@@ -229,6 +240,44 @@ function EVAPlayer:draw()
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("Presiona E para entrar a la nave", self.x - 60, self.y - 30)
     end
+    
+    -- Draw pickup prompt if near items
+    local nearbyItem = self:getNearbyItem()
+    if nearbyItem then
+        love.graphics.setColor(1, 1, 0, 1)
+        love.graphics.print("Presiona F para recoger: " .. nearbyItem.itemData.name, self.x - 80, self.y - 50)
+    end
+end
+
+-- Intentar recoger items cercanos manualmente
+function EVAPlayer:attemptPickup()
+    local WorldItems = require 'src.item_systems.world_items'
+    local nearbyItem = self:getNearbyItem()
+    
+    if nearbyItem and self.shipRef then
+        local success = WorldItems.collectItem(nearbyItem, self.shipRef)
+        if success then
+            print("[EVA PICKUP] Item recolectado manualmente:", nearbyItem.itemData.name, "x" .. nearbyItem.quantity)
+        else
+            print("[EVA PICKUP] No se pudo recoger el item (inventario lleno?)")
+        end
+    end
+end
+
+-- Obtener item cercano para recolección manual
+function EVAPlayer:getNearbyItem()
+    local WorldItems = require 'src.item_systems.world_items'
+    local pickupRange = 60 -- Rango de recolección manual
+    local items = WorldItems.getNearbyItems(self.x, self.y, pickupRange)
+    
+    for _, item in ipairs(items) do
+        local distance = math.sqrt((item.x - self.x)^2 + (item.y - self.y)^2)
+        if distance <= pickupRange then
+            return item
+        end
+    end
+    
+    return nil
 end
 
 return EVAPlayer
