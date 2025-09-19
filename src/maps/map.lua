@@ -303,56 +303,41 @@ end
 -- Grid mejorado con información de coordenadas
 function Map.drawEnhancedGrid(chunkInfo, camera)
     local r, g, b, a = love.graphics.getColor()
-    
-    -- Grid básico
+
+    -- Grid básico en coordenadas de mundo (evitar doble transformación con camera:apply)
     love.graphics.setColor(0.1, 0.1, 0.2, 0.3)
     local gridSpacing = 100 * Map.worldScale
-    
-    -- Usar coordenadas relativas si está disponible
-    local relLeft, relTop, relRight, relBottom
-    local camRelX, camRelY
-    
-    if CoordinateSystem and CoordinateSystem.worldToRelative then
-        relLeft, relTop = CoordinateSystem.worldToRelative(chunkInfo.worldLeft, chunkInfo.worldTop)
-        relRight, relBottom = CoordinateSystem.worldToRelative(chunkInfo.worldRight, chunkInfo.worldBottom)
-        camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
-    else
-        relLeft, relTop = chunkInfo.worldLeft, chunkInfo.worldTop
-        relRight, relBottom = chunkInfo.worldRight, chunkInfo.worldBottom
-        camRelX, camRelY = camera.x, camera.y
-    end
-    
-    local startX = math.floor(relLeft / gridSpacing) * gridSpacing
-    local startY = math.floor(relTop / gridSpacing) * gridSpacing
-    local endX = math.ceil(relRight / gridSpacing) * gridSpacing
-    local endY = math.ceil(relBottom / gridSpacing) * gridSpacing
-    
-    -- Dibujar líneas de grid
+
+    -- Usar bounds de mundo provistos por chunkInfo
+    local worldLeft, worldTop   = chunkInfo.worldLeft,  chunkInfo.worldTop
+    local worldRight, worldBottom = chunkInfo.worldRight, chunkInfo.worldBottom
+
+    local startX = math.floor(worldLeft / gridSpacing) * gridSpacing
+    local startY = math.floor(worldTop  / gridSpacing) * gridSpacing
+    local endX   = math.ceil(worldRight / gridSpacing) * gridSpacing
+    local endY   = math.ceil(worldBottom/ gridSpacing) * gridSpacing
+
+    -- Dibujar líneas de grid en coordenadas de mundo (la cámara ya está aplicada)
     for x = startX, endX, gridSpacing do
-        local screenX = (x - camRelX) * camera.zoom + love.graphics.getWidth() / 2
-        local screenY1 = (startY - camRelY) * camera.zoom + love.graphics.getHeight() / 2
-        local screenY2 = (endY - camRelY) * camera.zoom + love.graphics.getHeight() / 2
-        love.graphics.line(screenX, screenY1, screenX, screenY2)
+        love.graphics.line(x, worldTop, x, worldBottom)
     end
-    
     for y = startY, endY, gridSpacing do
-        local screenY = (y - camRelY) * camera.zoom + love.graphics.getHeight() / 2
-        local screenX1 = (startX - camRelX) * camera.zoom + love.graphics.getWidth() / 2
-        local screenX2 = (endX - camRelX) * camera.zoom + love.graphics.getWidth() / 2
-        love.graphics.line(screenX1, screenY, screenX2, screenY)
+        love.graphics.line(worldLeft, y, worldRight, y)
     end
-    
-    -- Información del sistema de coordenadas
+
+    -- Información del sistema de coordenadas (renderizada en mundo para aparecer en pantalla actual)
     if camera.zoom > 0.3 and CoordinateSystem and CoordinateSystem.getState then
         love.graphics.setColor(1, 1, 0, 0.8)
         local coordState = CoordinateSystem.getState()
-        local infoText = string.format("Sector (%d,%d) | Relocations: %d", 
-                                     coordState.originSector.x, 
-                                     coordState.originSector.y,
-                                     coordState.relocations)
-        love.graphics.print(infoText, 10, love.graphics.getHeight() - 40)
+        local infoText = string.format("Sector (%d,%d) | Relocations: %d",
+            coordState.originSector.x,
+            coordState.originSector.y,
+            coordState.relocations)
+        -- Posicionar el texto cerca de la esquina inferior izquierda de la vista actual
+        local infoX, infoY = camera:screenToWorld(10, love.graphics.getHeight() - 40)
+        love.graphics.print(infoText, infoX, infoY)
     end
-    
+
     love.graphics.setColor(r, g, b, a)
 end
 
@@ -363,40 +348,36 @@ function Map.drawChunkGridOverlay(chunkInfo, camera)
 
     love.graphics.setColor(0.2, 0.8, 1.0, 0.25)
 
-    -- Líneas verticales en límites de chunk
+    -- Líneas verticales en límites de chunk (coordenadas de mundo)
     for cx = chunkInfo.startX, chunkInfo.endX + 1 do
         local xWorld = cx * strideScaled
-        local sx1, sy1 = camera:worldToScreen(xWorld, chunkInfo.worldTop)
-        local sx2, sy2 = camera:worldToScreen(xWorld, chunkInfo.worldBottom)
-        love.graphics.line(sx1, sy1, sx2, sy2)
+        love.graphics.line(xWorld, chunkInfo.worldTop, xWorld, chunkInfo.worldBottom)
     end
 
-    -- Líneas horizontales en límites de chunk
+    -- Líneas horizontales en límites de chunk (coordenadas de mundo)
     for cy = chunkInfo.startY, chunkInfo.endY + 1 do
         local yWorld = cy * strideScaled
-        local sx1, sy1 = camera:worldToScreen(chunkInfo.worldLeft,  yWorld)
-        local sx2, sy2 = camera:worldToScreen(chunkInfo.worldRight, yWorld)
-        love.graphics.line(sx1, sy1, sx2, sy2)
+        love.graphics.line(chunkInfo.worldLeft, yWorld, chunkInfo.worldRight, yWorld)
     end
 
-    -- Índices de chunk en el centro de cada celda
+    -- Índices de chunk en el centro de cada celda (dibujados en mundo)
     if (camera.zoom or 1) > 0.25 then
         love.graphics.setColor(1, 1, 0, 0.8)
         for cy = chunkInfo.startY, chunkInfo.endY do
             for cx = chunkInfo.startX, chunkInfo.endX do
                 local centerX = (cx + 0.5) * strideScaled
                 local centerY = (cy + 0.5) * strideScaled
-                local sx, sy = camera:worldToScreen(centerX, centerY)
-                love.graphics.print(string.format("(%d,%d)", cx, cy), sx + 4, sy + 4)
+                love.graphics.print(string.format("(%d,%d)", cx, cy), centerX + 4, centerY + 4)
             end
         end
     end
 
-    -- Mostrar info de bounds y margen
+    -- Mostrar info de bounds y margen anclado a pantalla (convertir a mundo)
     love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
     local info = string.format("Chunks: [%d..%d]x[%d..%d] | strideScaled=%.1f | marginPx=%d",
         chunkInfo.startX, chunkInfo.endX, chunkInfo.startY, chunkInfo.endY, strideScaled, chunkInfo.marginPx or 0)
-    love.graphics.print(info, 10, love.graphics.getHeight() - 60)
+    local infoX, infoY = camera:screenToWorld(10, love.graphics.getHeight() - 60)
+    love.graphics.print(info, infoX, infoY)
 
     love.graphics.setColor(r, g, b, a)
 end
