@@ -139,6 +139,7 @@ BiomeSystem.biomeConfigs = {
         color = {0.7, 0.7, 0.7, 1.0},
         rarity = "common",
         spawnWeight = 0.12,  -- Reduced from 0.20 to make it less common
+        expansionChance = 0.35,
         
         conditions = {
             continentalness = {"MID_INLAND", "FAR_INLAND"},  -- More specific continentalness
@@ -913,6 +914,8 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
     if BiomeSystem.biomeCache[key] then
         return BiomeSystem.biomeCache[key]
     end
+
+    -- Reservas de expansión eliminadas: ahora la expansión del ASTEROID_BELT es determinista y no depende del orden de generación
     
     -- Generar parámetros espaciales
     local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
@@ -1088,6 +1091,9 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
     local coherentType = BiomeSystem.applyCoherence3D(chunkX, chunkY, selectedType, params)
 
     BiomeSystem.biomeCache[key] = coherentType
+
+    -- Expansión de ASTEROID_BELT ahora es implícita y determinista vía coherencia/macro; no se crean reservas efímeras
+
     return coherentType
 end
 
