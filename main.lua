@@ -30,7 +30,9 @@ local gameState = {
     currentSeed = SeedSystem.generate(),
     paused = false,
     loaded = false,  -- Nueva bandera para saber si el mundo está cargado
-    isLoading = false  -- Nueva bandera para estado de carga
+    isLoading = false,  -- Nueva bandera para estado de carga
+    inventoryMode = "none",  -- none | ship | eva
+    inventoryDebug = false
 }
 
 -- Sistema de luz eliminado (no se usaba)
@@ -40,6 +42,7 @@ _G.camera = nil
 _G.showGrid = false
 local player
 local runState, gameDirector
+local prevIsInEVA = false
 
 -- Sistema de debug para biomas y sistemas avanzados
 local biomeDebug = {
@@ -369,6 +372,20 @@ function love.update(dt)
 
     -- Forzar exclusividad de inventarios según modo EVA (cierre automático)
     if player then
+        -- Detectar transición de EVA y cerrar inventarios + resetear modo
+        if prevIsInEVA ~= player.isInEVA then
+            if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+                if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
+            end
+            if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+                if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
+            end
+            gameState.inventoryMode = "none"
+            if gameState.inventoryDebug then print("[INV] EVA transition -> mode=none, inventories closed") end
+            prevIsInEVA = player.isInEVA
+        end
+
+        -- Exclusividad según estado EVA
         if player.isInEVA then
             if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
                 if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
@@ -378,8 +395,21 @@ function love.update(dt)
                 if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
             end
         end
+
+        -- Sincronizar modo en base a estado real de las UIs
+        local computed = "none"
+        if not player.isInEVA and InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+            computed = "ship"
+        end
+        if player.isInEVA and EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+            computed = "eva"
+        end
+        if computed ~= gameState.inventoryMode then
+            gameState.inventoryMode = computed
+            if gameState.inventoryDebug then print("[INV] Sync mode -> mode=" .. gameState.inventoryMode) end
+        end
     end
-    
+
     -- Actualizar jugador
         if player and type(player.update) == "function" then
             local success, err = pcall(function() player:update(dt) end)
@@ -1022,17 +1052,38 @@ function love.keypressed(key)
             print("Fuel added")
         end
     elseif key == "tab" then
-        -- Alternar inventario según el estado del jugador
-        if player and not player.isInEVA then
-            -- Inventario de la nave
-            if InventoryUI then
-                InventoryUI:toggle()
+        -- Control centralizado de inventarios basado en inventoryMode y estado EVA
+        if not player then return end
+        local desired = player.isInEVA and "eva" or "ship"
+        if gameState.inventoryMode == desired then
+            -- Cerrar el inventario actual
+            if desired == "ship" then
+                if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+                    if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
+                end
+            else
+                if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+                    if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
+                end
             end
-        elseif player and player.isInEVA and player.evaPlayer then
-            -- Inventario EVA
-            if EVAInventoryUI then
-                EVAInventoryUI:toggle()
+            gameState.inventoryMode = "none"
+            if gameState.inventoryDebug then print("[INV] Close via Tab -> mode=none") end
+        else
+            -- Cerrar el contrario y abrir el deseado
+            if desired == "ship" then
+                if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+                    if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
+                end
+                if InventoryUI then InventoryUI:toggle() end
+                gameState.inventoryMode = "ship"
+            else
+                if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+                    if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
+                end
+                if EVAInventoryUI then EVAInventoryUI:toggle() end
+                gameState.inventoryMode = "eva"
             end
+            if gameState.inventoryDebug then print("[INV] Open via Tab -> mode=" .. gameState.inventoryMode) end
         end
     end
     
@@ -1136,11 +1187,12 @@ function changeSeedWithLoading(newSeed)
     
     -- Cerrar inventarios si están abiertos
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:toggle()
+        if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
     end
     if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-        EVAInventoryUI:toggle()
+        if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
     end
+    gameState.inventoryMode = "none"
     
     -- Limpiar todos los estados (salir de estaciones, etc.)
     if stateManager and stateManager.clear then
@@ -1189,11 +1241,12 @@ end
 function regenerateMap(seed)
     -- Cerrar inventarios si están abiertos
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:toggle()
+        if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
     end
     if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-        EVAInventoryUI:toggle()
+        if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
     end
+    gameState.inventoryMode = "none"
     
     -- Regenerar mapa con nueva semilla usando el sistema mejorado
     Map.regenerate(seed)
