@@ -603,12 +603,27 @@ function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
     if zoom > 1.2 then
         -- Reducir frecuencia de actualización del twinkle en zoom alto
         local frameCount = OptimizedRenderer.state.stats.frameCount or 0
-        if not star._twinkleCache or frameCount % 4 == 0 then
+        if not star._twinkleCache or frameCount % 8 == 0 then -- Reducido de 4 a 8 frames
             local time = love.timer.getTime()
-            local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+            -- Normalizar velocidad de twinkle independiente del zoom
+            local normalizedTwinkleSpeed = math.min(star.twinkleSpeed or 1, 2.0) -- Limitar velocidad máxima
+            local baseSpeed = 0.8 -- Velocidad base constante
+            -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
+            local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
+            local adjustedTime = time * zoomSlowdown
+            local twinklePhase = adjustedTime * baseSpeed * normalizedTwinkleSpeed + (star.twinkle or 0)
             local angleIndex = math.floor(twinklePhase * 57.29) % 360
             star._twinkleCache = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
             star._lastTwinkleUpdate = frameCount
+        end
+        -- Hacer que el parpadeo se vea más lento con mayor zoom
+        if star._twinkleCache then
+            local sizeCompensation = math.min(size / 3.0, 1.0) -- Normalizar tamaño a 0-1
+            local zoomSlowdown = math.max(0.2, 1.0 / math.sqrt(zoom)) -- Ralentizar más con mayor zoom
+            local intensityReduction = 1.0 - (1.0 - sizeCompensation) * 0.6 -- Reducir hasta 60%
+            
+            -- Aplicar tanto reducción de intensidad como ralentización por zoom
+            star._twinkleCache = star._twinkleCache * intensityReduction * zoomSlowdown
         end
     end
     
@@ -625,8 +640,9 @@ function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
         if importance < importanceThreshold then
             return -- Saltear estrellas menos importantes en zoom alto
         end
-        -- Estrellas importantes mantienen tamaño mínimo visible
-        size = math.max(size * 0.5, 1.5) -- Tamaño mínimo de 1.5 píxeles para visibilidad
+        -- Estrellas importantes mantienen tamaño mínimo visible escalado por zoom
+        local minSize = zoom > 2.0 and 2.5 or (zoom > 1.5 and 2.0 or 1.5)
+        size = math.max(size * 0.7, minSize) -- Tamaño mínimo escalado para mejor visibilidad
     end
     
     -- OPTIMIZACIÓN: Incrementar contador de batch

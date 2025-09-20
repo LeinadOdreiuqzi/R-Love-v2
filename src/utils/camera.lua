@@ -61,8 +61,16 @@ end
 
 -- Actualizar estado de la cámara
 function Camera:update(dt)
-    -- Actualizar zoom suavemente
-    self.zoom = self.zoom + (self.targetZoom - self.zoom) * 0.1
+    -- Actualizar zoom suavemente con mejor estabilidad
+    local zoomDiff = self.targetZoom - self.zoom
+    local lerpFactor = math.min(0.15, dt * 8) -- Más estable en zoom alto
+    
+    -- Evitar micro-fluctuaciones cerca del target
+    if math.abs(zoomDiff) < 1.0 then
+        self.zoom = self.targetZoom
+    else
+        self.zoom = self.zoom + zoomDiff * lerpFactor
+    end
     
     -- Actualizar efectos de cámara
     if self.shake > 0 then

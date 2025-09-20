@@ -31,7 +31,7 @@ MapConfig.stars = {
     smallStars = {
         -- Capa 1: Estrellas intermedias pequeñas (reemplaza estrellas cercanas pequeñas)
         layer1 = {
-            showBelowZoom = 2.0,        -- Aumentado para mayor visibilidad
+            showBelowZoom = 2.2,        -- Aumentado para evitar corte en zoom máximo
             showAboveZoom = 0.2,        -- Límite inferior más bajo
             densityPerPixel = 0.00008,  -- Aumentada la densidad
             maxCount = 500,             -- Aumentado de 300 a 500
@@ -52,8 +52,9 @@ MapConfig.stars = {
         },
         -- Capa 2: Estrellas intermedias medianas (reemplaza estrellas cercanas medianas)
         layer2 = {
-            showBelowZoom = 1.8,        -- Aumentado para mayor visibilidad
+            showBelowZoom = 2.0,        -- Aumentado para mayor visibilidad
             showAboveZoom = 0.3,        -- Límite inferior ajustado
+            fadeRange = 0.25,           -- NUEVO: Rango de transición suave
             densityPerPixel = 0.00006,  -- Aumentada la densidad
             maxCount = 350,             -- Aumentado de 200 a 350
             sizeMin = 4.0,              -- Aumentado de 2.5 a 4.0 (más visibles)
@@ -74,7 +75,8 @@ MapConfig.stars = {
     },
     -- Configuración específica para microestrellas
     microStars = {
-        showBelowZoom = 0.95,
+        showBelowZoom = 1.2,        -- Aumentado para evitar corte abrupto en zoom alto
+        fadeRange = 0.3,            -- NUEVO: Rango de transición suave
         densityPerPixel = 0.00018,
         maxCount = 1000,
         sizeMin = 0.5,

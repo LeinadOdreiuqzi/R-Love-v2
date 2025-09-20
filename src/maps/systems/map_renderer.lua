@@ -336,10 +336,16 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         local flareEffects = {1.0, 1.0, 1.0}
         
         if StarfieldInstanced.getCachedTwinkle then
-            twinkleIntensity = StarfieldInstanced.getCachedTwinkle(star, time)
+            -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
+            local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
+            local adjustedTime = time * zoomSlowdown
+            twinkleIntensity = StarfieldInstanced.getCachedTwinkle(star, adjustedTime)
         else
             -- Fallback tradicional
-            local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+            -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
+            local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
+            local adjustedTime = time * zoomSlowdown
+            local twinklePhase = adjustedTime * (star.twinkleSpeed or 1) + (star.twinkle or 0)
             local angleIndex = math.floor(twinklePhase * 57.29) % 360
             twinkleIntensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
         end
@@ -875,7 +881,10 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     if star._twinkleCache and camera and camera.zoom and camera.zoom > 1.2 then
         twinkleIntensity = star._twinkleCache
     else
-        local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+        -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
+        local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
+        local adjustedTime = time * zoomSlowdown
+        local twinklePhase = adjustedTime * (star.twinkleSpeed or 1) + (star.twinkle or 0)
         local angleIndex = math.floor(twinklePhase * 57.29) % 360
         twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
     end
@@ -885,6 +894,13 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     nebulaDim = nebulaDim or 1.0
     brightness = brightness * nebulaDim
     twinkleIntensity = twinkleIntensity * nebulaDim
+    
+    -- Hacer que el parpadeo se vea más lento con mayor zoom
+    if camera and camera.zoom and camera.zoom > 1.2 then
+        local zoom = camera.zoom
+        local zoomSlowdown = math.max(0.2, 1.0 / math.sqrt(zoom)) -- Ralentizar más con mayor zoom
+        twinkleIntensity = twinkleIntensity * zoomSlowdown
+    end
 
     local color = star.color
     local localSizeScale = sizeScaleExtra or 1.0
