@@ -19,7 +19,13 @@ function StationScene:new(placeholder)
     o.placeholder = placeholder
     o.time = 0
     o.player = nil
-    o.camera = { x = 0, y = 0, zoom = 1 }
+    -- Sistema de cámara simplificado sin zoom cercano
+    o.camera = { 
+        x = 0, 
+        y = 0, 
+        zoom = 1.0,  -- Zoom fijo sin acercamiento
+        smoothing = 10.0  -- Factor de suavizado
+    }
     o.seed = (placeholder and placeholder.seed) or 0
     o.graph = nil
     o.currentRoomId = nil
@@ -33,8 +39,9 @@ function StationScene:enter(params)
     self.time = 0
 
     -- Generar grafo 2D estilo Metal Warriors (permite verticalidad y grandes salas)
-    local rows, cols = 3, 4
-    self.graph = Generator.generateGrid({ seed = self.seed, rows = rows, cols = cols, separation = 120 })
+    local rows, cols = 4, 5
+    -- Usar separación ampliada para acomodar espacios más grandes
+    self.graph = Generator.generateGrid({ seed = self.seed, rows = rows, cols = cols, separation = 260 })
     if not self.graph or not self.graph.rooms or #self.graph.rooms == 0 then return end
 
     -- Decor por sala
@@ -47,8 +54,9 @@ function StationScene:enter(params)
     local startRoom = self.graph.rooms[self.currentRoomId]
     self.player = Player.new({ x = startRoom.spawn.x, y = startRoom.spawn.y })
 
-    -- Inicializar cámara
-    self.camera = { x = startRoom.x, y = startRoom.y, zoom = 1 }
+    -- Inicializar cámara con vista completa
+    self.camera.x = startRoom.x
+    self.camera.y = startRoom.y
     self:updateCamera(0)
 
     -- Inicializar fondo
@@ -140,14 +148,23 @@ function StationScene:draw()
         BackgroundManager.render(self.camera, { currentSeed = self.seed })
     end
 
-    -- Mundo 2D
+    -- Mundo 2D sin zoom
     love.graphics.push()
     love.graphics.translate(-math.floor(self.camera.x), -math.floor(self.camera.y))
 
     local room = self:getCurrentRoom()
     if room then
-        -- Fondo de sala semitransparente para no ocultar el feedback
-        love.graphics.setColor(0.07, 0.09, 0.12, 0.35)
+        -- Color de fondo por tipo de sala (sutil)
+        local t = room.type or 'generic'
+        local col = {0.07, 0.09, 0.12, 0.35}
+        if t == 'entrance' then col = {0.06, 0.12, 0.08, 0.38}
+        elseif t == 'corridor' then col = {0.06, 0.10, 0.16, 0.38}
+        elseif t == 'filler' then col = {0.10, 0.10, 0.12, 0.38}
+        elseif t == 'specialized' then col = {0.10, 0.07, 0.12, 0.40}
+        elseif t == 'secret' then col = {0.14, 0.12, 0.06, 0.35}
+        elseif t == 'boss' then col = {0.16, 0.06, 0.06, 0.40}
+        end
+        love.graphics.setColor(col[1], col[2], col[3], col[4])
         love.graphics.rectangle('fill', room.x, room.y, room.width, room.height)
 
         -- Textura simple: franjas para suelos metálicos
@@ -216,6 +233,29 @@ function StationScene:draw()
     -- UI
     love.graphics.setColor(0.82, 0.92, 1.0, 1)
     love.graphics.printf("Estación - Grafo 2D (usa puertas ←→↑↓)", 16, 14, sw - 32, 'left')
+
+    -- Mostrar tipo y posición de la sala actual (más específico)
+    local room2 = self:getCurrentRoom()
+    if room2 then
+        local t2 = room2.type or 'generic'
+        local labelByType = {
+            entrance = 'entrada',
+            corridor = 'pasillo',
+            filler = 'relleno',
+            specialized = 'especializada',
+            secret = 'secreto',
+            boss = 'jefe',
+        }
+        local label = labelByType[t2] or t2
+        local gridText = ""
+        if room2.grid then gridText = string.format(" (r=%d, c=%d)", room2.grid.r, room2.grid.c) end
+        local idText = string.format(" [ID %d]", room2.id or -1)
+        local posText = string.format(" x=%d y=%d", math.floor(room2.x), math.floor(room2.y))
+        local nameText = string.format(" plantilla=%s", tostring(room2.name))
+        love.graphics.setColor(0.90, 0.96, 1.0, 0.95)
+        love.graphics.printf("Sala actual: " .. tostring(label) .. gridText .. idText .. posText .. nameText, 16, 34, sw - 32, 'left')
+    end
+    
     love.graphics.setColor(0.90, 0.96, 1.0, 0.95)
     love.graphics.printf("[A/D o ←/→] Mover   [W/↑/ESP/Z] Saltar   [Shift] Jetpack   [E] Usar puerta   [Q/ESC] Salir", 16, sh - 28, sw - 32, 'right')
 end
@@ -226,29 +266,30 @@ function StationScene:updateCamera(dt)
     local room = self:getCurrentRoom()
     if not room then return end
 
-    local targetX = (self.player.x + self.player.w*0.5) - sw*0.5
-    local targetY = (self.player.y + self.player.h*0.5) - sh*0.5
-
+    -- Vista completa de la sala sin zoom
+    local targetX = (self.player.x + self.player.w * 0.5) - sw * 0.5
+    local targetY = (self.player.y + self.player.h * 0.5) - sh * 0.5
+    
     -- Clamping sin márgenes: aprovechar toda la pantalla
     local minX = room.x
     local minY = room.y
     local maxX = room.x + room.width - sw
     local maxY = room.y + room.height - sh
-
+    
     -- Si la sala es más pequeña que la pantalla, centrar
     if maxX < minX then
-        targetX = room.x + room.width*0.5 - sw*0.5
+        targetX = room.x + room.width * 0.5 - sw * 0.5
     else
         targetX = math.max(minX, math.min(targetX, maxX))
     end
     if maxY < minY then
-        targetY = room.y + room.height*0.5 - sh*0.5
+        targetY = room.y + room.height * 0.5 - sh * 0.5
     else
         targetY = math.max(minY, math.min(targetY, maxY))
     end
 
-    -- Suavizado dt-invariante: alpha = 1 - exp(-lambda*dt)
-    local lambda = 10.0
+    -- Suavizado dt-invariante
+    local lambda = self.camera.smoothing
     local alpha = 1 - math.exp(-lambda * (dt or 0.016))
     self.camera.x = self.camera.x + (targetX - self.camera.x) * alpha
     self.camera.y = self.camera.y + (targetY - self.camera.y) * alpha
@@ -259,6 +300,7 @@ function StationScene:keypressed(key)
         if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
         return true
     end
+    
     if key == 'e' and self.player and self._doorCooldown <= 0 then
         local room = self:getCurrentRoom()
         if room then

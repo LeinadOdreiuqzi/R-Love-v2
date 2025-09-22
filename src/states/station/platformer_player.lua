@@ -18,27 +18,27 @@ function Player.new(opts)
     local phys = opts.physics or {}
     p.physics = {
         gravity = phys.gravity or 1700,
-        moveAccel = phys.moveAccel or 7200,
-        maxSpeed = phys.maxSpeed or 280,
-        friction = phys.friction or 5200,
-        jumpVelocity = phys.jumpVelocity or 600,
+        moveAccel = phys.moveAccel or 9600,  -- Aumentado de 7200 para espacios más grandes
+        maxSpeed = phys.maxSpeed or 380,     -- Aumentado de 280 para mayor movilidad
+        friction = phys.friction or 6800,    -- Aumentado de 5200 para mejor control
+        jumpVelocity = phys.jumpVelocity or 750,  -- Aumentado de 600 para saltos más altos
         airControl = phys.airControl or 0.85,
     }
 
-    -- Timers para control de salto
-    p.coyoteMax = 0.10
+    -- Timers para control de salto ajustados para espacios más grandes
+    p.coyoteMax = 0.12  -- Aumentado de 0.10 para mayor tolerancia
     p.coyote = 0
-    p.jumpBufferMax = 0.12
+    p.jumpBufferMax = 0.15  -- Aumentado de 0.12 para mejor respuesta
     p.jumpBuffer = 0
 
-    -- Jetpack
+    -- Jetpack mejorado para espacios ampliados
     p.jetpack = {
-        fuelMax = 1.6,
-        fuel = 1.6,
-        rechargeGround = 0.8,   -- por segundo
-        rechargeAir = 0.35,     -- por segundo
-        thrust = 2000,          -- aceleración hacia arriba
-        maxAscendSpeed = 360,   -- velocidad vertical máxima al ascender
+        fuelMax = 2.2,          -- Aumentado de 1.6 para mayor duración
+        fuel = 2.2,
+        rechargeGround = 1.0,   -- Aumentado de 0.8 para recarga más rápida
+        rechargeAir = 0.45,     -- Aumentado de 0.35 para mejor movilidad aérea
+        thrust = 2400,          -- Aumentado de 2000 para mayor potencia
+        maxAscendSpeed = 420,   -- Aumentado de 360 para mayor velocidad vertical
     }
     p.isJetpacking = false
 

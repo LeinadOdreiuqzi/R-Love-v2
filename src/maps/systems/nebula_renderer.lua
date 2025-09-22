@@ -51,7 +51,7 @@ local function worldToScreenParallax(camera, wx, wy, parallax)
     return camera:worldToScreen(px, py)
 end
 
-function isOnScreen(screenX, screenY, radiusPx, margin)
+local function isOnScreen(screenX, screenY, radiusPx, margin)
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
     -- Margen mucho más generoso para nebulosas grandes
     local m = margin or 200
