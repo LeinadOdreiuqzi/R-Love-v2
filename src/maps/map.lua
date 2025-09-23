@@ -487,4 +487,3 @@ Map.isObjectVisible = MapRenderer.isObjectVisible
 Map.calculateLOD = MapRenderer.calculateLOD
 
 return Map
-

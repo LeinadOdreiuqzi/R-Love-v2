@@ -1,4 +1,4 @@
-﻿-- src/entities/naves.lua
+-- src/entities/naves.lua
 -- Sistema de gestión de naves con persistencia de estado individual
 
 local Naves = {}

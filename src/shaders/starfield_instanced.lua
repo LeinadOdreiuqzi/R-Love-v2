@@ -12,30 +12,55 @@ local writerShader
 local starDataCanvas
 local starDataW, starDataH = 0, 0
 
--- Sistema de pooling para Canvas
+-- OPTIMIZADO: Sistema de pooling mejorado para Canvas
 local canvasPool = {
     available = {},
     inUse = {},
-    maxPoolSize = 5,
-    totalCreated = 0
+    maxPoolSize = 8, -- Aumentado para mejor reutilización
+    totalCreated = 0,
+    hitCount = 0,
+    missCount = 0
 }
 
--- Obtener Canvas del pool o crear uno nuevo
+-- NUEVO: Sistema de batching optimizado para 64 estrellas
+local batchSystem = {
+    batchSize = 64,
+    currentBatch = {},
+    batchIndex = 0,
+    totalBatches = 0,
+    processedStars = 0
+}
+
+-- OPTIMIZADO: Obtener Canvas del pool con mejor gestión de memoria
 local function getPooledCanvas(width, height)
     local key = width .. "x" .. height
     
     if canvasPool.available[key] and #canvasPool.available[key] > 0 then
         local canvas = table.remove(canvasPool.available[key])
         canvasPool.inUse[canvas] = key
+        canvasPool.hitCount = canvasPool.hitCount + 1
         return canvas
     end
     
-    -- Crear nuevo Canvas si el pool está vacío
+    canvasPool.missCount = canvasPool.missCount + 1
+    
+    -- Crear nuevo Canvas con mejor gestión de memoria
     if canvasPool.totalCreated < canvasPool.maxPoolSize then
-        local ok, canvas = pcall(love.graphics.newCanvas, width, height, {format="rgba32f", readable=true})
+        local ok, canvas = pcall(love.graphics.newCanvas, width, height, {
+            format="rgba32f", 
+            readable=true,
+            msaa=0 -- Desactivar antialiasing para mejor rendimiento
+        })
         if ok then
             canvasPool.totalCreated = canvasPool.totalCreated + 1
             canvasPool.inUse[canvas] = key
+            return canvas
+        end
+    end
+    
+    -- Si el pool está lleno, intentar reutilizar el Canvas más antiguo
+    for canvas, canvasKey in pairs(canvasPool.inUse) do
+        if canvasKey == key then
             return canvas
         end
     end
@@ -667,66 +692,94 @@ function StarfieldInstanced.calculateStarImportance(star)
     return math.max(importance, 0.1)
 end
 
--- OPTIMIZADO: Sistema de cache avanzado para efectos visuales
+-- OPTIMIZADO: Sistema de cache avanzado para efectos visuales con batching
 local effectsCache = {
     twinkle = {},
     pulse = {},
     flare = {},
+    parallax = {}, -- NUEVO: Cache para cálculos de parallax
     lastCleanup = 0,
-    cleanupInterval = 5.0, -- Limpiar cache cada 5 segundos
-    maxCacheSize = 1000
+    cleanupInterval = 3.0, -- Reducido para mejor gestión de memoria
+    maxCacheSize = 1500, -- Aumentado para batching de 64 estrellas
+    batchCache = {}, -- NUEVO: Cache específico para batches
+    hitRate = 0,
+    totalRequests = 0
 }
 
--- Cache inteligente de twinkle con interpolación temporal
+-- OPTIMIZADO: Cache inteligente de twinkle con batching y interpolación temporal
 function StarfieldInstanced.getCachedTwinkle(star, time, forceUpdate)
     if not star or not star.id then return 0.6 end
     
+    effectsCache.totalRequests = effectsCache.totalRequests + 1
     local starId = star.id
     local cache = effectsCache.twinkle[starId]
     
-    -- Verificar si necesitamos actualizar el cache
-    local needsUpdate = forceUpdate or not cache or (time - cache.lastUpdate) > 0.1
+    -- Verificar si necesitamos actualizar el cache (optimizado para batching)
+    local needsUpdate = forceUpdate or not cache or (time - cache.lastUpdate) > 0.08
     
     if needsUpdate then
-        local twinklePhase = time * (star.twinkleSpeed or 1) + (star.twinkle or 0)
+        local twinkleSpeed = star.twinkleSpeed or 1
+        local twinklePhase = time * twinkleSpeed + (star.twinkle or 0)
+        
+        -- Optimización: usar tabla de senos precalculada si está disponible
         local angleIndex = math.floor(twinklePhase * 57.29) % 360
-        local intensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
+        local sinValue = MapRenderer and MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex))
+        local intensity = 0.6 + 0.4 * sinValue
         
         effectsCache.twinkle[starId] = {
             intensity = intensity,
             lastUpdate = time,
-            phase = twinklePhase
+            phase = twinklePhase,
+            speed = twinkleSpeed -- Cache para interpolación
         }
         
         return intensity
     else
-        -- Interpolar entre valores cacheados para suavidad
+        effectsCache.hitRate = effectsCache.hitRate + 1
+        
+        -- Interpolación optimizada entre valores cacheados
         local deltaTime = time - cache.lastUpdate
-        local phaseIncrement = deltaTime * (star.twinkleSpeed or 1)
+        if deltaTime < 0.02 then -- Si es muy reciente, usar valor cacheado
+            return cache.intensity
+        end
+        
+        local phaseIncrement = deltaTime * (cache.speed or 1)
         local newPhase = cache.phase + phaseIncrement
         local angleIndex = math.floor(newPhase * 57.29) % 360
-        local interpolatedIntensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
+        local sinValue = MapRenderer and MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex))
+        local interpolatedIntensity = 0.6 + 0.4 * sinValue
         
         return interpolatedIntensity
     end
 end
 
--- Cache de efectos de pulso para estrellas especiales
+-- OPTIMIZADO: Cache de efectos de pulso con batching mejorado
 function StarfieldInstanced.getCachedPulse(star, time, starType)
     if not star or not star.id or starType < 4 then return 1.0 end
     
     local starId = star.id
     local cache = effectsCache.pulse[starId]
     
-    if not cache or (time - cache.lastUpdate) > 0.05 then
+    if not cache or (time - cache.lastUpdate) > 0.04 then -- Más frecuente para mejor suavidad
         local pulseSpeed = (star.pulseSpeed or 0.5) * (starType == 5 and 1.5 or 1.0)
         local pulsePhase = time * pulseSpeed + (star.pulseOffset or 0)
-        local pulseIntensity = 0.8 + 0.2 * math.sin(pulsePhase)
+        
+        -- Optimización: diferentes patrones de pulso según el tipo
+        local pulseIntensity
+        if starType == 4 then
+            pulseIntensity = 0.85 + 0.15 * math.sin(pulsePhase) -- Pulso más sutil para tipo 4
+        elseif starType == 5 then
+            pulseIntensity = 0.75 + 0.25 * math.sin(pulsePhase * 1.3) -- Pulso más dramático para tipo 5
+        else
+            pulseIntensity = 0.8 + 0.2 * math.sin(pulsePhase)
+        end
         
         effectsCache.pulse[starId] = {
             intensity = pulseIntensity,
             lastUpdate = time,
-            phase = pulsePhase
+            phase = pulsePhase,
+            speed = pulseSpeed,
+            type = starType
         }
         
         return pulseIntensity
@@ -735,18 +788,18 @@ function StarfieldInstanced.getCachedPulse(star, time, starType)
     return cache.intensity
 end
 
--- Cache de efectos de flare para estrellas grandes
+-- OPTIMIZADO: Cache de efectos de flare con batching mejorado
 function StarfieldInstanced.getCachedFlare(star, time, size)
     if not star or not star.id or size < 15 then return {1.0, 1.0, 1.0} end
     
     local starId = star.id
     local cache = effectsCache.flare[starId]
     
-    if not cache or (time - cache.lastUpdate) > 0.08 then
+    if not cache or (time - cache.lastUpdate) > 0.06 then -- Optimizado para batching
         local flareSpeed = star.flareSpeed or 0.3
         local flarePhase = time * flareSpeed
         
-        -- Diferentes tipos de flare según el tipo de estrella
+        -- Diferentes tipos de flare según el tipo de estrella (optimizado)
         local starType = star.type or 1
         local crossIntensity, sixPointIntensity, diamondIntensity = 1.0, 1.0, 1.0
         
@@ -756,13 +809,16 @@ function StarfieldInstanced.getCachedFlare(star, time, size)
         elseif starType == 5 then
             diamondIntensity = 0.6 + 0.4 * math.sin(flarePhase * 0.8)
             crossIntensity = 0.9 + 0.1 * math.sin(flarePhase * 2.1)
+        elseif starType == 3 then
+            diamondIntensity = 0.8 + 0.2 * math.sin(flarePhase * 1.1)
         end
         
         effectsCache.flare[starId] = {
             cross = crossIntensity,
             sixPoint = sixPointIntensity,
             diamond = diamondIntensity,
-            lastUpdate = time
+            lastUpdate = time,
+            size = size -- Cache del tamaño para optimización
         }
         
         return {crossIntensity, sixPointIntensity, diamondIntensity}
@@ -771,83 +827,287 @@ function StarfieldInstanced.getCachedFlare(star, time, size)
     return {cache.cross, cache.sixPoint, cache.diamond}
 end
 
--- Limpieza automática del cache
+-- NUEVO: Cache eficiente para cálculos de parallax
+function StarfieldInstanced.getCachedParallax(star, camera, parallaxStrength, time)
+    if not star or not star.id then return star.x or 0, star.y or 0 end
+    
+    local starId = star.id
+    local cameraKey = math.floor(camera.x * 0.1) .. "," .. math.floor(camera.y * 0.1) -- Discretizar cámara
+    local cache = effectsCache.parallax[starId]
+    
+    if not cache or cache.cameraKey ~= cameraKey or (time - cache.lastUpdate) > 0.1 then
+        local depth = star.depth or 0.5
+        local depthFactor = 1.0 - depth
+        local parallaxShift = {
+            x = camera.x * depthFactor * parallaxStrength,
+            y = camera.y * depthFactor * parallaxStrength
+        }
+        
+        local worldX = (star.x or 0) - parallaxShift.x
+        local worldY = (star.y or 0) - parallaxShift.y
+        
+        effectsCache.parallax[starId] = {
+            worldX = worldX,
+            worldY = worldY,
+            cameraKey = cameraKey,
+            lastUpdate = time,
+            depth = depth
+        }
+        
+        return worldX, worldY
+    end
+    
+    return cache.worldX, cache.worldY
+end
+
+-- NUEVO: Sistema de batching optimizado para procesamiento de 64 estrellas
+function StarfieldInstanced.initBatch()
+    batchSystem.currentBatch = {}
+    batchSystem.batchIndex = 0
+    batchSystem.processedStars = 0
+end
+
+function StarfieldInstanced.addToBatch(star)
+    if not star then return false end
+    
+    batchSystem.batchIndex = batchSystem.batchIndex + 1
+    batchSystem.currentBatch[batchSystem.batchIndex] = star
+    
+    -- Procesar batch cuando alcance el tamaño óptimo
+    if batchSystem.batchIndex >= batchSystem.batchSize then
+        return true -- Indica que el batch está listo
+    end
+    
+    return false
+end
+
+function StarfieldInstanced.processBatch(camera, zoom, time, parallaxStrength)
+    if batchSystem.batchIndex == 0 then return {} end
+    
+    local processedBatch = {}
+    local batchKey = "batch_" .. batchSystem.totalBatches
+    
+    -- Verificar cache de batch
+    local batchCache = effectsCache.batchCache[batchKey]
+    if batchCache and (time - batchCache.lastUpdate) < 0.05 then
+        return batchCache.data
+    end
+    
+    -- Procesar estrellas en lotes para mejor rendimiento
+    for i = 1, batchSystem.batchIndex do
+        local star = batchSystem.currentBatch[i]
+        if star then
+            -- Aplicar optimizaciones de cache
+            local worldX, worldY = StarfieldInstanced.getCachedParallax(star, camera, parallaxStrength, time)
+            local twinkle = StarfieldInstanced.getCachedTwinkle(star, time)
+            local pulse = StarfieldInstanced.getCachedPulse(star, time, star.type or 1)
+            
+            processedBatch[i] = {
+                star = star,
+                worldX = worldX,
+                worldY = worldY,
+                twinkle = twinkle,
+                pulse = pulse,
+                screenX = (worldX - camera.x) * zoom,
+                screenY = (worldY - camera.y) * zoom
+            }
+        end
+    end
+    
+    -- Cache del batch procesado
+    effectsCache.batchCache[batchKey] = {
+        data = processedBatch,
+        lastUpdate = time
+    }
+    
+    batchSystem.totalBatches = batchSystem.totalBatches + 1
+    batchSystem.processedStars = batchSystem.processedStars + batchSystem.batchIndex
+    
+    -- Reiniciar batch
+    batchSystem.currentBatch = {}
+    batchSystem.batchIndex = 0
+    
+    return processedBatch
+end
+
+function StarfieldInstanced.getBatchStats()
+    return {
+        batchSize = batchSystem.batchSize,
+        totalBatches = batchSystem.totalBatches,
+        processedStars = batchSystem.processedStars,
+        currentBatchSize = batchSystem.batchIndex,
+        poolHitRate = canvasPool.hitCount / math.max(1, canvasPool.hitCount + canvasPool.missCount),
+        cacheHitRate = effectsCache.hitRate / math.max(1, effectsCache.totalRequests)
+    }
+end
+
+-- OPTIMIZADO: Limpieza automática del cache con batching
 function StarfieldInstanced.cleanupEffectsCache(time)
     if time - effectsCache.lastCleanup < effectsCache.cleanupInterval then
         return
     end
     
     local cleaned = 0
+    local maxAge = 8.0 -- Reducido para mejor gestión de memoria
     
-    -- Limpiar cache de twinkle
-    for starId, cache in pairs(effectsCache.twinkle) do
-        if time - cache.lastUpdate > 10.0 then -- Eliminar entradas viejas
-            effectsCache.twinkle[starId] = nil
+    -- Función helper para limpiar un tipo de cache
+    local function cleanCacheType(cacheTable, maxAge)
+        local localCleaned = 0
+        for starId, cache in pairs(cacheTable) do
+            if time - cache.lastUpdate > maxAge then
+                cacheTable[starId] = nil
+                localCleaned = localCleaned + 1
+            end
+        end
+        return localCleaned
+    end
+    
+    -- Limpiar todos los tipos de cache
+    cleaned = cleaned + cleanCacheType(effectsCache.twinkle, maxAge)
+    cleaned = cleaned + cleanCacheType(effectsCache.pulse, maxAge)
+    cleaned = cleaned + cleanCacheType(effectsCache.flare, maxAge)
+    cleaned = cleaned + cleanCacheType(effectsCache.parallax, maxAge) -- NUEVO
+    
+    -- Limpiar cache de batches (más agresivo)
+    for batchKey, cache in pairs(effectsCache.batchCache) do
+        if time - cache.lastUpdate > 2.0 then -- Batches se invalidan más rápido
+            effectsCache.batchCache[batchKey] = nil
             cleaned = cleaned + 1
         end
     end
     
-    -- Limpiar cache de pulse
-    for starId, cache in pairs(effectsCache.pulse) do
-        if time - cache.lastUpdate > 10.0 then
-            effectsCache.pulse[starId] = nil
-            cleaned = cleaned + 1
-        end
-    end
-    
-    -- Limpiar cache de flare
-    for starId, cache in pairs(effectsCache.flare) do
-        if time - cache.lastUpdate > 10.0 then
-            effectsCache.flare[starId] = nil
-            cleaned = cleaned + 1
-        end
-    end
-    
-    -- Limitar tamaño del cache si es necesario
+    -- Limitar tamaño total del cache
     local totalCacheSize = 0
     for _ in pairs(effectsCache.twinkle) do totalCacheSize = totalCacheSize + 1 end
     for _ in pairs(effectsCache.pulse) do totalCacheSize = totalCacheSize + 1 end
     for _ in pairs(effectsCache.flare) do totalCacheSize = totalCacheSize + 1 end
+    for _ in pairs(effectsCache.parallax) do totalCacheSize = totalCacheSize + 1 end
+    for _ in pairs(effectsCache.batchCache) do totalCacheSize = totalCacheSize + 1 end
     
     if totalCacheSize > effectsCache.maxCacheSize then
         -- Limpiar cache más agresivamente
-        for starId, cache in pairs(effectsCache.twinkle) do
-            if time - cache.lastUpdate > 5.0 then
-                effectsCache.twinkle[starId] = nil
-                cleaned = cleaned + 1
-            end
-        end
+        local aggressiveAge = 3.0
+        cleaned = cleaned + cleanCacheType(effectsCache.twinkle, aggressiveAge)
+        cleaned = cleaned + cleanCacheType(effectsCache.pulse, aggressiveAge)
+        cleaned = cleaned + cleanCacheType(effectsCache.flare, aggressiveAge)
+        cleaned = cleaned + cleanCacheType(effectsCache.parallax, aggressiveAge)
     end
     
     effectsCache.lastCleanup = time
     
     if cleaned > 0 then
-        print("✓ StarfieldInstanced: Cleaned " .. cleaned .. " cache entries")
+        print("✓ StarfieldInstanced: Cleaned " .. cleaned .. " cache entries (Total: " .. totalCacheSize .. ")")
     end
 end
 
--- Función de limpieza para liberar recursos
+-- OPTIMIZADO: Función de limpieza mejorada para liberar recursos
 function StarfieldInstanced.cleanup()
     StarfieldInstanced.releaseStarData()
     
-    -- Limpiar cache de efectos
+    -- Limpiar todos los tipos de cache
     effectsCache.twinkle = {}
     effectsCache.pulse = {}
     effectsCache.flare = {}
+    effectsCache.parallax = {} -- NUEVO
+    effectsCache.batchCache = {} -- NUEVO
     effectsCache.lastCleanup = 0
+    effectsCache.hitRate = 0
+    effectsCache.totalRequests = 0
     
-    -- Limpiar pool si es necesario
+    -- Limpiar sistema de batching
+    batchSystem.currentBatch = {}
+    batchSystem.batchIndex = 0
+    batchSystem.totalBatches = 0
+    batchSystem.processedStars = 0
+    
+    -- Limpiar pool de canvas de manera segura
     for key, canvases in pairs(canvasPool.available) do
         for i, canvas in ipairs(canvases) do
             if canvas and canvas.release then
-                canvas:release()
+                pcall(function() canvas:release() end)
             end
+        end
+    end
+    
+    -- Limpiar canvas en uso
+    for canvas, key in pairs(canvasPool.inUse) do
+        if canvas and canvas.release then
+            pcall(function() canvas:release() end)
         end
     end
     
     canvasPool.available = {}
     canvasPool.inUse = {}
     canvasPool.totalCreated = 0
+    canvasPool.hitCount = 0
+    canvasPool.missCount = 0
+    
+    print("✓ StarfieldInstanced: Cleanup completed")
+end
+
+-- NUEVO: Función para obtener estadísticas de rendimiento
+function StarfieldInstanced.getPerformanceStats()
+    local batchStats = StarfieldInstanced.getBatchStats()
+    
+    return {
+        batching = batchStats,
+        cache = {
+            twinkleEntries = 0,
+            pulseEntries = 0,
+            flareEntries = 0,
+            parallaxEntries = 0,
+            batchEntries = 0,
+            hitRate = effectsCache.hitRate / math.max(1, effectsCache.totalRequests),
+            totalRequests = effectsCache.totalRequests
+        },
+        pool = {
+            totalCreated = canvasPool.totalCreated,
+            maxPoolSize = canvasPool.maxPoolSize,
+            hitRate = canvasPool.hitCount / math.max(1, canvasPool.hitCount + canvasPool.missCount),
+            available = 0,
+            inUse = 0
+        }
+    }
+end
+
+-- Contar entradas en cache para estadísticas
+local function updateCacheStats(stats)
+    for _ in pairs(effectsCache.twinkle) do stats.cache.twinkleEntries = stats.cache.twinkleEntries + 1 end
+    for _ in pairs(effectsCache.pulse) do stats.cache.pulseEntries = stats.cache.pulseEntries + 1 end
+    for _ in pairs(effectsCache.flare) do stats.cache.flareEntries = stats.cache.flareEntries + 1 end
+    for _ in pairs(effectsCache.parallax) do stats.cache.parallaxEntries = stats.cache.parallaxEntries + 1 end
+    for _ in pairs(effectsCache.batchCache) do stats.cache.batchEntries = stats.cache.batchEntries + 1 end
+    
+    for key, canvases in pairs(canvasPool.available) do
+        stats.pool.available = stats.pool.available + #canvases
+    end
+    for _ in pairs(canvasPool.inUse) do
+        stats.pool.inUse = stats.pool.inUse + 1
+    end
+end
+
+-- NUEVO: Función para obtener estadísticas actualizadas
+function StarfieldInstanced.getDetailedStats()
+    local stats = StarfieldInstanced.getPerformanceStats()
+    updateCacheStats(stats)
+    return stats
+end
+
+-- OPTIMIZADO: Función helper para configurar batching óptimo
+function StarfieldInstanced.configureBatching(newBatchSize)
+    if newBatchSize and newBatchSize > 0 and newBatchSize <= 128 then
+        batchSystem.batchSize = newBatchSize
+        print("✓ StarfieldInstanced: Batch size configured to " .. newBatchSize)
+        return true
+    end
+    return false
+end
+
+-- OPTIMIZADO: Función para forzar limpieza de cache cuando sea necesario
+function StarfieldInstanced.forceCacheCleanup()
+    local time = love.timer.getTime()
+    effectsCache.lastCleanup = 0 -- Forzar limpieza
+    StarfieldInstanced.cleanupEffectsCache(time)
 end
 
 return StarfieldInstanced

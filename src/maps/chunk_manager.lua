@@ -9,7 +9,11 @@ local VisibilityUtils = require 'src.maps.visibility_utils'
 -- Cache de configuración optimizada
 local configCache = {
     lastUpdate = 0,
-    updateInterval = 1.0, -- Actualizar configuración cada segundo
+    updateInterval = 2.0, -- Aumentado de 1.0 a 2.0 segundos para reducir frecuencia
+    lastLogTime = 0,
+    logCooldown = 5.0, -- Cooldown de 5 segundos entre logs para evitar spam
+    lastMemoryCheck = 0,
+    memoryCheckInterval = 0.5, -- Verificar memoria cada 0.5 segundos en lugar de cada frame
     adaptiveSettings = {
         lowMemory = {
             maxActiveChunks = 60,
@@ -202,8 +206,12 @@ function ChunkManager.updateMemoryManagement()
         ChunkManager.config.maxCachedChunks = settings.maxCachedChunks
         ChunkManager.config.poolSize = settings.poolSize
         
-        print("ChunkManager: Switched to " .. newMode .. " mode (Memory: " .. 
-              string.format("%.1f", memoryUsage / 1024 / 1024) .. "MB)")
+        -- Solo hacer log si ha pasado suficiente tiempo (cooldown para evitar spam)
+        if currentTime - configCache.lastLogTime >= configCache.logCooldown then
+            print("ChunkManager: Switched to " .. newMode .. " mode (Memory: " .. 
+                  string.format("%.1f", memoryUsage / 1024 / 1024) .. "MB)")
+            configCache.lastLogTime = currentTime
+        end
     end
     
     configCache.lastUpdate = currentTime
@@ -444,11 +452,15 @@ function ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
         ChunkManager.performDirectionalPreload(playerChunkX, playerChunkY, playerVelX, playerVelY)
     end
     
-    -- Limpiar memoria si es necesario
+    -- Limpiar memoria si es necesario (optimizado para reducir stuttering)
     if ChunkManager.config.memoryManagement.enabled then
-        local memoryUsage = collectgarbage("count") * 1024
-        if memoryUsage > ChunkManager.config.memoryManagement.memoryThresholds.high then
-            ChunkManager.performMemoryCleanup()
+        local currentTime = love.timer.getTime()
+        if currentTime - configCache.lastMemoryCheck >= configCache.memoryCheckInterval then
+            local memoryUsage = collectgarbage("count") * 1024
+            if memoryUsage > ChunkManager.config.memoryManagement.memoryThresholds.high then
+                ChunkManager.performMemoryCleanup()
+            end
+            configCache.lastMemoryCheck = currentTime
         end
     end
     
@@ -834,10 +846,18 @@ function ChunkManager.updateFullscreenState(isFullscreen)
         fsState.lastModeChange = love.timer.getTime()
         
         if isFullscreen then
-            print("ChunkManager: Activando optimizaciones de pantalla completa")
+            -- Log solo si ha pasado suficiente tiempo desde el último cambio
+            if love.timer.getTime() - configCache.lastLogTime >= configCache.logCooldown then
+                print("ChunkManager: Activando optimizaciones de pantalla completa")
+                configCache.lastLogTime = love.timer.getTime()
+            end
             ChunkManager.applyFullscreenOptimizations()
         else
-            print("ChunkManager: Desactivando optimizaciones de pantalla completa") 
+            -- Log solo si ha pasado suficiente tiempo desde el último cambio
+            if love.timer.getTime() - configCache.lastLogTime >= configCache.logCooldown then
+                print("ChunkManager: Desactivando optimizaciones de pantalla completa")
+                configCache.lastLogTime = love.timer.getTime()
+            end
             ChunkManager.restoreNormalMode()
         end
     end
@@ -862,8 +882,9 @@ function ChunkManager.applyFullscreenOptimizations()
         end
     end
     
-    print(string.format("ChunkManager: Optimizaciones aplicadas. Límite activo: %d", 
-          config.maxActiveFullscreen))
+    -- Comentado para evitar spam de logs que causa stuttering
+    -- print(string.format("ChunkManager: Optimizaciones aplicadas. Límite activo: %d", 
+    --       config.maxActiveFullscreen))
 end
 
 -- Descarga agresiva para pantalla completa
@@ -913,8 +934,9 @@ function ChunkManager.aggressiveUnloadForFullscreen(targetLimit)
         ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + 1
     end
     
-    print(string.format("ChunkManager: Descargados %d chunks para pantalla completa", 
-          math.min(toUnload, #activeChunks)))
+    -- Comentado para evitar spam de logs que causa stuttering
+    -- print(string.format("ChunkManager: Descargados %d chunks para pantalla completa", 
+    --       math.min(toUnload, #activeChunks)))
 end
 
 -- Optimización inteligente basada en viewport
@@ -982,7 +1004,8 @@ function ChunkManager.restoreNormalMode()
     fsState.unloadTimer = {}
     fsState.viewportBounds = {}
     
-    print("ChunkManager: Modo normal restaurado")
+    -- Comentado para evitar spam de logs que causa stuttering
+    -- print("ChunkManager: Modo normal restaurado")
 end
 
 -- Función principal de actualización para optimizaciones de pantalla completa
