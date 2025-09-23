@@ -66,6 +66,13 @@ ShaderManager.state = {
     uniformCache = {},
     lastActiveShader = nil,
     
+    -- NUEVA OPTIMIZACIÓN: Estado de shaders y batching
+    currentActiveShader = nil,
+    shaderStateChanges = 0,
+    uniformsSent = 0,
+    batchedOperations = {},
+    lastUniformValues = {},
+    
     -- Configuración
     config = {
         preloadIncrementally = true,
@@ -841,7 +848,7 @@ end
 local currentShader = nil
 local shaderStack = {}
 
--- Función segura para establecer un shader
+-- OPTIMIZACIÓN: Función mejorada para establecer shader con verificación de estado
 function ShaderManager.setShader(shaderName, params)
     local shader = nil
     
@@ -856,17 +863,29 @@ function ShaderManager.setShader(shaderName, params)
     end
     
     if shader then
-        -- Guardar shader anterior en stack
-        if currentShader then
-            table.insert(shaderStack, currentShader)
+        -- OPTIMIZACIÓN: Verificar si el shader ya está activo para evitar cambios redundantes
+        if ShaderManager.state.currentActiveShader ~= shader then
+            -- Registrar cambio de shader para profiling
+            local actualShaderName = type(shaderName) == "string" and shaderName or "unknown"
+            ShaderManager.recordShaderSwitch(actualShaderName)
+            
+            -- Guardar shader anterior en stack
+            if currentShader then
+                table.insert(shaderStack, currentShader)
+            end
+            
+            love.graphics.setShader(shader)
+            currentShader = shader
+            ShaderManager.state.currentActiveShader = shader
+            ShaderManager.state.shaderStateChanges = ShaderManager.state.shaderStateChanges + 1
+            
+            -- Limpiar cache de uniforms al cambiar shader
+            ShaderManager.state.lastUniformValues = {}
         end
         
-        love.graphics.setShader(shader)
-        currentShader = shader
-        
-        -- Enviar parámetros si se proporcionan
+        -- Enviar parámetros si se proporcionan (con cache optimizado)
         if params and type(params) == "table" then
-            ShaderManager.sendUniforms(shader, params)
+            ShaderManager.sendUniformsOptimized(shader, params)
         end
         
         return true
@@ -875,22 +894,31 @@ function ShaderManager.setShader(shaderName, params)
     return false
 end
 
--- Función para desactivar el shader actual
+-- OPTIMIZACIÓN: Función mejorada para desactivar shader con verificación de estado
 function ShaderManager.unsetShader()
-    if currentShader then
+    if currentShader or ShaderManager.state.currentActiveShader then
         love.graphics.setShader()
         currentShader = nil
+        ShaderManager.state.currentActiveShader = nil
+        ShaderManager.state.shaderStateChanges = ShaderManager.state.shaderStateChanges + 1
+        ShaderManager.state.lastUniformValues = {}
         return true
     end
     return false
 end
 
--- Función para restaurar el shader anterior del stack
+-- OPTIMIZACIÓN: Función mejorada para restaurar shader con verificación de estado
 function ShaderManager.popShader()
     if #shaderStack > 0 then
         local previousShader = table.remove(shaderStack)
-        love.graphics.setShader(previousShader)
-        currentShader = previousShader
+        -- Solo cambiar si es diferente al actual
+        if ShaderManager.state.currentActiveShader ~= previousShader then
+            love.graphics.setShader(previousShader)
+            currentShader = previousShader
+            ShaderManager.state.currentActiveShader = previousShader
+            ShaderManager.state.shaderStateChanges = ShaderManager.state.shaderStateChanges + 1
+            ShaderManager.state.lastUniformValues = {}
+        end
         return true
     else
         ShaderManager.unsetShader()
@@ -903,11 +931,79 @@ function ShaderManager.getCurrentShader()
     return currentShader
 end
 
--- Función para limpiar el stack de shaders
+-- OPTIMIZACIÓN: Función mejorada para limpiar stack con verificación de estado
 function ShaderManager.clearShaderStack()
     shaderStack = {}
-    currentShader = nil
-    love.graphics.setShader()
+    if currentShader or ShaderManager.state.currentActiveShader then
+        currentShader = nil
+        ShaderManager.state.currentActiveShader = nil
+        ShaderManager.state.shaderStateChanges = ShaderManager.state.shaderStateChanges + 1
+        ShaderManager.state.lastUniformValues = {}
+        love.graphics.setShader()
+    end
+end
+
+-- OPTIMIZACIÓN: Sistema de batching para operaciones GPU
+function ShaderManager.startBatch()
+    ShaderManager.state.batchedOperations = {}
+    return true
+end
+
+function ShaderManager.addToBatch(operation)
+    if not ShaderManager.state.batchedOperations then
+        ShaderManager.state.batchedOperations = {}
+    end
+    table.insert(ShaderManager.state.batchedOperations, operation)
+end
+
+function ShaderManager.executeBatch()
+    if not ShaderManager.state.batchedOperations or #ShaderManager.state.batchedOperations == 0 then
+        return true
+    end
+    
+    local success = true
+    local operationsExecuted = 0
+    
+    -- Agrupar operaciones por shader para minimizar cambios de estado
+    local operationsByShader = {}
+    for _, operation in ipairs(ShaderManager.state.batchedOperations) do
+        local shader = operation.shader
+        if not operationsByShader[shader] then
+            operationsByShader[shader] = {}
+        end
+        table.insert(operationsByShader[shader], operation)
+    end
+    
+    -- Ejecutar operaciones agrupadas
+    for shader, operations in pairs(operationsByShader) do
+        if ShaderManager.setShader(shader) then
+            for _, operation in ipairs(operations) do
+                if operation.type == "uniform" then
+                    if not ShaderManager.sendUniformsOptimized(shader, operation.uniforms) then
+                        success = false
+                    end
+                elseif operation.type == "draw" and operation.drawFunc then
+                    local ok, err = pcall(operation.drawFunc)
+                    if not ok then
+                        print("⚠ Error en operación de dibujo batch: " .. tostring(err))
+                        success = false
+                    end
+                end
+                operationsExecuted = operationsExecuted + 1
+            end
+        else
+            success = false
+        end
+    end
+    
+    -- Limpiar batch
+    ShaderManager.state.batchedOperations = {}
+    
+    return success, operationsExecuted
+end
+
+function ShaderManager.clearBatch()
+    ShaderManager.state.batchedOperations = {}
 end
 
 -- Envío seguro de uniforms con validación mejorada
@@ -955,7 +1051,77 @@ function ShaderManager.sendUniform(shader, name, value)
     return true
 end
 
--- Envío de múltiples uniforms de forma segura con validación crítica
+-- OPTIMIZACIÓN: Envío optimizado de uniforms con cache para evitar redundancia
+function ShaderManager.sendUniformsOptimized(shader, uniforms)
+    if not shader or not uniforms then
+        return false
+    end
+    
+    -- Determinar tipo de shader para validación crítica
+    local shaderType = nil
+    for sType, sShader in pairs(ShaderManager.state.shaders) do
+        if sShader == shader then
+            shaderType = sType
+            break
+        end
+    end
+    
+    -- Validar parámetros críticos si es un shader conocido
+    if shaderType and shaderDependencies.paramValidators[shaderType] then
+        local isValid, error = ShaderManager.validateShaderParams(shaderType, uniforms)
+        if not isValid then
+            print("⚠ Validación crítica falló para shader '" .. shaderType .. "': " .. error)
+            return false
+        end
+    end
+    
+    local allSuccess = true
+    local uniformsChanged = 0
+    
+    for name, value in pairs(uniforms) do
+        -- OPTIMIZACIÓN: Verificar si el uniform ha cambiado antes de enviarlo
+        local cacheKey = tostring(shader) .. "_" .. name
+        local lastValue = ShaderManager.state.lastUniformValues[cacheKey]
+        
+        local valueChanged = false
+        if lastValue == nil then
+            valueChanged = true
+        elseif type(value) == "table" and type(lastValue) == "table" then
+            -- Comparar arrays/vectores
+            if #value ~= #lastValue then
+                valueChanged = true
+            else
+                for i = 1, #value do
+                    if value[i] ~= lastValue[i] then
+                        valueChanged = true
+                        break
+                    end
+                end
+            end
+        elseif value ~= lastValue then
+            valueChanged = true
+        end
+        
+        if valueChanged then
+            if ShaderManager.sendUniform(shader, name, value) then
+                -- Guardar valor en cache
+                if type(value) == "table" then
+                    ShaderManager.state.lastUniformValues[cacheKey] = {table.unpack(value)}
+                else
+                    ShaderManager.state.lastUniformValues[cacheKey] = value
+                end
+                uniformsChanged = uniformsChanged + 1
+                ShaderManager.state.uniformsSent = ShaderManager.state.uniformsSent + 1
+            else
+                allSuccess = false
+            end
+        end
+    end
+    
+    return allSuccess
+end
+
+-- Envío de múltiples uniforms de forma segura con validación crítica (función original mantenida para compatibilidad)
 function ShaderManager.sendUniforms(shader, uniforms)
     if not shader or not uniforms then
         return false
@@ -983,13 +1149,15 @@ function ShaderManager.sendUniforms(shader, uniforms)
     for name, value in pairs(uniforms) do
         if not ShaderManager.sendUniform(shader, name, value) then
             allSuccess = false
+        else
+            ShaderManager.state.uniformsSent = ShaderManager.state.uniformsSent + 1
         end
     end
     
     return allSuccess
 end
 
--- Optimización del sistema de cache
+-- OPTIMIZACIÓN: Sistema de cache mejorado con mejor gestión de memoria
 function ShaderManager.optimizeCache()
     local currentTime = love.timer.getTime()
     
@@ -1013,9 +1181,7 @@ function ShaderManager.optimizeCache()
             local toRemove = math.floor(cacheSize * 0.25)
             for i = 1, toRemove do
                 local shaderName = sortedAccess[i].name
-                shaderCache.compiledShaders[shaderName] = nil
-                shaderCache.shaderSources[shaderName] = nil
-                shaderCache.accessTimes[shaderName] = nil
+                ShaderManager.releaseShader(shaderName)
             end
             
             print("🧹 Cache optimizado: eliminados " .. toRemove .. " shaders")
@@ -1023,7 +1189,276 @@ function ShaderManager.optimizeCache()
         
         shaderCache.lastCleanup = currentTime
     end
+    
+    -- Optimizar caché de texturas también
+    ShaderManager.optimizeTextureCache()
 end
+
+-- OPTIMIZACIÓN: Función para liberar shader específico de forma segura
+function ShaderManager.releaseShader(shaderName)
+    if not shaderCache.compiledShaders[shaderName] then
+        return false
+    end
+    
+    local shader = shaderCache.compiledShaders[shaderName]
+    
+    -- Verificar si el shader está actualmente en uso
+    if ShaderManager.state.currentActiveShader == shader then
+        ShaderManager.unsetShader()
+    end
+    
+    -- Remover del stack si está presente
+    for i = #shaderStack, 1, -1 do
+        if shaderStack[i] == shader then
+            table.remove(shaderStack, i)
+        end
+    end
+    
+    -- Liberar recursos
+    if shader and shader.release then
+        shader:release()
+    end
+    
+    -- Limpiar uniforms relacionados
+    if ShaderManager.state.lastUniformValues then
+        for key, _ in pairs(ShaderManager.state.lastUniformValues) do
+            if key:find(shaderName, 1, true) then
+                ShaderManager.state.lastUniformValues[key] = nil
+            end
+        end
+    end
+    
+    -- Limpiar del cache
+    shaderCache.compiledShaders[shaderName] = nil
+    shaderCache.shaderSources[shaderName] = nil
+    shaderCache.accessTimes[shaderName] = nil
+    
+    return true
+end
+
+-- OPTIMIZACIÓN: Función para optimizar caché de texturas
+function ShaderManager.optimizeTextureCache()
+    local maxTextureCacheSize = 15
+    local currentSize = 0
+    
+    -- Verificar que textureCache.textures existe
+    if not ShaderManager.state.textureCache or not ShaderManager.state.textureCache.textures then
+        return
+    end
+    
+    for _ in pairs(ShaderManager.state.textureCache.textures) do
+        currentSize = currentSize + 1
+    end
+    
+    if currentSize > maxTextureCacheSize then
+        local textureList = {}
+        for name, data in pairs(ShaderManager.state.textureCache.textures) do
+            table.insert(textureList, {name = name, lastAccess = data.lastAccess or 0})
+        end
+        
+        table.sort(textureList, function(a, b) return a.lastAccess < b.lastAccess end)
+        
+        local toRemove = currentSize - maxTextureCacheSize
+        for i = 1, toRemove do
+            local textureName = textureList[i].name
+            if ShaderManager.state.textureCache.textures[textureName] and ShaderManager.state.textureCache.textures[textureName].texture then
+                ShaderManager.state.textureCache.textures[textureName].texture:release()
+            end
+            ShaderManager.state.textureCache.textures[textureName] = nil
+        end
+    end
+end
+
+-- OPTIMIZACIÓN: Función para cleanup completo de recursos
+function ShaderManager.cleanup()
+    -- Limpiar shader activo
+    ShaderManager.unsetShader()
+    
+    -- Liberar todos los shaders compilados
+    for name, shader in pairs(shaderCache.compiledShaders) do
+        if shader and shader.release then
+            shader:release()
+        end
+    end
+    
+    -- Liberar todas las texturas
+    if ShaderManager.state.textureCache and ShaderManager.state.textureCache.textures then
+        for name, data in pairs(ShaderManager.state.textureCache.textures) do
+            if data.texture and data.texture.release then
+                data.texture:release()
+            end
+        end
+    end
+    
+    -- Limpiar cachés
+    shaderCache.compiledShaders = {}
+    shaderCache.shaderSources = {}
+    shaderCache.accessTimes = {}
+    ShaderManager.state.textureCache.textures = {}
+    ShaderManager.state.textureCache.currentSize = 0
+    ShaderManager.state.uniformCache = {}
+    
+    -- Resetear estado
+    ShaderManager.state.currentActiveShader = nil
+    ShaderManager.state.shaderStateChanges = 0
+    ShaderManager.state.uniformsSent = 0
+    ShaderManager.state.batchedOperations = {}
+    ShaderManager.state.lastUniformValues = {}
+    
+    -- Limpiar stack
+    shaderStack = {}
+    currentShader = nil
+    
+    -- Forzar garbage collection
+    collectgarbage("collect")
+end
+
+-- OPTIMIZACIÓN: Sistema de profiling de rendimiento GPU
+ShaderManager.profiling = {
+    enabled = false,
+    frameData = {},
+    currentFrame = 1,
+    maxFrames = 60, -- Mantener datos de 60 frames
+    shaderSwitches = 0,
+    uniformCalls = 0,
+    batchOperations = 0,
+    frameStartTime = 0,
+    shaderTimes = {},
+    lastGPUMemory = 0
+}
+
+-- Función para habilitar/deshabilitar profiling
+function ShaderManager.setProfilingEnabled(enabled)
+    ShaderManager.profiling.enabled = enabled
+    -- Logs eliminados: no son necesarios para el funcionamiento
+end
+
+-- Función para iniciar profiling de frame
+function ShaderManager.startFrameProfiling()
+    if not ShaderManager.profiling.enabled then return end
+    
+    ShaderManager.profiling.frameStartTime = love.timer.getTime()
+    ShaderManager.profiling.shaderSwitches = 0
+    ShaderManager.profiling.uniformCalls = 0
+    ShaderManager.profiling.batchOperations = 0
+end
+
+-- Función para finalizar profiling de frame
+function ShaderManager.endFrameProfiling()
+    if not ShaderManager.profiling.enabled then return end
+    
+    local frameTime = love.timer.getTime() - ShaderManager.profiling.frameStartTime
+    local currentFrame = ShaderManager.profiling.currentFrame
+    
+    -- Obtener memoria GPU aproximada (usando estadísticas de LÖVE)
+    local stats = love.graphics.getStats()
+    local gpuMemory = stats.texturememory or 0
+    
+    ShaderManager.profiling.frameData[currentFrame] = {
+        frameTime = frameTime,
+        shaderSwitches = ShaderManager.profiling.shaderSwitches,
+        uniformCalls = ShaderManager.profiling.uniformCalls,
+        batchOperations = ShaderManager.profiling.batchOperations,
+        gpuMemory = gpuMemory,
+        timestamp = love.timer.getTime()
+    }
+    
+    -- Avanzar al siguiente frame
+    ShaderManager.profiling.currentFrame = (currentFrame % ShaderManager.profiling.maxFrames) + 1
+end
+
+-- Función para registrar cambio de shader
+function ShaderManager.recordShaderSwitch(shaderName)
+    if not ShaderManager.profiling.enabled then return end
+    
+    ShaderManager.profiling.shaderSwitches = ShaderManager.profiling.shaderSwitches + 1
+    
+    -- Registrar tiempo por shader
+    if not ShaderManager.profiling.shaderTimes[shaderName] then
+        ShaderManager.profiling.shaderTimes[shaderName] = {
+            totalTime = 0,
+            calls = 0,
+            lastStart = love.timer.getTime()
+        }
+    else
+        ShaderManager.profiling.shaderTimes[shaderName].calls = ShaderManager.profiling.shaderTimes[shaderName].calls + 1
+        ShaderManager.profiling.shaderTimes[shaderName].lastStart = love.timer.getTime()
+    end
+end
+
+-- Función para registrar llamada de uniform
+function ShaderManager.recordUniformCall()
+    if not ShaderManager.profiling.enabled then return end
+    ShaderManager.profiling.uniformCalls = ShaderManager.profiling.uniformCalls + 1
+end
+
+-- Función para registrar operación batch
+function ShaderManager.recordBatchOperation()
+    if not ShaderManager.profiling.enabled then return end
+    ShaderManager.profiling.batchOperations = ShaderManager.profiling.batchOperations + 1
+end
+
+-- Función para obtener estadísticas de rendimiento
+function ShaderManager.getPerformanceStats()
+    if not ShaderManager.profiling.enabled then
+        return { error = "Profiling no está habilitado" }
+    end
+    
+    local frameData = ShaderManager.profiling.frameData
+    local validFrames = {}
+    
+    -- Filtrar frames válidos
+    for i = 1, ShaderManager.profiling.maxFrames do
+        if frameData[i] then
+            table.insert(validFrames, frameData[i])
+        end
+    end
+    
+    if #validFrames == 0 then
+        return { error = "No hay datos de profiling disponibles" }
+    end
+    
+    -- Calcular estadísticas
+    local totalFrameTime = 0
+    local totalShaderSwitches = 0
+    local totalUniformCalls = 0
+    local totalBatchOps = 0
+    local maxFrameTime = 0
+    local minFrameTime = math.huge
+    
+    for _, frame in ipairs(validFrames) do
+        totalFrameTime = totalFrameTime + frame.frameTime
+        totalShaderSwitches = totalShaderSwitches + frame.shaderSwitches
+        totalUniformCalls = totalUniformCalls + frame.uniformCalls
+        totalBatchOps = totalBatchOps + frame.batchOperations
+        maxFrameTime = math.max(maxFrameTime, frame.frameTime)
+        minFrameTime = math.min(minFrameTime, frame.frameTime)
+    end
+    
+    local avgFrameTime = totalFrameTime / #validFrames
+    local avgShaderSwitches = totalShaderSwitches / #validFrames
+    local avgUniformCalls = totalUniformCalls / #validFrames
+    local avgBatchOps = totalBatchOps / #validFrames
+    
+    return {
+        frames = #validFrames,
+        avgFrameTime = avgFrameTime,
+        maxFrameTime = maxFrameTime,
+        minFrameTime = minFrameTime,
+        avgShaderSwitches = avgShaderSwitches,
+        avgUniformCalls = avgUniformCalls,
+        avgBatchOperations = avgBatchOps,
+        totalStateChanges = ShaderManager.state.shaderStateChanges,
+        totalUniformsSent = ShaderManager.state.uniformsSent,
+        shaderTimes = ShaderManager.profiling.shaderTimes,
+        cacheStats = {
+            shadersLoaded = ShaderManager.getLoadedCount(),
+            texturesLoaded = 0 -- Se calculará dinámicamente
+        }
+    }
+end
+
+-- Función eliminada: printPerformanceReport no se usaba en el código
 
 -- Obtener estadísticas de carga
 function ShaderManager.getStats()
