@@ -64,6 +64,53 @@ local function isOnScreen(screenX, screenY, radiusPx, margin)
        and (screenY + radiusPx + dynamicMargin) >= 0 and (screenY - radiusPx - dynamicMargin) <= h
 end
 
+-- Calcular factor de alpha para fade-in gradual de nebulas grandes
+local function calculateNebulaAlpha(screenX, screenY, radiusPx, camera)
+    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+    
+    -- Aplicar fade-in a nebulas medianas y grandes (>300px) para evitar pop-in
+    if radiusPx <= 300 then
+        return 1.0
+    end
+    
+    -- Calcular distancia al borde del viewport
+    local centerX, centerY = w * 0.5, h * 0.5
+    local viewportRadius = math.min(w, h) * 0.5
+    
+    -- Distancia del centro de la nebula al centro del viewport
+    local distanceToCenter = math.sqrt((screenX - centerX)^2 + (screenY - centerY)^2)
+    
+    -- Para nebulas gigantes, considerar que pueden extenderse mucho más allá del viewport
+    local nebulaVisibilityRadius = radiusPx * 0.4  -- Considerar 40% del radio como margen
+    if radiusPx > 2000 then  -- Nebulas gigantescas
+        nebulaVisibilityRadius = radiusPx * 0.6  -- Margen más amplio para gigantes
+    end
+    
+    -- Distancia al borde visible del viewport (considerando el radio extendido de la nebula)
+    local distanceToViewportEdge = math.max(0, distanceToCenter - (viewportRadius + nebulaVisibilityRadius))
+    
+    -- Distancia de fade proporcional al tamaño de la nebula
+    local fadeDistance = radiusPx * 1.0  -- 100% del radio como distancia de transición base
+    
+    -- Para nebulas gigantes (>1000px), usar distancia de fade mucho más amplia
+    if radiusPx > 1000 then
+        fadeDistance = radiusPx * 1.8  -- 180% del radio para transición muy suave
+    end
+    
+    -- Para nebulas gigantescas (>2000px), fade aún más gradual
+    if radiusPx > 2000 then
+        fadeDistance = radiusPx * 2.5  -- 250% del radio para máxima suavidad
+    end
+    
+    -- Calcular factor de alpha (1.0 = completamente visible, 0.0 = invisible)
+    local alpha = 1.0 - math.max(0, math.min(1, distanceToViewportEdge / fadeDistance))
+    
+    -- Aplicar curva suave para transición más natural
+    alpha = alpha * alpha * (3.0 - 2.0 * alpha)  -- Smoothstep
+    
+    return alpha
+end
+
 function NebulaRenderer.update(dt)
     -- Actualizar tiempo en el shader de nebulosas
     if NebulasShaders and NebulasShaders.updateTime then
@@ -117,6 +164,8 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 
                     local par = math.max(0.0, math.min(1.0, n.parallax or 0.85))
                     local screenX, screenY = worldToScreenParallax(camera, wx, wy, par)
+                    -- CORREGIDO: El tamaño ya incluye worldScale y baseSizeScale desde map_generator.lua
+                    -- Solo necesitamos aplicar el zoom para obtener el tamaño en píxeles de pantalla
                     local radiusPx = (n.size or 140) * zoom
                     
                     -- DEBUG: Logging desactivado para reducir spam
@@ -137,16 +186,17 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                     -- Usar función isOnScreen con margen dinámico más generoso
                     local isVisible = isOnScreen(screenX, screenY, radiusPx, nil)
                     
-                    -- REMOVIDO: Sistema de fade-out - las nebulosas ahora mantienen visibilidad completa
+                    -- NUEVO: Sistema de fade-in gradual para nebulas grandes
+                    local fadeAlpha = calculateNebulaAlpha(screenX, screenY, radiusPx, camera)
                     
-                    -- Renderizar si la nebulosa está visible en pantalla
-                    if isVisible then
+                    -- Renderizar si la nebulosa está visible en pantalla y tiene alpha > 0
+                    if isVisible and fadeAlpha > 0.01 then
                         love.graphics.push()
                         love.graphics.origin()
 
                         -- Color base con alpha aumentado para mayor visibilidad
                         local br, bg, bb, ba = (n.color and n.color[1] or 1), (n.color and n.color[2] or 1), (n.color and n.color[3] or 1), (n.color and n.color[4] or 1)
-                        ba = ba * 1.25  -- Alpha aumentado para mayor visibilidad, sin fade-out
+                        ba = ba * 1.25 * fadeAlpha  -- Alpha con fade-in gradual para nebulas grandes
                         
                         -- Armonización con nebulosas cercanas para coherencia visual
                         local harmonyFactor = 1.0
@@ -201,7 +251,7 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                         do
                             -- Niebla oscura intensificada para mayor contraste
                         local baseIntensity = n.intensity or 0.6
-                        local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par)))
+                        local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par))) * fadeAlpha
                         
                         if fogAlpha > 0.01 then
                             local prevBlend, prevAlpha = love.graphics.getBlendMode()

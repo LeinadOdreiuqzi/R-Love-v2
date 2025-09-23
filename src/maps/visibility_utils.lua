@@ -11,7 +11,7 @@ VisibilityUtils.dynamicMarginConfig = {
     zoomThreshold = 0.3,
     nebulaMarginMultiplier = 1.5,
     maxZoomFactor = 3.0,
-    maxMarginMultiplier = 8.0,
+    maxMarginMultiplier = 30.0,  -- CORREGIDO: Aumentado de 8.0 a 30.0 para nebulas gigantes (hasta 9000px)
     lowZoomBonus = 200
 }
 
