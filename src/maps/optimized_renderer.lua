@@ -540,6 +540,18 @@ function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, ch
     OptimizedRenderer.state.stats.objectsRendered = OptimizedRenderer.state.stats.objectsRendered + renderedCount
     OptimizedRenderer.state.stats.objectsCulled = OptimizedRenderer.state.stats.objectsCulled + culledCount
     
+    -- Calcular eficiencia de culling
+    local totalObjects = renderedCount + culledCount
+    if totalObjects > 0 then
+        local currentEfficiency = (culledCount / totalObjects) * 100
+        -- Actualizar eficiencia promedio usando media móvil
+        if OptimizedRenderer.state.stats.cullingEfficiency == 0 then
+            OptimizedRenderer.state.stats.cullingEfficiency = currentEfficiency
+        else
+            OptimizedRenderer.state.stats.cullingEfficiency = OptimizedRenderer.state.stats.cullingEfficiency * 0.9 + currentEfficiency * 0.1
+        end
+    end
+    
     return renderedCount
 end
 
@@ -955,8 +967,11 @@ end
 
 -- Actualización con precarga incremental
 function OptimizedRenderer.update(dt, playerX, playerY, camera)
-    -- Incrementar contador de frames para optimizaciones
-    OptimizedRenderer.incrementFrameCount()
+    -- Resetear estadísticas por frame al inicio
+    OptimizedRenderer.resetFrameStats()
+    
+    -- Incrementar contador de frames y actualizar frameTime
+    OptimizedRenderer.incrementFrameCount(dt)
     
     -- Actualizar ShaderManager
     if ShaderManager and ShaderManager.update then
@@ -971,6 +986,46 @@ function OptimizedRenderer.update(dt, playerX, playerY, camera)
     -- Actualizar calidad adaptativa
     if OptimizedRenderer.updateAdaptiveQuality then
         OptimizedRenderer.updateAdaptiveQuality(OptimizedRenderer.state.stats.frameTime)
+    end
+end
+
+-- Actualizar calidad adaptativa basada en rendimiento
+function OptimizedRenderer.updateAdaptiveQuality(frameTime)
+    if not OptimizedRenderer.state.adaptiveQuality then return end
+    
+    local quality = OptimizedRenderer.state.adaptiveQuality
+    local targetFrameTime = 1/60 -- 60 FPS objetivo (16.67ms)
+    
+    -- Ajustar calidad basado en frame time
+    if frameTime > targetFrameTime * 1.5 then
+        -- Rendimiento bajo, reducir calidad
+        quality.currentLevel = math.max(0.1, quality.currentLevel - 0.05)
+    elseif frameTime < targetFrameTime * 0.8 then
+        -- Buen rendimiento, aumentar calidad
+        quality.currentLevel = math.min(1.0, quality.currentLevel + 0.02)
+    end
+    
+    -- Aplicar cambios de calidad
+    OptimizedRenderer.applyQualitySettings(quality.currentLevel)
+end
+
+-- Aplicar configuraciones de calidad
+function OptimizedRenderer.applyQualitySettings(level)
+    if not OptimizedRenderer.config then return end
+    
+    local Utils = require 'src.utils.utils'
+    
+    -- Ajustar LOD basado en nivel de calidad
+    local lodConfig = OptimizedRenderer.config.lod
+    if lodConfig then
+        lodConfig.maxDistance = Utils.lerp(500, 2000, level)
+        lodConfig.minSize = Utils.lerp(5, 1, level)
+    end
+    
+    -- Ajustar culling basado en nivel de calidad
+    local cullingConfig = OptimizedRenderer.config.culling
+    if cullingConfig then
+        cullingConfig.maxDistance = Utils.lerp(800, 3000, level)
     end
 end
 
@@ -1043,12 +1098,14 @@ end
 
 -- Finalizar batches con shaders
 function OptimizedRenderer.flushBatches()
-    OptimizedRenderer.flushStarBatch()
-    OptimizedRenderer.flushAsteroidBatch()
-    OptimizedRenderer.flushNebulaBatch()
-    OptimizedRenderer.flushStationBatch()
+    local batchCount = 0
     
-    OptimizedRenderer.state.stats.batchesUsed = 4
+    if OptimizedRenderer.flushStarBatch() then batchCount = batchCount + 1 end
+    if OptimizedRenderer.flushAsteroidBatch() then batchCount = batchCount + 1 end
+    if OptimizedRenderer.flushNebulaBatch() then batchCount = batchCount + 1 end
+    if OptimizedRenderer.flushStationBatch() then batchCount = batchCount + 1 end
+    
+    OptimizedRenderer.state.stats.batchesUsed = OptimizedRenderer.state.stats.batchesUsed + batchCount
 end
 
 -- Flush individual de cada tipo de batch
@@ -1060,7 +1117,9 @@ function OptimizedRenderer.flushStarBatch()
         love.graphics.draw(batch)
         if shader then ShaderManager.unsetShader() end
         batch:clear()
+        return true
     end
+    return false
 end
 
 function OptimizedRenderer.flushAsteroidBatch()
@@ -1071,7 +1130,9 @@ function OptimizedRenderer.flushAsteroidBatch()
         love.graphics.draw(batch)
         if shader then ShaderManager.unsetShader() end
         batch:clear()
+        return true
     end
+    return false
 end
 
 function OptimizedRenderer.flushNebulaBatch()
@@ -1082,7 +1143,9 @@ function OptimizedRenderer.flushNebulaBatch()
         love.graphics.draw(batch)
         if shader then ShaderManager.unsetShader() end
         batch:clear()
+        return true
     end
+    return false
 end
 
 function OptimizedRenderer.flushStationBatch()
@@ -1107,7 +1170,9 @@ function OptimizedRenderer.flushStationBatch()
         love.graphics.draw(batch)
         if shader then ShaderManager.unsetShader() end
         batch:clear()
+        return true
     end
+    return false
 end
 
 -- Reiniciar estadísticas del renderizador
@@ -1144,16 +1209,37 @@ end
 -- Culling agresivo para estrellas en zoom máximo
 -- Función de culling específico para zoom alto removida para garantizar consistencia
 
--- Incrementar contador de frames (llamar desde el bucle principal)
-function OptimizedRenderer.incrementFrameCount()
+-- Incrementar contador de frames y actualizar frameTime (llamar desde el bucle principal)
+function OptimizedRenderer.incrementFrameCount(dt)
     if OptimizedRenderer.state and OptimizedRenderer.state.stats then
         OptimizedRenderer.state.stats.frameCount = OptimizedRenderer.state.stats.frameCount + 1
+        -- Actualizar frameTime usando dt (delta time en segundos)
+        if dt then
+            OptimizedRenderer.state.stats.frameTime = dt
+        end
+    end
+end
+
+-- Función para resetear estadísticas por frame (llamar al inicio de cada frame)
+function OptimizedRenderer.resetFrameStats()
+    if OptimizedRenderer.state and OptimizedRenderer.state.stats then
+        -- Resetear solo las estadísticas que se acumulan por frame
+        OptimizedRenderer.state.stats.drawCalls = 0
+        OptimizedRenderer.state.stats.objectsRendered = 0
+        OptimizedRenderer.state.stats.objectsCulled = 0
+        OptimizedRenderer.state.stats.batchesUsed = 0
+        OptimizedRenderer.state.stats.lodDistribution = {[0] = 0, [1] = 0, [2] = 0, [3] = 0}
+        -- NO resetear cullingEfficiency ya que es un promedio móvil
     end
 end
 
 -- Módulo: OptimizedRenderer
 
 function OptimizedRenderer.getStats()
+    -- Obtener estadísticas de MapStats si está disponible
+    local MapStats = require 'src.maps.systems.map_stats'
+    local mapStats = MapStats.renderStats
+    
     -- FPS actual vía LÖVE
     local fps = (love and love.timer and love.timer.getFPS) and love.timer.getFPS() or 0
 
@@ -1165,18 +1251,30 @@ function OptimizedRenderer.getStats()
         frameTimeMs = (fps > 0) and (1000 / fps) or 0
     end
 
-    local stats = OptimizedRenderer.state and OptimizedRenderer.state.stats or {}
     local quality = OptimizedRenderer.state and OptimizedRenderer.state.adaptiveQuality or {}
+    
+    -- Calcular eficiencia de culling desde MapStats
+    local cullingEfficiency = 0
+    if mapStats.totalObjects > 0 then
+        cullingEfficiency = (mapStats.culledObjects / mapStats.totalObjects) * 100
+    end
+    
+    -- Estimar draw calls basado en objetos renderizados
+    local drawCalls = 0
+    if mapStats.renderedObjects > 0 then
+        -- Aproximadamente un draw call por cada 20-50 objetos (dependiendo del batching)
+        drawCalls = math.max(1, math.ceil(mapStats.renderedObjects / 30))
+    end
 
     return {
         performance = {
             fps = fps or 0,
             frameTime = frameTimeMs or 0,
-            drawCalls = stats.drawCalls or 0,
+            drawCalls = drawCalls,
         },
         rendering = {
-            objectsRendered = stats.objectsRendered or 0,
-            cullingEfficiency = stats.cullingEfficiency or 0,
+            objectsRendered = mapStats.renderedObjects or 0,
+            cullingEfficiency = cullingEfficiency,
         },
         quality = {
             current = quality.currentLevel or 1.0,
