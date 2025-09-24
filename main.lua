@@ -25,6 +25,9 @@ local WorldItems = require 'src.item_systems.world_items'
 local RunState = require 'src.gameplay.run_state'
 local GameDirector = require 'src.gameplay.game_director'
 
+-- Sistema de física Box2D
+local PhysicsManager = require 'src.physics.physics_manager'
+
 -- Estado del juego con semilla alfanumérica
 local gameState = {
     currentSeed = SeedSystem.generate(),
@@ -40,6 +43,7 @@ local gameState = {
 -- Variables globales
 _G.camera = nil
 _G.showGrid = false
+_G.physicsManager = nil
 local player
 local runState, gameDirector
 local prevIsInEVA = false
@@ -226,9 +230,13 @@ local function loadWorld(updateProgress)
         runState = RunState:new({ seed = gameState.currentSeed })
         gameDirector = GameDirector:new(runState)
         
+        -- Inicializar sistema de física Box2D
+        _G.physicsManager = PhysicsManager:new()
+        
         print("[MAIN DEBUG] Sistemas inicializados:")
         print("  runState:", runState and "CREADO" or "NIL")
         print("  gameDirector:", gameDirector and "CREADO" or "NIL")
+        print("  physicsManager:", _G.physicsManager and "CREADO" or "NIL")
         
         return true
     end)
@@ -345,6 +353,11 @@ function love.update(dt)
     -- Actualizar RunState y GameDirector (no-op por ahora)
     if runState then runState:update(dt) end
     if gameDirector then gameDirector:update(dt) end
+
+    -- Actualizar sistema de física Box2D
+    if _G.physicsManager then
+        _G.physicsManager:update(dt)
+    end
 
     -- Actualizar estadísticas avanzadas
     updateAdvancedStats(dt)
@@ -558,6 +571,11 @@ function love.draw()
         end
     end
     WorldItems.draw(_G.camera, playerX, playerY)
+    
+    -- Dibujar sistema de física Box2D (proyectiles, efectos, debug)
+    if physicsManager then
+        physicsManager:drawDebug()
+    end
     
     -- Efectos de iluminación eliminados
     
@@ -1307,6 +1325,12 @@ function love.mousepressed(x, y, button)
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
         local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
         InventoryUI:mousepressed(x, y, button, player, evaPlayer)
+        return
+    end
+    
+    -- Manejar disparo con clic izquierdo (solo si no hay inventarios abiertos)
+    if button == 1 and player and not player.isInEVA then -- Clic izquierdo y no en EVA
+        player:shoot(x, y)
     end
 end
 

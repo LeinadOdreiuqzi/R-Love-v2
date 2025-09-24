@@ -146,7 +146,7 @@ function Naves:new(x, y, shipType)
     
     -- Sistema de inventario
     player.inventory = InventorySystem:new(shipType)
-    
+
     -- Configuraciones específicas de la nave
     player.shipSettings = {
         hyperTravelEnabled = shipConfig.hyperTravelCapable,
@@ -496,6 +496,9 @@ function Naves:update(dt)
     
     -- Update stats system
     self.stats:update(dt, isMoving)
+    
+    -- Actualizar proyectiles
+    self:updateProjectiles(dt)
 end
 
 function Naves:handleInput()
@@ -804,6 +807,9 @@ function Naves:draw()
     
     -- Restore the graphics state
     love.graphics.pop()
+    
+    -- Dibujar proyectiles
+    self:drawProjectiles()
 end
 function Naves:toggleHyperTravel(targetMaxSpeed)
     self.hyperTravelEnabled = not self.hyperTravelEnabled
@@ -1191,6 +1197,110 @@ function Naves.switchToShip(targetShip, currentShip)
     end
     
     return true
+end
+
+--[[
+    Actualiza todos los proyectiles activos
+    @param dt: tiempo delta
+--]]
+function Naves:updateProjectiles(dt)
+    if not self.projectiles then
+        return
+    end
+    
+    -- Actualizar proyectiles y remover los destruidos
+    for i = #self.projectiles, 1, -1 do
+        local projectile = self.projectiles[i]
+        
+        if projectile:isDestroyed() then
+            -- Remover proyectil destruido
+            table.remove(self.projectiles, i)
+        else
+            -- Actualizar proyectil activo
+            projectile:update(dt)
+        end
+    end
+end
+
+--[[
+    Renderiza todos los proyectiles activos
+--]]
+function Naves:drawProjectiles()
+    if not self.projectiles then
+        return
+    end
+    
+    for _, projectile in ipairs(self.projectiles) do
+        if not projectile:isDestroyed() then
+            projectile:draw()
+        end
+    end
+end
+
+--[[
+    Dispara un proyectil desde la nave hacia la posición del mouse
+    @param mouseX, mouseY: posición del mouse en coordenadas de pantalla
+--]]
+function Naves:shoot(mouseX, mouseY)
+    -- Verificar que la nave no esté en EVA
+    if self.isInEVA then
+        return
+    end
+    
+    -- Verificar que tenemos acceso al mundo de física
+    if not _G.physicsManager or not _G.physicsManager:getWorld() then
+        print("[SHOOT] Error: Physics world not available")
+        return
+    end
+    
+    -- Convertir coordenadas del mouse a coordenadas del mundo
+    local worldMouseX, worldMouseY
+    if _G.camera then
+        worldMouseX, worldMouseY = _G.camera:screenToWorld(mouseX, mouseY)
+    else
+        -- Fallback si no hay cámara
+        worldMouseX, worldMouseY = mouseX, mouseY
+    end
+    
+    -- Posición de spawn del proyectil (frente de la nave)
+    local dx = worldMouseX - self.x
+    local dy = worldMouseY - self.y
+    local distance = math.sqrt(dx * dx + dy * dy)
+    
+    -- Evitar división por cero
+    if distance < 1 then
+        return
+    end
+    
+    -- Normalizar dirección para calcular posición de spawn
+    dx = dx / distance
+    dy = dy / distance
+    
+    local spawnDistance = self.size + 10 -- Un poco adelante de la nave
+    local spawnX = self.x + dx * spawnDistance
+    local spawnY = self.y + dy * spawnDistance
+    
+    -- Calcular ángulo de disparo
+    local angle = math.atan2(dy, dx)
+    
+    -- Crear el proyectil
+    local BasicRedProjectile = require('src.physics.projectiles.types.basic_red_projectile')
+    local projectile = BasicRedProjectile.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle)
+    
+    -- Agregar el proyectil al sistema de física
+    if projectile and _G.physicsManager.addProjectile then
+        _G.physicsManager:addProjectile(projectile)
+        
+        -- Almacenar el proyectil para actualizaciones y renderizado
+        if not self.projectiles then
+            self.projectiles = {}
+        end
+        table.insert(self.projectiles, projectile)
+        
+        print("[SHOOT] Fired projectile from (", spawnX, ",", spawnY, ")")
+    else
+        print("[SHOOT] Error: Could not create projectile or PhysicsManager doesn't have addProjectile method")
+    end
 end
 
 return Naves
