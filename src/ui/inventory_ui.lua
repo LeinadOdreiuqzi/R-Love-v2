@@ -8,8 +8,7 @@ local uiState = {
     isOpen = false,
     draggedItem = nil,
     draggedFromSlot = nil,
-    draggedFromType = nil, -- "inventory" o "upgrade"
-    draggedFromUpgradeType = nil,
+    draggedFromType = nil, -- "inventory" o "eva"
     mouseX = 0,
     mouseY = 0,
     
@@ -17,8 +16,7 @@ local uiState = {
     modal = {
         isOpen = false,
         slotIndex = nil,
-        slotType = nil, -- "inventory" o "upgrade"
-        upgradeType = nil,
+        slotType = nil, -- "inventory" o "eva"
         x = 0,
         y = 0,
         width = 120,
@@ -37,6 +35,7 @@ local uiState = {
         slotEmpty = {0.2, 0.2, 0.25, 1},
         slotFilled = {0.3, 0.3, 0.35, 1},
         slotHover = {0.4, 0.4, 0.45, 1},
+        slotSelected = {0.3, 0.5, 0.7, 1},
         slotDragTarget = {0.2, 0.6, 0.2, 1},
         border = {0.5, 0.5, 0.5, 1},
         text = {1, 1, 1, 1},
@@ -51,7 +50,7 @@ local uiState = {
             legendary = {1, 0.6, 0.2, 1}
         },
         
-        -- Colores por tipo de item EVA
+        -- Colores por tipo de item
         itemType = {
             tool = {0.4, 0.6, 0.8, 1},
             consumable = {0.6, 0.8, 0.4, 1},
@@ -70,10 +69,12 @@ local uiState = {
         inventoryWidth = 0,
         inventoryHeight = 0,
         
-        upgradeX = 0,
-        upgradeY = 0,
-        upgradeWidth = 0,
-        upgradeHeight = 0,
+
+        
+        evaX = 0,
+        evaY = 0,
+        evaWidth = 0,
+        evaHeight = 0,
         
         totalWidth = 0,
         totalHeight = 0
@@ -106,30 +107,26 @@ function InventoryUI:calculateLayout()
     uiState.layout.inventoryWidth = inventoryColumns * (slotSize + padding) - padding + panelPadding * 2
     uiState.layout.inventoryHeight = inventoryRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
     
-    -- Configuración de mejoras (4 slots en 2x2)
-    local upgradeColumns = 2
-    local upgradeRows = 2
-    
-    uiState.layout.upgradeWidth = upgradeColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.upgradeHeight = upgradeRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
+
     
     -- Configuración del panel EVA (3 slots horizontales)
     local evaColumns = 3
-    uiState.layout.evaWidth = evaColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.evaHeight = slotSize + panelPadding * 2 + 40 -- +40 para título
+    local evaRows = 1
     
-    -- Posicionamiento centrado (incluyendo panel EVA)
-    uiState.layout.totalWidth = uiState.layout.inventoryWidth + uiState.layout.upgradeWidth + uiState.layout.evaWidth + panelPadding * 2
-    uiState.layout.totalHeight = math.max(uiState.layout.inventoryHeight, uiState.layout.upgradeHeight, uiState.layout.evaHeight)
+    uiState.layout.evaWidth = evaColumns * (slotSize + padding) - padding + panelPadding * 2
+    uiState.layout.evaHeight = evaRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
+    
+    -- Posicionamiento centrado con panel EVA integrado
+    uiState.layout.totalWidth = uiState.layout.inventoryWidth
+    uiState.layout.totalHeight = uiState.layout.inventoryHeight + uiState.layout.evaHeight + panelPadding
     
     uiState.layout.inventoryX = (screenWidth - uiState.layout.totalWidth) / 2
     uiState.layout.inventoryY = (screenHeight - uiState.layout.totalHeight) / 2
     
-    uiState.layout.upgradeX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
-    uiState.layout.upgradeY = uiState.layout.inventoryY
-    
-    uiState.layout.evaX = uiState.layout.upgradeX + uiState.layout.upgradeWidth + panelPadding
-    uiState.layout.evaY = uiState.layout.upgradeY
+    -- Panel EVA en la parte inferior, centrado horizontalmente
+    local mainPanelsHeight = uiState.layout.inventoryHeight
+    uiState.layout.evaX = (screenWidth - uiState.layout.evaWidth) / 2
+    uiState.layout.evaY = uiState.layout.inventoryY + mainPanelsHeight + panelPadding
 end
 
 -- Abrir/cerrar inventario
@@ -141,7 +138,7 @@ function InventoryUI:toggle()
     end
 end
 
--- Cerrar inventario explícitamente (usado al cambiar de estado, p.ej. entrar en EVA)
+-- Cerrar inventario explícitamente (usado al cambiar de estado)
 function InventoryUI:close()
     if not uiState.isOpen then return end
     uiState.isOpen = false
@@ -149,7 +146,6 @@ function InventoryUI:close()
     uiState.draggedItem = nil
     uiState.draggedFromSlot = nil
     uiState.draggedFromType = nil
-    uiState.draggedFromUpgradeType = nil
     uiState.modal.isOpen = false
 end
 
@@ -158,8 +154,13 @@ function InventoryUI:isOpen()
     return uiState.isOpen
 end
 
+-- Exponer paleta de colores para otras UIs
+function InventoryUI:getColors()
+    return uiState.colors
+end
+
 -- Actualizar UI
-function InventoryUI:update(dt, player, evaPlayer)
+function InventoryUI:update(dt, player)
     if not uiState.isOpen then return end
     
     -- Actualizar posición del mouse
@@ -177,7 +178,7 @@ function InventoryUI:update(dt, player, evaPlayer)
 end
 
 -- Renderizar UI
-function InventoryUI:draw(player, evaPlayer)
+function InventoryUI:draw(player)
     if not uiState.isOpen or not player or not player.inventory then 
         return 
     end
@@ -185,14 +186,13 @@ function InventoryUI:draw(player, evaPlayer)
     love.graphics.push()
     
     -- Dibujar panel de inventario
-    self:drawInventoryPanel(player.inventory)
+    local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
+    self:drawInventoryPanel(shipComp, player.inventory)
     
-    -- Dibujar panel de mejoras
-    self:drawUpgradePanel(player.inventory)
-    
-    -- Dibujar panel de inventario EVA si está disponible
-    if evaPlayer and evaPlayer.inventory then
-        self:drawEVAInventoryPanel(evaPlayer.inventory)
+    -- Dibujar panel EVA integrado
+    local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+    if evaComp then
+        self:drawEVAPanel(evaComp)
     end
     
     -- Dibujar item arrastrado
@@ -209,7 +209,7 @@ function InventoryUI:draw(player, evaPlayer)
 end
 
 -- Dibujar panel de inventario
-function InventoryUI:drawInventoryPanel(inventory)
+function InventoryUI:drawInventoryPanel(compartment, mainInventory)
     local layout = uiState.layout
     local colors = uiState.colors
     local slotSize = uiState.slotSize
@@ -229,7 +229,8 @@ function InventoryUI:drawInventoryPanel(inventory)
     -- Título
     love.graphics.setColor(colors.text)
     love.graphics.setFont(uiState.font)
-    love.graphics.print("Inventario (" .. inventory.shipType .. ")", 
+    local shipType = (mainInventory and mainInventory.shipType) or "Desconocido"
+    love.graphics.print("Inventario (" .. shipType .. ")", 
                        layout.inventoryX + panelPadding, layout.inventoryY + 5)
     
     -- Slots del inventario
@@ -237,18 +238,20 @@ function InventoryUI:drawInventoryPanel(inventory)
     local startY = layout.inventoryY + 30
     local columns = 5
     
-    for i = 1, inventory.maxSlots do
+    for i = 1, compartment.maxSlots do
         local col = (i - 1) % columns
         local row = math.floor((i - 1) / columns)
         local x = startX + col * (slotSize + padding)
         local y = startY + row * (slotSize + padding)
         
-        self:drawInventorySlot(x, y, i, inventory.items[i])
+        self:drawInventorySlot(x, y, i, compartment.items[i])
     end
 end
 
--- Dibujar panel de mejoras
-function InventoryUI:drawUpgradePanel(inventory)
+
+
+-- Dibujar panel EVA
+function InventoryUI:drawEVAPanel(evaCompartment)
     local layout = uiState.layout
     local colors = uiState.colors
     local slotSize = uiState.slotSize
@@ -257,154 +260,28 @@ function InventoryUI:drawUpgradePanel(inventory)
     
     -- Fondo del panel
     love.graphics.setColor(colors.background)
-    love.graphics.rectangle("fill", layout.upgradeX, layout.upgradeY, 
-                           layout.upgradeWidth, layout.upgradeHeight)
+    love.graphics.rectangle("fill", layout.evaX, layout.evaY, 
+                           layout.evaWidth, layout.evaHeight)
     
     -- Borde del panel
     love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", layout.upgradeX, layout.upgradeY, 
-                           layout.upgradeWidth, layout.upgradeHeight)
+    love.graphics.rectangle("line", layout.evaX, layout.evaY, 
+                           layout.evaWidth, layout.evaHeight)
     
     -- Título
     love.graphics.setColor(colors.text)
     love.graphics.setFont(uiState.font)
-    love.graphics.print("Mejoras de Nave", layout.upgradeX + panelPadding, layout.upgradeY + 5)
+    love.graphics.print("Inventario EVA", layout.evaX + panelPadding, layout.evaY + 5)
     
-    -- Slots de mejoras (4 slots fijos)
-    local startX = layout.upgradeX + panelPadding
-    local startY = layout.upgradeY + 30
-    local upgradeTypes = {"weapon", "shield", "engine", "utility"}
-    local upgradeLabels = {"Arma", "Escudo", "Motor", "Utilidad"}
+    -- Slots del inventario EVA (3 slots horizontales)
+    local startX = layout.evaX + panelPadding
+    local startY = layout.evaY + 30
     
-    for i, upgradeType in ipairs(upgradeTypes) do
-        local col = (i - 1) % 2
-        local row = math.floor((i - 1) / 2)
-        local x = startX + col * (slotSize + padding + 20)
-        local y = startY + row * (slotSize + padding + 20)
+    for i = 1, evaCompartment.maxSlots do
+        local x = startX + (i - 1) * (slotSize + padding)
+        local y = startY
         
-        -- Obtener primer item equipado de este tipo
-        local equippedItem = nil
-        if inventory.upgradeSlots[upgradeType] and inventory.upgradeSlots[upgradeType][1] then
-            equippedItem = inventory.upgradeSlots[upgradeType][1]
-        end
-        
-        self:drawUpgradeSlot(x, y, upgradeType, 1, equippedItem, upgradeLabels[i])
-    end
-end
-
--- Dibujar panel de inventario EVA
-function InventoryUI:drawEVAInventoryPanel(evaInventory)
-    local colors = uiState.colors
-    local slotSize = uiState.slotSize
-    local padding = uiState.slotPadding
-    local panelPadding = uiState.panelPadding
-    
-    -- Usar coordenadas del layout calculado
-    local evaStartX = uiState.layout.evaX
-    local evaStartY = uiState.layout.evaY
-    local evaWidth = uiState.layout.evaWidth
-    local evaHeight = uiState.layout.evaHeight
-    
-    -- Fondo del panel EVA
-    love.graphics.setColor(colors.panelBackground)
-    love.graphics.rectangle("fill", evaStartX, evaStartY, evaWidth, evaHeight)
-    
-    -- Borde del panel EVA
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", evaStartX, evaStartY, evaWidth, evaHeight)
-    
-    -- Título del panel EVA
-    love.graphics.setColor(colors.text)
-    love.graphics.print("Inventario EVA", evaStartX + panelPadding, evaStartY + 5)
-    
-    -- Dibujar slots del EVA (3 slots horizontales)
-    local slotStartX = evaStartX + panelPadding
-    local slotStartY = evaStartY + 25
-    
-    for i = 1, evaInventory.maxSlots do
-        local x = slotStartX + (i - 1) * (slotSize + padding)
-        local y = slotStartY
-        
-        self:drawEVASlot(x, y, i, evaInventory.items[i])
-    end
-end
-
--- Dibujar slot de inventario EVA
-function InventoryUI:drawEVASlot(x, y, slotIndex, item)
-    local colors = uiState.colors
-    local slotSize = uiState.slotSize
-    
-    -- Determinar color del slot
-    local slotColor = colors.slotEmpty
-    if item then
-        slotColor = colors.slotFilled
-    end
-    
-    -- Verificar hover
-    if self:isMouseOverSlot(x, y, slotSize) then
-        slotColor = colors.slotHover
-    end
-    
-    -- Verificar si es target válido para drag
-    if uiState.draggedItem and self:isValidDropTarget("eva", slotIndex) then
-        slotColor = colors.slotDragTarget
-    end
-    
-    -- Dibujar fondo del slot
-    love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
-    
-    -- Dibujar borde del slot
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize)
-    
-    -- Dibujar item si existe
-    if item then
-        self:drawEVAItem(x, y, slotSize, item)
-    end
-    
-    -- Dibujar número del slot
-    love.graphics.setColor(colors.textSecondary)
-    love.graphics.print(tostring(slotIndex), x + 2, y + 2)
-end
-
--- Dibujar item del EVA
-function InventoryUI:drawEVAItem(x, y, size, item)
-    local colors = uiState.colors
-    local itemPadding = 4
-    local itemSize = size - itemPadding * 2
-    local itemX = x + itemPadding
-    local itemY = y + itemPadding
-    
-    -- Color basado en el tipo de item EVA
-    local itemColor = colors.itemType.tool -- Color por defecto
-    if item.data and item.data.type then
-        if item.data.type == "consumable" then
-            itemColor = colors.itemType.consumable
-        elseif item.data.type == "resource" then
-            itemColor = colors.itemType.resource
-        end
-    end
-    
-    -- Dibujar fondo del item
-    love.graphics.setColor(itemColor)
-    love.graphics.rectangle("fill", itemX, itemY, itemSize, itemSize)
-    
-    -- Dibujar borde del item
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", itemX, itemY, itemSize, itemSize)
-    
-    -- Dibujar texto del item (primera letra del nombre)
-    if item.data and item.data.name then
-        love.graphics.setColor(colors.text)
-        local firstLetter = string.sub(item.data.name, 1, 1)
-        love.graphics.print(firstLetter, itemX + itemSize/2 - 4, itemY + itemSize/2 - 6)
-    end
-    
-    -- Dibujar cantidad si es mayor a 1
-    if item.quantity and item.quantity > 1 then
-        love.graphics.setColor(colors.text)
-        love.graphics.print(tostring(item.quantity), itemX + itemSize - 10, itemY + itemSize - 12)
+        self:drawEVASlot(x, y, i, evaCompartment.items[i])
     end
 end
 
@@ -424,7 +301,7 @@ function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
         slotColor = colors.slotHover
     end
     
-    -- Verificar si es target válido para drag
+    -- Verificar si es target válido para drop
     if uiState.draggedItem and self:isValidDropTarget("inventory", slotIndex) then
         slotColor = colors.slotDragTarget
     end
@@ -443,7 +320,10 @@ function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
 end
 
 -- Dibujar slot de mejora
-function InventoryUI:drawUpgradeSlot(x, y, upgradeType, slotIndex, item, label)
+
+
+-- Dibujar slot EVA
+function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
     
@@ -458,8 +338,8 @@ function InventoryUI:drawUpgradeSlot(x, y, upgradeType, slotIndex, item, label)
         slotColor = colors.slotHover
     end
     
-    -- Verificar si es target válido para drag
-    if uiState.draggedItem and self:isValidDropTarget("upgrade", upgradeType, slotIndex) then
+    -- Verificar si es target válido para drop
+    if uiState.draggedItem and self:isValidDropTarget("eva", slotIndex) then
         slotColor = colors.slotDragTarget
     end
     
@@ -469,11 +349,6 @@ function InventoryUI:drawUpgradeSlot(x, y, upgradeType, slotIndex, item, label)
     
     love.graphics.setColor(colors.border)
     love.graphics.rectangle("line", x, y, slotSize, slotSize)
-    
-    -- Dibujar label
-    love.graphics.setColor(colors.textSecondary)
-    love.graphics.setFont(uiState.smallFont)
-    love.graphics.print(label, x, y + slotSize + 2)
     
     -- Dibujar item si existe
     if item then
@@ -490,8 +365,8 @@ function InventoryUI:drawItem(x, y, size, item)
         return
     end
     
-    -- Color por rareza
-    local rarityColor = colors.rarity[item.data.rarity] or colors.rarity.common
+    -- Usar el color de rareza obtenido desde el sistema de items por ID
+    local rarityColor = self:getItemRarityColor(item)
     love.graphics.setColor(rarityColor)
     love.graphics.rectangle("fill", x, y, size, size)
     
@@ -581,23 +456,20 @@ function InventoryUI:isMouseOverSlot(x, y, size)
 end
 
 -- Verificar si es un target válido para drop
-function InventoryUI:isValidDropTarget(targetType, targetSlot, targetUpgradeSlot)
+function InventoryUI:isValidDropTarget(targetType, targetSlot)
     if not uiState.draggedItem or not uiState.draggedItem.data then return false end
     
     if targetType == "inventory" then
         return true -- Siempre se puede mover a inventario
-    elseif targetType == "upgrade" then
-        -- Solo se puede equipar si el tipo coincide
-        return uiState.draggedItem.data.type == targetSlot
     elseif targetType == "eva" then
-        return true -- Siempre se puede mover al inventario EVA
+        return true -- Siempre se puede mover a EVA (las restricciones se manejan en la transferencia)
     end
     
     return false
 end
 
 -- Manejar click del mouse
-function InventoryUI:mousepressed(x, y, button, player, evaPlayer)
+function InventoryUI:mousepressed(x, y, button, player)
     if not uiState.isOpen or not player or not player.inventory then return end
     
     -- Si hay modal abierto, verificar clics en él
@@ -608,157 +480,129 @@ function InventoryUI:mousepressed(x, y, button, player, evaPlayer)
     
     -- Solo manejar drag con clic izquierdo
     if button == 1 then
-        -- Verificar click en inventario
-        local inventorySlot = self:getInventorySlotAt(x, y, player.inventory)
+        -- Verificar click en inventario (compartimento 'ship')
+        local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
+        local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
         if inventorySlot then
-            local item = player.inventory.items[inventorySlot]
+            local item = shipComp.items[inventorySlot]
             if item then
+                -- Si se presiona Shift, transferir al compartimento EVA
+                if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+                    -- Verificar proximidad a la nave si está en modo EVA
+                    if player.isInEVA and player.evaPlayer and not player.evaPlayer:canEnterShip() then
+                        print("[TRANSFER] Error: Debes estar cerca de la nave para transferir items")
+                        return
+                    end
+                    self:transferItemToEVA(player, inventorySlot)
+                    return
+                end
+                
                 uiState.draggedItem = item
                 uiState.draggedFromSlot = inventorySlot
                 uiState.draggedFromType = "inventory"
-                player.inventory.items[inventorySlot] = nil
+                shipComp.items[inventorySlot] = nil
             end
             return
         end
         
-        -- Verificar click en mejoras
-        local upgradeType, upgradeSlot = self:getUpgradeSlotAt(x, y)
-        if upgradeType and upgradeSlot then
-            local item = player.inventory.upgradeSlots[upgradeType] and 
-                        player.inventory.upgradeSlots[upgradeType][upgradeSlot]
-            if item then
-                uiState.draggedItem = item
-                uiState.draggedFromSlot = upgradeSlot
-                uiState.draggedFromType = "upgrade"
-                uiState.draggedFromUpgradeType = upgradeType
-                player.inventory.upgradeSlots[upgradeType][upgradeSlot] = nil
-            end
-            return
-        end
+
         
-        -- Verificar click en EVA
-        if evaPlayer and evaPlayer.inventory then
-            local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
+        -- Verificar click en panel EVA
+        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        if evaComp then
+            local evaSlot = self:getEVASlotAt(x, y)
             if evaSlot then
-                local item = evaPlayer.inventory.items[evaSlot]
+                local item = evaComp.items[evaSlot]
                 if item then
+                    -- Si se presiona Shift, transferir al compartimento ship
+                    if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+                        -- Verificar proximidad a la nave si está en modo EVA
+                        if player.isInEVA and player.evaPlayer and not player.evaPlayer:canEnterShip() then
+                            print("[TRANSFER] Error: Debes estar cerca de la nave para transferir items")
+                            return
+                        end
+                        self:transferItemToShip(player, evaSlot)
+                        return
+                    end
+                    
                     uiState.draggedItem = item
                     uiState.draggedFromSlot = evaSlot
                     uiState.draggedFromType = "eva"
-                    evaPlayer.inventory.items[evaSlot] = nil
+                    evaComp.items[evaSlot] = nil
                 end
                 return
             end
         end
+
     elseif button == 2 then -- Clic derecho
-        -- Verificar clic derecho en inventario
-        local inventorySlot = self:getInventorySlotAt(x, y, player.inventory)
-        if inventorySlot and player.inventory.items[inventorySlot] then
+        -- Verificar clic derecho en inventario (compartimento 'ship')
+        local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
+        local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
+        if inventorySlot and shipComp.items[inventorySlot] then
             self:openModal(x, y, inventorySlot, "inventory")
             return
         end
         
-        -- Verificar clic derecho en mejoras
-        local upgradeType, upgradeSlot = self:getUpgradeSlotAt(x, y)
-        if upgradeType and upgradeSlot then
-            local item = player.inventory.upgradeSlots[upgradeType] and 
-                        player.inventory.upgradeSlots[upgradeType][upgradeSlot]
-            if item then
-                self:openModal(x, y, upgradeSlot, "upgrade", upgradeType)
-            end
-            return
-        end
+
         
-        -- Verificar clic derecho en EVA
-        if evaPlayer and evaPlayer.inventory then
-            local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
-            if evaSlot and evaPlayer.inventory.items[evaSlot] then
+        -- Verificar clic derecho en panel EVA
+        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        if evaComp then
+            local evaSlot = self:getEVASlotAt(x, y)
+            if evaSlot and evaComp.items[evaSlot] then
                 self:openModal(x, y, evaSlot, "eva")
                 return
             end
         end
+
     end
 end
 
 -- Manejar release del mouse
-function InventoryUI:mousereleased(x, y, button, player, evaPlayer)
+function InventoryUI:mousereleased(x, y, button, player)
     if not uiState.isOpen or button ~= 1 or not uiState.draggedItem or not player or not player.inventory then 
         return 
     end
     
     local dropped = false
+    local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
     
-    -- Verificar drop en inventario
-    local inventorySlot = self:getInventorySlotAt(x, y, player.inventory)
+    -- Verificar drop en inventario (compartimento 'ship')
+    local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
     if inventorySlot then
-        local existingItem = player.inventory.items[inventorySlot]
-        player.inventory.items[inventorySlot] = uiState.draggedItem
+        local existingItem = shipComp.items[inventorySlot]
+        shipComp.items[inventorySlot] = uiState.draggedItem
         
         -- Si había un item, intercambiar
-        if existingItem then
-            if uiState.draggedFromType == "inventory" then
-                player.inventory.items[uiState.draggedFromSlot] = existingItem
-            elseif uiState.draggedFromType == "upgrade" then
-                if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
-                    player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
+                if existingItem then
+                    if uiState.draggedFromType == "inventory" then
+                        shipComp.items[uiState.draggedFromSlot] = existingItem
+                    end
                 end
-                player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = existingItem
-            elseif uiState.draggedFromType == "eva" then
-                evaPlayer.inventory.items[uiState.draggedFromSlot] = existingItem
-            end
-        end
         dropped = true
     end
     
-    -- Verificar drop en mejoras
-    if not dropped then
-        local upgradeType, upgradeSlot = self:getUpgradeSlotAt(x, y)
-        if upgradeType and upgradeSlot and uiState.draggedItem.data.type == upgradeType then
-            if not player.inventory.upgradeSlots[upgradeType] then
-                player.inventory.upgradeSlots[upgradeType] = {}
-            end
-            
-            local existingItem = player.inventory.upgradeSlots[upgradeType][upgradeSlot]
-            player.inventory.upgradeSlots[upgradeType][upgradeSlot] = uiState.draggedItem
-            
-            -- Si había un item, intercambiar
-            if existingItem then
-                if uiState.draggedFromType == "inventory" then
-                    player.inventory.items[uiState.draggedFromSlot] = existingItem
-                elseif uiState.draggedFromType == "upgrade" then
-                    if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
-                        player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
-                    end
-                    player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = existingItem
-                elseif uiState.draggedFromType == "eva" then
-                    evaPlayer.inventory.items[uiState.draggedFromSlot] = existingItem
-                end
-            end
-            dropped = true
-        end
-    end
+
     
-    -- Verificar drop en EVA
-    if not dropped and evaPlayer and evaPlayer.inventory then
-        local evaSlot = self:getEVASlotAt(x, y, evaPlayer.inventory)
-        if evaSlot then
-            local existingItem = evaPlayer.inventory.items[evaSlot]
-            evaPlayer.inventory.items[evaSlot] = uiState.draggedItem
-            
-            -- Si había un item, intercambiar
-            if existingItem then
-                if uiState.draggedFromType == "inventory" then
-                    player.inventory.items[uiState.draggedFromSlot] = existingItem
-                elseif uiState.draggedFromType == "upgrade" then
-                    if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
-                        player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
+    -- Verificar drop en panel EVA
+    if not dropped then
+        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        if evaComp then
+            local evaSlot = self:getEVASlotAt(x, y)
+            if evaSlot then
+                local existingItem = evaComp.items[evaSlot]
+                evaComp.items[evaSlot] = uiState.draggedItem
+                
+                -- Si había un item, intercambiar
+                if existingItem then
+                    if uiState.draggedFromType == "inventory" then
+                        shipComp.items[uiState.draggedFromSlot] = existingItem
+                    elseif uiState.draggedFromType == "eva" then
+                        evaComp.items[uiState.draggedFromSlot] = existingItem
                     end
-                    player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = existingItem
-                elseif uiState.draggedFromType == "eva" then
-                    evaPlayer.inventory.items[uiState.draggedFromSlot] = existingItem
                 end
+                dropped = true
             end
-            dropped = true
         end
     end
     
@@ -771,34 +615,17 @@ function InventoryUI:mousereleased(x, y, button, player, evaPlayer)
                                      uiState.mouseY < layout.inventoryY or 
                                      uiState.mouseY > layout.inventoryY + layout.inventoryHeight
         
-        local mouseOutsideUpgrade = uiState.mouseX < layout.upgradeX or 
-                                   uiState.mouseX > layout.upgradeX + layout.upgradeWidth or
-                                   uiState.mouseY < layout.upgradeY or 
-                                   uiState.mouseY > layout.upgradeY + layout.upgradeHeight
         
-        local mouseOutsideEVA = true
-        if evaPlayer and evaPlayer.inventory then
-            mouseOutsideEVA = uiState.mouseX < layout.evaX or 
-                             uiState.mouseX > layout.evaX + layout.evaWidth or
-                             uiState.mouseY < layout.evaY or 
-                             uiState.mouseY > layout.evaY + layout.evaHeight
-        end
-        
-        if mouseOutsideInventory and mouseOutsideUpgrade and mouseOutsideEVA then
+        if mouseOutsideInventory then
             -- Drop al mundo
             self:dropItemToWorld(uiState.draggedItem, player, uiState.mouseX, uiState.mouseY)
             dropped = true
         else
             -- Devolver item a su lugar original
             if uiState.draggedFromType == "inventory" then
-                player.inventory.items[uiState.draggedFromSlot] = uiState.draggedItem
-            elseif uiState.draggedFromType == "upgrade" then
-                if not player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] then
-                    player.inventory.upgradeSlots[uiState.draggedFromUpgradeType] = {}
-                end
-                player.inventory.upgradeSlots[uiState.draggedFromUpgradeType][uiState.draggedFromSlot] = uiState.draggedItem
-            elseif uiState.draggedFromType == "eva" and evaPlayer then
-                evaPlayer.inventory.items[uiState.draggedFromSlot] = uiState.draggedItem
+                shipComp.items[uiState.draggedFromSlot] = uiState.draggedItem
+            elseif uiState.draggedFromType == "eva" then
+                evaComp.items[uiState.draggedFromSlot] = uiState.draggedItem
             end
         end
     end
@@ -807,7 +634,7 @@ function InventoryUI:mousereleased(x, y, button, player, evaPlayer)
     uiState.draggedItem = nil
     uiState.draggedFromSlot = nil
     uiState.draggedFromType = nil
-    uiState.draggedFromUpgradeType = nil
+
 end
 
 -- Manejar input de teclado
@@ -822,11 +649,10 @@ function InventoryUI:keypressed(key, player)
 end
 
 -- Abrir modal de opciones
-function InventoryUI:openModal(x, y, slotIndex, slotType, upgradeType)
+function InventoryUI:openModal(x, y, slotIndex, slotType)
     uiState.modal.isOpen = true
     uiState.modal.slotIndex = slotIndex
     uiState.modal.slotType = slotType
-    uiState.modal.upgradeType = upgradeType
     uiState.modal.x = x
     uiState.modal.y = y
 end
@@ -843,13 +669,13 @@ function InventoryUI:handleModalClick(x, y, button, player)
         
         if y <= modal.y + optionHeight then
             -- Opción "Usar/Equipar"
-            self:useItem(modal.slotIndex, modal.slotType, modal.upgradeType, player)
+            self:useItem(modal.slotIndex, modal.slotType, player)
         elseif y <= modal.y + optionHeight * 2 then
             -- Opción "Lanzar al mundo"
-            self:dropItemFromModal(modal.slotIndex, modal.slotType, modal.upgradeType, player)
+            self:dropItemFromModal(modal.slotIndex, modal.slotType, player)
         else
             -- Opción "Eliminar"
-            self:deleteItem(modal.slotIndex, modal.slotType, modal.upgradeType, player)
+            self:deleteItem(modal.slotIndex, modal.slotType, player)
         end
     end
     
@@ -858,40 +684,40 @@ function InventoryUI:handleModalClick(x, y, button, player)
 end
 
 -- Usar/equipar item
-function InventoryUI:useItem(slotIndex, slotType, upgradeType, player)
+function InventoryUI:useItem(slotIndex, slotType, player)
     local item = nil
-    local evaPlayer = (player and player.evaPlayer) or nil
+    local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
     
     if slotType == "inventory" then
-        item = player.inventory.items[slotIndex]
-    elseif slotType == "upgrade" and upgradeType then
-        item = player.inventory.upgradeSlots[upgradeType] and player.inventory.upgradeSlots[upgradeType][slotIndex]
-    elseif slotType == "eva" and evaPlayer then
-        item = evaPlayer.inventory.items[slotIndex]
+        item = shipComp.items[slotIndex]
+    elseif slotType == "eva" then
+        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        if evaComp then
+            item = evaComp.items[slotIndex]
+        end
     end
     
     if item and item.data then
-        -- Integración con el sistema de items
         local ItemSystem = require 'src.item_systems.items.init'
         local itemData = ItemSystem.getItem(item.data.id)
         
         if itemData then
             if itemData.category == "consumable" then
-                -- Usar item consumible
                 local success = ItemSystem.useItem(item.data.id, player)
                 if success then
-                    -- Remover item del inventario si se usó exitosamente
                     if slotType == "inventory" then
-                        player.inventory.items[slotIndex] = nil
-                    elseif slotType == "eva" and evaPlayer then
-                        evaPlayer.inventory.items[slotIndex] = nil
+                        shipComp.items[slotIndex] = nil
+                    elseif slotType == "eva" then
+                        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+                        if evaComp then
+                            evaComp.items[slotIndex] = nil
+                        end
                     end
                     print("Usado: " .. itemData.name)
                 else
                     print("No se pudo usar: " .. itemData.name)
                 end
             elseif itemData.category == "equipable" then
-                -- Equipar item
                 local success = ItemSystem.equipItem(item.data.id, player)
                 if success then
                     print("Equipado: " .. itemData.name)
@@ -908,34 +734,33 @@ function InventoryUI:useItem(slotIndex, slotType, upgradeType, player)
 end
 
 -- Eliminar item
-function InventoryUI:deleteItem(slotIndex, slotType, upgradeType, player)
-    local evaPlayer = (player and player.evaPlayer) or nil
+function InventoryUI:deleteItem(slotIndex, slotType, player)
+    local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
     
     if slotType == "inventory" then
-        player.inventory.items[slotIndex] = nil
+        shipComp.items[slotIndex] = nil
         print("Item eliminado del inventario")
-    elseif slotType == "upgrade" and upgradeType then
-        if player.inventory.upgradeSlots[upgradeType] then
-            player.inventory.upgradeSlots[upgradeType][slotIndex] = nil
-            print("Item eliminado de mejoras")
+    elseif slotType == "eva" then
+        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        if evaComp then
+            evaComp.items[slotIndex] = nil
+            print("Item eliminado del inventario EVA")
         end
-    elseif slotType == "eva" and evaPlayer then
-        evaPlayer.inventory.items[slotIndex] = nil
-        print("Item eliminado del inventario EVA")
     end
 end
 
 -- Lanzar item al mundo desde modal
-function InventoryUI:dropItemFromModal(slotIndex, slotType, upgradeType, player)
+function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
     local item = nil
-    local evaPlayer = (player and player.evaPlayer) or nil
+    local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
     
     if slotType == "inventory" then
-        item = player.inventory.items[slotIndex]
-    elseif slotType == "upgrade" and upgradeType then
-        item = player.inventory.upgradeSlots[upgradeType] and player.inventory.upgradeSlots[upgradeType][slotIndex]
-    elseif slotType == "eva" and evaPlayer then
-        item = evaPlayer.inventory.items[slotIndex]
+        item = shipComp.items[slotIndex]
+    elseif slotType == "eva" then
+        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        if evaComp then
+            item = evaComp.items[slotIndex]
+        end
     end
     
     if not item then
@@ -972,11 +797,12 @@ function InventoryUI:dropItemFromModal(slotIndex, slotType, upgradeType, player)
     if worldItem then
         -- Eliminar item del inventario
         if slotType == "inventory" then
-            player.inventory.items[slotIndex] = nil
-        elseif slotType == "upgrade" and upgradeType then
-            player.inventory.upgradeSlots[upgradeType][slotIndex] = nil
-        elseif slotType == "eva" and evaPlayer then
-            evaPlayer.inventory.items[slotIndex] = nil
+            shipComp.items[slotIndex] = nil
+        elseif slotType == "eva" then
+            local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+            if evaComp then
+                evaComp.items[slotIndex] = nil
+            end
         end
         
         print("[DROP MODAL] Item lanzado:", itemData.name, "x" .. quantity)
@@ -1010,49 +836,22 @@ function InventoryUI:getInventorySlotAt(x, y, inventory)
     return nil
 end
 
--- Obtener slot de mejora en posición
-function InventoryUI:getUpgradeSlotAt(x, y)
-    local layout = uiState.layout
-    local slotSize = uiState.slotSize
-    local padding = uiState.slotPadding
-    local panelPadding = uiState.panelPadding
-    
-    local startX = layout.upgradeX + panelPadding
-    local startY = layout.upgradeY + 30
-    local upgradeTypes = {"weapon", "shield", "engine", "utility"}
-    
-    for i, upgradeType in ipairs(upgradeTypes) do
-        local col = (i - 1) % 2
-        local row = math.floor((i - 1) / 2)
-        local slotX = startX + col * (slotSize + padding + 20)
-        local slotY = startY + row * (slotSize + padding + 20)
-        
-        if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
-            return upgradeType, 1
-        end
-    end
-    
-    return nil, nil
-end
 
--- Obtener slot de EVA en posición
-function InventoryUI:getEVASlotAt(x, y, evaInventory)
-    if not evaInventory then return nil end
-    
+
+-- Obtener slot EVA en posición
+function InventoryUI:getEVASlotAt(x, y)
     local layout = uiState.layout
     local slotSize = uiState.slotSize
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
-    -- Usar coordenadas del layout calculado
-    local evaStartX = layout.evaX
-    local evaStartY = layout.evaY
-    local slotStartX = evaStartX + panelPadding
-    local slotStartY = evaStartY + 25
+    local startX = layout.evaX + panelPadding
+    local startY = layout.evaY + 30
     
-    for i = 1, evaInventory.maxSlots do
-        local slotX = slotStartX + (i - 1) * (slotSize + padding)
-        local slotY = slotStartY
+    -- 3 slots horizontales
+    for i = 1, 3 do
+        local slotX = startX + (i - 1) * (slotSize + padding)
+        local slotY = startY
         
         if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
             return i
@@ -1068,13 +867,31 @@ function InventoryUI:getItemRarityColor(item)
         return uiState.colors.rarity.common
     end
     
-    local ItemSystem = require 'src.item_systems.items.init'
-    local itemData = ItemSystem.getItem(item.data.id)
-    
-    if itemData and itemData.rarity then
-        return uiState.colors.rarity[itemData.rarity] or uiState.colors.rarity.common
+    -- 1) Preferir rareza directamente en el item si está presente
+    if item.data.rarity then
+        if type(item.data.rarity) == "table" and item.data.rarity.color then
+            local c = item.data.rarity.color
+            return {c[1], c[2], c[3], 1}
+        elseif type(item.data.rarity) == "string" then
+            return uiState.colors.rarity[item.data.rarity] or uiState.colors.rarity.common
+        end
     end
     
+    -- 2) Si no está en el item, intentar obtenerla desde el sistema por ID
+    if item.data.id then
+        local ItemSystem = require 'src.item_systems.items.init'
+        local itemData = ItemSystem.getItem(item.data.id)
+        if itemData and itemData.rarity then
+            if type(itemData.rarity) == "table" and itemData.rarity.color then
+                local c = itemData.rarity.color
+                return {c[1], c[2], c[3], 1}
+            elseif type(itemData.rarity) == "string" then
+                return uiState.colors.rarity[itemData.rarity] or uiState.colors.rarity.common
+            end
+        end
+    end
+    
+    -- 3) Fallback
     return uiState.colors.rarity.common
 end
 
@@ -1110,33 +927,52 @@ end
 function InventoryUI:createTestInventory(player)
     local ItemSystem = require 'src.item_systems.items.init'
     
-    -- Limpiar inventario actual
-    player.inventory.items = {}
+    -- Limpiar inventario actual del compartimento 'ship'
+    local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
+    shipComp.items = {}
     
-    -- Agregar algunos items de prueba
+    -- Items de ejemplo para cada categoría
     local testItems = {
+        -- Consumibles
         "eva_repair_kit",
-        "energy_cell",
-        "neural_implant_basic",
-        "laser_pistol_basic",
-        "metal_scrap",
-        "energy_crystal"
+        "energy_stim",
+        "medical_nanobots",
+        
+        -- Materiales
+        "iron_ore",
+        "energy_crystal",
+        "titanium_ingot",
+        "alien_biomass",
+        
+        -- Equipables (Armas)
+        "basic_laser_pistol",
+        "plasma_rifle",
+        
+        -- Pasivos
+        "basic_neural_implant",
+        "personal_shield"
     }
     
-    for i, itemId in ipairs(testItems) do
+    local slotIndex = 1
+    for _, itemId in ipairs(testItems) do
         local itemData = ItemSystem.getItem(itemId)
         if itemData then
-            player.inventory.items[i] = {
+            shipComp.items[slotIndex] = {
                 data = {
                     id = itemId,
                     name = itemData.name,
-                    quantity = 1
-                }
+                    category = itemData.category,
+                    rarity = itemData.rarity,
+                },
+                quantity = itemData.category == "material" and 5 or 1
             }
+            slotIndex = slotIndex + 1
+        else
+            print("[WARNING] Item no encontrado: " .. itemId)
         end
     end
     
-    print("[INVENTORY] Inventario de prueba creado con " .. #testItems .. " items")
+    print("[INVENTORY] Inventario de prueba creado con " .. (slotIndex - 1) .. " items de diferentes categorías")
 end
 
 -- Lanzar item al mundo
@@ -1188,6 +1024,111 @@ function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
               "hacia", string.format("(%.1f, %.1f)", targetWorldX, targetWorldY))
     else
         print("[DROP] Error: No se pudo crear el item en el mundo")
+    end
+end
+
+-- Transferir item del compartimento ship al compartimento EVA
+function InventoryUI:transferItemToEVA(player, fromSlot)
+    if not player or not player.inventory or not player.inventory.getCompartment then
+        print("[TRANSFER] Error: No se puede acceder al sistema de inventario")
+        return false
+    end
+    
+    local shipComp = player.inventory:getCompartment('ship')
+    local evaComp = player.inventory:getCompartment('eva')
+    
+    if not shipComp or not evaComp then
+        print("[TRANSFER] Error: No se pueden encontrar los compartimentos")
+        return false
+    end
+    
+    local item = shipComp.items[fromSlot]
+    if not item then
+        print("[TRANSFER] Error: No hay item en el slot especificado")
+        return false
+    end
+    
+    -- Verificar si el item es permitido en el compartimento EVA
+    if evaComp.allowedTypes and item.data and item.data.category then
+        -- Mapear categoría a tipo EVA
+        local categoryToEVAType = {
+            ["consumable"] = "consumable",
+            ["equipable"] = "tool",
+            ["material"] = "resource"
+        }
+        local evaType = categoryToEVAType[item.data.category]
+        if not evaType or not evaComp.allowedTypes[evaType] then
+            print("[TRANSFER] Error: Tipo de item '" .. (evaType or item.data.category) .. "' no permitido en EVA")
+            return false
+        end
+    end
+    
+    -- Buscar slot vacío en EVA
+    local targetSlot = nil
+    for i = 1, evaComp.maxSlots do
+        if not evaComp.items[i] then
+            targetSlot = i
+            break
+        end
+    end
+    
+    if not targetSlot then
+        print("[TRANSFER] Error: Inventario EVA lleno")
+        return false
+    end
+    
+    -- Realizar transferencia
+    if player.inventory:transferItemBetweenCompartments('ship', fromSlot, 'eva', targetSlot) then
+        print("[TRANSFER] Item transferido de nave a EVA: " .. (item.data.name or "item desconocido"))
+        return true
+    else
+        print("[TRANSFER] Error: Falló la transferencia")
+        return false
+    end
+end
+
+-- Transferir item de EVA a nave
+function InventoryUI:transferItemToShip(player, fromSlot)
+    if not player or not player.inventory or not player.inventory.getCompartment then
+        print("[TRANSFER] Error: No se puede acceder al sistema de inventario")
+        return false
+    end
+    
+    local shipComp = player.inventory:getCompartment('ship')
+    local evaComp = player.inventory:getCompartment('eva')
+    
+    if not shipComp or not evaComp then
+        print("[TRANSFER] Error: No se pueden encontrar los compartimentos")
+        return false
+    end
+    
+    local item = evaComp.items[fromSlot]
+    if not item then
+        print("[TRANSFER] Error: No hay item en el slot especificado")
+        return false
+    end
+    
+    -- Buscar slot vacío en nave
+    local targetSlot = nil
+    for i = 1, shipComp.maxSlots do
+        if not shipComp.items[i] then
+            targetSlot = i
+            break
+        end
+    end
+    
+    if not targetSlot then
+        print("[TRANSFER] Error: Inventario de nave lleno")
+        return false
+    end
+    
+    -- Realizar transferencia
+    if player.inventory:transferItemBetweenCompartments('eva', fromSlot, 'ship', targetSlot) then
+        print("[TRANSFER] Item transferido de EVA a nave: " .. (item.data.name or "item desconocido"))
+        return true
+    else
+        print("[TRANSFER] Error: Falló la transferencia")
+        return false
     end
 end
 

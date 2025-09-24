@@ -56,7 +56,9 @@ function EVAPlayer:new(x, y, shipRef)
     evaPlayer.stats = PlayerStats:new()
     
     -- Sistema de inventario específico para EVA (3 slots)
-    evaPlayer.inventory = EVAInventorySystem:new()
+    -- Conectar al compartimento 'eva' del InventorySystem de la nave si está disponible
+    local shipInventorySystem = shipRef and shipRef.inventory or nil
+    evaPlayer.inventory = EVAInventorySystem:new(shipInventorySystem)
     
     return evaPlayer
 end
@@ -254,8 +256,8 @@ function EVAPlayer:attemptPickup()
     local WorldItems = require 'src.item_systems.world_items'
     local nearbyItem = self:getNearbyItem()
     
-    if nearbyItem and self.shipRef then
-        local success = WorldItems.collectItem(nearbyItem, self.shipRef)
+    if nearbyItem and self.ship then
+        local success = WorldItems.collectItem(nearbyItem, self.ship)
         if success then
             print("[EVA PICKUP] Item recolectado manualmente:", nearbyItem.itemData.name, "x" .. nearbyItem.quantity)
         else
@@ -270,10 +272,18 @@ function EVAPlayer:getNearbyItem()
     local pickupRange = 60 -- Rango de recolección manual
     local items = WorldItems.getNearbyItems(self.x, self.y, pickupRange)
     
-    for _, item in ipairs(items) do
-        local distance = math.sqrt((item.x - self.x)^2 + (item.y - self.y)^2)
-        if distance <= pickupRange then
-            return item
+    -- WorldItems.getNearbyItems retorna una lista de entradas { item = worldItem, distance = n }
+    -- Mantenemos compatibilidad por si cambia la forma y viene directo el item con x/y
+    for _, entry in ipairs(items) do
+        local worldItem = entry.item or entry
+        local distance = entry.distance
+        if not distance and worldItem and worldItem.x and worldItem.y then
+            local dx = worldItem.x - self.x
+            local dy = worldItem.y - self.y
+            distance = math.sqrt(dx * dx + dy * dy)
+        end
+        if worldItem and distance and distance <= pickupRange then
+            return worldItem
         end
     end
     

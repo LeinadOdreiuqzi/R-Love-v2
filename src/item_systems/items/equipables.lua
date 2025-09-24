@@ -141,6 +141,121 @@ function Equipables.registerAll()
         end
     })
     
+    -- Rifle de Asalto Cinético
+    ItemSystem:registerItem({
+        id = "kinetic_assault_rifle",
+        name = "Rifle de Asalto Cinético",
+        description = "Rifle automático de proyectiles cinéticos. Daño: 20-30 cinético. Cadencia alta.",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
+        slot = Equipables.SLOTS.WEAPON_PRIMARY,
+        rarity = ItemSystem.RARITY.UNCOMMON,
+        value = 450,
+        weight = 2.0,
+        icon = "assault_rifle",
+        tags = {"weapon", "kinetic", "ranged", "automatic"},
+        
+        damage = { min = 20, max = 30 },
+        damageType = DAMAGE_TYPES.KINETIC,
+        range = 200,
+        fireRate = 4.0,
+        energyCost = 3,
+        accuracy = 80,
+        maxAmmo = 30,
+        reloadTime = 1.5,
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Rifle de asalto cinético equipado"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Rifle de asalto cinético desequipado"
+        end
+    })
+    
+    -- Cañón de Plasma Pesado
+    ItemSystem:registerItem({
+        id = "heavy_plasma_cannon",
+        name = "Cañón de Plasma Pesado",
+        description = "Arma devastadora de plasma. Daño: 50-80 plasma. Cadencia lenta pero letal.",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
+        slot = Equipables.SLOTS.WEAPON_PRIMARY,
+        rarity = ItemSystem.RARITY.EPIC,
+        value = 1500,
+        weight = 4.0,
+        icon = "plasma_cannon",
+        tags = {"weapon", "plasma", "ranged", "heavy", "explosive"},
+        
+        damage = { min = 50, max = 80 },
+        damageType = DAMAGE_TYPES.PLASMA,
+        range = 300,
+        fireRate = 0.8,
+        energyCost = 25,
+        accuracy = 70,
+        maxAmmo = 8,
+        reloadTime = 3.0,
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Cañón de plasma pesado equipado"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Cañón de plasma pesado desequipado"
+        end
+    })
+    
+    -- Escopeta de Energía
+    ItemSystem:registerItem({
+        id = "energy_shotgun",
+        name = "Escopeta de Energía",
+        description = "Dispersa múltiples proyectiles de energía. Daño: 12-20 energía x5. Corto alcance.",
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
+        slot = Equipables.SLOTS.WEAPON_PRIMARY,
+        rarity = ItemSystem.RARITY.RARE,
+        value = 700,
+        weight = 2.8,
+        icon = "energy_shotgun",
+        tags = {"weapon", "energy", "ranged", "spread"},
+        
+        damage = { min = 12, max = 20 },
+        damageType = DAMAGE_TYPES.ENERGY,
+        range = 80,
+        fireRate = 1.5,
+        energyCost = 15,
+        accuracy = 60,
+        maxAmmo = 12,
+        reloadTime = 2.0,
+        projectileCount = 5, -- Dispara 5 proyectiles
+        
+        onEquip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = self
+            end
+            return "Escopeta de energía equipada"
+        end,
+        
+        onUnequip = function(self, player)
+            if player.equipment then
+                player.equipment[self.slot] = nil
+            end
+            return "Escopeta de energía desequipada"
+        end
+    })
+    
     -- === ARMADURAS ===
     
     -- Casco EVA

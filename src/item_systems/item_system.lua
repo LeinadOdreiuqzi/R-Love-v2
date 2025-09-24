@@ -103,6 +103,38 @@ function ItemSystem:getItem(id)
     return self.items[id]
 end
 
+-- Crear una instancia de un item
+function ItemSystem:createItem(id, quantity)
+    local template = self.items[id]
+    if not template then
+        print("Error: Item con ID '" .. id .. "' no encontrado")
+        return nil
+    end
+    
+    -- Crear una copia del template
+    local item = {}
+    for key, value in pairs(template) do
+        if type(value) == "table" then
+            -- Copia profunda para tablas
+            item[key] = {}
+            for k, v in pairs(value) do
+                item[key][k] = v
+            end
+        else
+            item[key] = value
+        end
+    end
+    
+    -- Establecer cantidad si es stackable
+    if item.stackable and quantity then
+        item.quantity = math.min(quantity, item.maxStack or 1)
+    else
+        item.quantity = 1
+    end
+    
+    return item
+end
+
 -- Crear instancia de item
 function ItemSystem:createItemInstance(id, quantity)
     local template = self:getItem(id)

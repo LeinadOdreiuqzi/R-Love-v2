@@ -374,8 +374,7 @@ function love.update(dt)
     
     -- Actualizar InventoryUI
     if InventoryUI and InventoryUI.update then
-        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
-        InventoryUI:update(dt, player, evaPlayer)
+        InventoryUI:update(dt, player)
     end
     
     -- Actualizar EVAInventoryUI
@@ -589,8 +588,7 @@ function love.draw()
     
     -- Dibujar InventoryUI (no afectado por la cámara)
     if InventoryUI and InventoryUI.draw then
-        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
-        InventoryUI:draw(player, evaPlayer)
+        InventoryUI:draw(player)
     end
     
     -- Dibujar EVAInventoryUI (no afectado por la cámara)
@@ -1323,8 +1321,7 @@ function love.mousepressed(x, y, button)
     
     -- Manejar input del inventario de la nave
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
-        InventoryUI:mousepressed(x, y, button, player, evaPlayer)
+        InventoryUI:mousepressed(x, y, button, player)
         return
     end
     
@@ -1344,8 +1341,7 @@ function love.mousereleased(x, y, button)
     
     -- Manejar input del inventario
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        local evaPlayer = (player and player.evaPlayer) and player.evaPlayer or nil
-        InventoryUI:mousereleased(x, y, button, player, evaPlayer)
+        InventoryUI:mousereleased(x, y, button, player)
     end
 end
 

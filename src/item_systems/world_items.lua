@@ -374,7 +374,7 @@ function WorldItems.tryManualCollection()
     return false
 end
 
--- Recolectar item y agregarlo al inventario
+-- Recolectar item y agregarlo al inventario correcto según el estado del jugador
 function WorldItems.collectItem(item, ship)
     if not item or not ship or not ship.inventory then
         return false
@@ -389,17 +389,80 @@ function WorldItems.collectItem(item, ship)
         return false
     end
     
-    -- Buscar slot vacío en el inventario
-    for slot = 1, ship.inventory.maxSlots do
-        if not ship.inventory.items[slot] then
-            ship.inventory.items[slot] = itemInstance
+    -- Determinar el inventario de destino según el estado del jugador
+    local targetInventory
+    local maxSlots
+    local inventoryType
+    
+    if ship.isInEVA then
+        -- Jugador en EVA: usar inventario EVA
+        if ship.inventory.compartments and ship.inventory.compartments.eva then
+            targetInventory = ship.inventory.compartments.eva.items
+            maxSlots = ship.inventory.compartments.eva.maxSlots or 3
+            inventoryType = "EVA"
+            
+            -- Verificar si el item es permitido en EVA
+            -- Mapear categorías del sistema de items a tipos permitidos en EVA
+            local categoryToEVAType = {
+                ["consumable"] = "consumable",
+                ["equipable"] = "tool",  -- Los equipables se consideran herramientas en EVA
+                ["material"] = "resource"  -- Los materiales se consideran recursos en EVA
+            }
+            
+            local allowedTypes = {"tool", "consumable", "resource"}
+            local itemCategory = item.itemData.category
+            local evaType = categoryToEVAType[itemCategory]
+            
+            local isAllowed = false
+            if evaType then
+                for _, allowedType in ipairs(allowedTypes) do
+                    if evaType == allowedType then
+                        isAllowed = true
+                        break
+                    end
+                end
+            end
+            
+            if not isAllowed then
+                print("[COLLECTION] Item categoría '" .. (itemCategory or "unknown") .. "' no permitido en inventario EVA")
+                return false
+            end
+        else
+            print("[COLLECTION] Error: Inventario EVA no disponible")
+            return false
+        end
+    else
+        -- Jugador en nave: usar inventario principal
+        if ship.inventory.compartments and ship.inventory.compartments.ship then
+            targetInventory = ship.inventory.compartments.ship.items
+            maxSlots = ship.inventory.compartments.ship.maxSlots
+            inventoryType = "NAVE"
+        else
+            -- Fallback al inventario legacy
+            targetInventory = ship.inventory.items
+            maxSlots = ship.inventory.maxSlots
+            inventoryType = "NAVE"
+        end
+    end
+    
+    if not targetInventory then
+        print("[COLLECTION] Error: No se pudo determinar inventario de destino")
+        return false
+    end
+    
+    print("[MANUAL COLLECTION] Recolectando en inventario:", inventoryType)
+    
+    -- Buscar slot vacío en el inventario de destino
+    for slot = 1, maxSlots do
+        if not targetInventory[slot] then
+            targetInventory[slot] = itemInstance
             return true
         end
     end
     
     -- Si no hay espacio, intentar stackear con items existentes
-    for slot = 1, ship.inventory.maxSlots do
-        local existingItem = ship.inventory.items[slot]
+    for slot = 1, maxSlots do
+        local existingItem = targetInventory[slot]
         if existingItem and existingItem.data.id == item.itemData.id then
             -- Verificar si el item es stackeable
             if item.itemData.stackable then
@@ -423,7 +486,7 @@ function WorldItems.collectItem(item, ship)
         end
     end
     
-    print("[COLLECTION] Inventario lleno, no se puede recolectar:", item.itemData.name)
+    print("[COLLECTION] Inventario " .. inventoryType .. " lleno, no se puede recolectar:", item.itemData.name)
     return false
 end
 

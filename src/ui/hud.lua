@@ -3,6 +3,7 @@
 local HUD = {}
 local SeedSystem = require 'src.utils.seed_system'
 local ChunkManager = require 'src.maps.chunk_manager'
+local WeaponHUD = require 'src.ui.weapon_hud'
 
 -- Estado del HUD unificado con optimizaciones
 local hudState = {
@@ -256,6 +257,9 @@ function HUD.init(gameStateRef, playerRef, mapRef, gameDirectorRef, runStateRef)
         end
     end
     
+    -- Inicializar WeaponHUD
+    WeaponHUD:init()
+    
     print("Enhanced HUD system initialized with alphanumeric seed support")
 end
 
@@ -272,6 +276,9 @@ function HUD.update(dt)
     end
     
     HUD.updateBiomeInfo(dt)
+    
+    -- Actualizar WeaponHUD
+    WeaponHUD:update(dt)
     
     -- Actualizar aviso contextual de estación
     if hudState.stationHint and hudState.stationHint.enabled then
@@ -615,6 +622,11 @@ function HUD.draw()
     -- HUD del jugador (barras de vida, escudo, combustible)
     if player and player.stats then
         HUD.drawPlayerHUD()
+    end
+    
+    -- HUD de armas
+    if player and player.weaponSystem then
+        WeaponHUD:draw(player)
     end
 
     -- Aviso contextual para entrar a estación

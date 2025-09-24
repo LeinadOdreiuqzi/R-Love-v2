@@ -16,31 +16,13 @@ local ITEM_TYPES = {
 -- Configuración de slots por tipo de nave
 local SHIP_INVENTORY_CONFIG = {
     EXPLORER = {
-        inventorySlots = 20,
-        upgradeSlots = {
-            weapon = 2,
-            shield = 1,
-            engine = 1,
-            utility = 2
-        }
+        inventorySlots = 20
     },
     FIGHTER = {
-        inventorySlots = 12,
-        upgradeSlots = {
-            weapon = 3,
-            shield = 1,
-            engine = 1,
-            utility = 1
-        }
+        inventorySlots = 12
     },
     CARGO = {
-        inventorySlots = 35,
-        upgradeSlots = {
-            weapon = 1,
-            shield = 2,
-            engine = 1,
-            utility = 2
-        }
+        inventorySlots = 35
     }
 }
 
@@ -128,7 +110,6 @@ function InventorySystem:new(shipType)
     -- Configuración básica
     inventory.shipType = shipType
     inventory.maxSlots = config.inventorySlots
-    inventory.upgradeSlots = {}
     
     -- Inicializar slots de inventario
     inventory.items = {}
@@ -136,17 +117,26 @@ function InventorySystem:new(shipType)
         inventory.items[i] = nil
     end
     
-    -- Inicializar slots de mejoras
-    for upgradeType, maxSlots in pairs(config.upgradeSlots) do
-        inventory.upgradeSlots[upgradeType] = {}
-        for i = 1, maxSlots do
-            inventory.upgradeSlots[upgradeType][i] = nil
-        end
-    end
+    -- No agregar items por defecto; el usuario los añadirá con el toggle "1"
+    -- inventory:addSampleItems()
     
-    -- Agregar algunos items de ejemplo
-    inventory:addSampleItems()
+    -- Definición inicial de compartimentos unificados (Ship + EVA)
+    inventory.compartments = {}
     
+    -- Compartimento principal de la nave: referencia a los mismos datos existentes
+    inventory.compartments.ship = {
+        name = "ship",
+        maxSlots = inventory.maxSlots,
+        items = inventory.items
+    }
+    
+    -- Compartimento EVA: inventario independiente con 3 slots por defecto
+    inventory.compartments.eva = {
+        name = "eva",
+        maxSlots = 3,
+        items = { nil, nil, nil },
+        allowedTypes = { tool = true, consumable = true, resource = true }
+    }
     return inventory
 end
 
@@ -201,77 +191,7 @@ function InventorySystem:moveItem(fromSlot, toSlot)
     return false
 end
 
--- Equipar item en slot de mejora
-function InventorySystem:equipItem(inventorySlot, upgradeType, upgradeSlot)
-    local item = self.items[inventorySlot]
-    if not item or item.data.type ~= upgradeType then
-        return false
-    end
-    
-    if not self.upgradeSlots[upgradeType] or 
-       upgradeSlot < 1 or upgradeSlot > #self.upgradeSlots[upgradeType] then
-        return false
-    end
-    
-    -- Intercambiar items
-    local oldUpgrade = self.upgradeSlots[upgradeType][upgradeSlot]
-    self.upgradeSlots[upgradeType][upgradeSlot] = item
-    self.items[inventorySlot] = oldUpgrade
-    
-    return true
-end
 
--- Desequipar item de slot de mejora
-function InventorySystem:unequipItem(upgradeType, upgradeSlot)
-    if not self.upgradeSlots[upgradeType] or 
-       upgradeSlot < 1 or upgradeSlot > #self.upgradeSlots[upgradeType] then
-        return false
-    end
-    
-    local item = self.upgradeSlots[upgradeType][upgradeSlot]
-    if not item then
-        return false
-    end
-    
-    -- Buscar slot vacío en inventario
-    for i = 1, self.maxSlots do
-        if not self.items[i] then
-            self.items[i] = item
-            self.upgradeSlots[upgradeType][upgradeSlot] = nil
-            return true
-        end
-    end
-    
-    return false -- Inventario lleno
-end
-
--- Obtener estadísticas totales de mejoras equipadas
-function InventorySystem:getTotalStats()
-    local totalStats = {
-        damage = 0,
-        shield = 0,
-        speed = 0,
-        acceleration = 0,
-        energy = 0,
-        regen = 0,
-        range = 0,
-        heal = 0
-    }
-    
-    for upgradeType, slots in pairs(self.upgradeSlots) do
-        for _, item in pairs(slots) do
-            if item and item.data.stats then
-                for stat, value in pairs(item.data.stats) do
-                    if totalStats[stat] then
-                        totalStats[stat] = totalStats[stat] + value
-                    end
-                end
-            end
-        end
-    end
-    
-    return totalStats
-end
 
 -- Obtener información del item por ID
 function InventorySystem:getItemById(itemId)
@@ -292,5 +212,101 @@ end
 function InventorySystem:getShipConfig()
     return SHIP_INVENTORY_CONFIG[self.shipType] or SHIP_INVENTORY_CONFIG.EXPLORER
 end
+-- API de compartimentos: creación y operaciones básicas
+function InventorySystem:addCompartment(name, opts)
+    if not self.compartments then self.compartments = {} end
+    if not name or self.compartments[name] then return self.compartments[name] end
 
+    local maxSlots = (opts and opts.maxSlots) or 10
+    local items = {}
+    for i = 1, maxSlots do items[i] = nil end
+
+    local compartment = {
+        name = name,
+        maxSlots = maxSlots,
+        items = items,
+        allowedTypes = opts and opts.allowedTypes or nil
+    }
+
+    self.compartments[name] = compartment
+    return compartment
+end
+
+function InventorySystem:getCompartment(name)
+    if not self.compartments then return nil end
+    return self.compartments[name]
+end
+
+function InventorySystem:addItemToCompartment(name, itemData, quantity)
+    local c = self:getCompartment(name)
+    if not c or not c.items then return false end
+
+    -- Validación opcional de tipos permitidos en el compartimento
+    if c.allowedTypes and itemData and itemData.category then
+        -- Mapear categoría a tipo EVA si es necesario
+        local categoryToEVAType = {
+            ["consumable"] = "consumable",
+            ["equipable"] = "tool",
+            ["material"] = "resource"
+        }
+        local itemType = categoryToEVAType[itemData.category] or itemData.category
+        if not c.allowedTypes[itemType] then
+            return false
+        end
+    end
+
+    quantity = quantity or 1
+    for i = 1, c.maxSlots do
+        if not c.items[i] then
+            c.items[i] = { data = itemData, quantity = quantity }
+            return true
+        end
+    end
+    return false
+end
+
+function InventorySystem:removeItemFromCompartment(name, slotIndex)
+    local c = self:getCompartment(name)
+    if not c or not c.items then return nil end
+    if slotIndex >= 1 and slotIndex <= c.maxSlots then
+        local item = c.items[slotIndex]
+        c.items[slotIndex] = nil
+        return item
+    end
+    return nil
+end
+
+function InventorySystem:moveItemWithinCompartment(name, fromSlot, toSlot)
+    local c = self:getCompartment(name)
+    if not c or not c.items then return false end
+    if fromSlot >= 1 and fromSlot <= c.maxSlots and toSlot >= 1 and toSlot <= c.maxSlots then
+        local item = c.items[fromSlot]
+        c.items[fromSlot] = c.items[toSlot]
+        c.items[toSlot] = item
+        return true
+    end
+    return false
+end
+
+function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toName, toSlot)
+    local fromC = self:getCompartment(fromName)
+    local toC = self:getCompartment(toName)
+    if not fromC or not toC or not fromC.items or not toC.items then return false end
+    if fromSlot < 1 or fromSlot > fromC.maxSlots or toSlot < 1 or toSlot > toC.maxSlots then return false end
+
+    local itemFrom = fromC.items[fromSlot]
+    local itemTo = toC.items[toSlot]
+
+    -- Validar tipos permitidos en destino
+    if toC.allowedTypes and itemFrom and itemFrom.data and itemFrom.data.type and not toC.allowedTypes[itemFrom.data.type] then
+        return false
+    end
+    if fromC.allowedTypes and itemTo and itemTo.data and itemTo.data.type and not fromC.allowedTypes[itemTo.data.type] then
+        return false
+    end
+
+    fromC.items[fromSlot] = itemTo
+    toC.items[toSlot] = itemFrom
+    return true
+end
 return InventorySystem

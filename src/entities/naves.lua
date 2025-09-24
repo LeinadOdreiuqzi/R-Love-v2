@@ -7,6 +7,7 @@ local EVAPlayer = require 'src.entities.eva_player'
 local InventorySystem = require 'src.maps.systems.inventory_system'
 local InventoryUI = require 'src.ui.inventory_ui'
 local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
+local WeaponSystem = require 'src.entities.weapon_system'
 
 -- Configuración de tipos de naves
 local SHIP_TYPES = {
@@ -146,6 +147,9 @@ function Naves:new(x, y, shipType)
     
     -- Sistema de inventario
     player.inventory = InventorySystem:new(shipType)
+    
+    -- Sistema de armas con cambio rápido
+    player.weaponSystem = WeaponSystem:new(player)
 
     -- Configuraciones específicas de la nave
     player.shipSettings = {
@@ -177,8 +181,13 @@ function Naves:new(x, y, shipType)
         damageState = player.damageState,
         inventory = {
             items = player.inventory.items,
-            upgradeSlots = player.inventory.upgradeSlots,
-            shipType = player.inventory.shipType
+            shipType = player.inventory.shipType,
+            compartments = player.inventory.compartments and {
+                eva = player.inventory.compartments.eva and {
+                    maxSlots = player.inventory.compartments.eva.maxSlots,
+                    items = player.inventory.compartments.eva.items
+                } or { maxSlots = 3, items = { nil, nil, nil } }
+            } or nil
         },
         lastSeen = love.timer.getTime()
     }
@@ -278,6 +287,11 @@ function Naves:update(dt)
     if self.isInEVA then
         self:updateEVA(dt)
         return  -- Don't update ship physics when in EVA
+    end
+    
+    -- Update weapon system
+    if self.weaponSystem then
+        self.weaponSystem:update(dt)
     end
     
     -- Update input state and handle rotation
@@ -851,8 +865,13 @@ function Naves:updateShipRegistry()
         -- Actualizar inventario en el registro
         shipRegistry[self.shipId].inventory = self.inventory and {
             items = self.inventory.items,
-            upgradeSlots = self.inventory.upgradeSlots,
-            shipType = self.inventory.shipType
+            shipType = self.inventory.shipType,
+            compartments = self.inventory.compartments and {
+                eva = self.inventory.compartments.eva and {
+                    maxSlots = self.inventory.compartments.eva.maxSlots,
+                    items = self.inventory.compartments.eva.items
+                } or { maxSlots = 3, items = { nil, nil, nil } }
+            } or nil
         } or nil
         shipRegistry[self.shipId].lastSeen = love.timer.getTime()
     end
@@ -886,8 +905,13 @@ function Naves:saveShipState()
         -- Guardar inventario específico de la nave
         inventory = self.inventory and {
             items = self.inventory.items,
-            upgradeSlots = self.inventory.upgradeSlots,
-            shipType = self.inventory.shipType
+            shipType = self.inventory.shipType,
+            compartments = self.inventory.compartments and {
+                eva = self.inventory.compartments.eva and {
+                    maxSlots = self.inventory.compartments.eva.maxSlots,
+                    items = self.inventory.compartments.eva.items
+                } or { maxSlots = 3, items = { nil, nil, nil } }
+            } or nil
         } or nil,
         timestamp = love.timer.getTime()
     }
@@ -932,14 +956,19 @@ function Naves:loadShipState(state)
         -- Si ya existe un inventario, restaurar su estado
         if self.inventory then
             self.inventory.items = state.inventory.items or {}
-            self.inventory.upgradeSlots = state.inventory.upgradeSlots or {}
             self.inventory.shipType = state.inventory.shipType or self.shipType
         else
             -- Crear nuevo inventario con el estado guardado
             local InventorySystem = require 'src.maps.systems.inventory_system'
             self.inventory = InventorySystem:new(state.inventory.shipType or self.shipType)
             self.inventory.items = state.inventory.items or {}
-            self.inventory.upgradeSlots = state.inventory.upgradeSlots or {}
+        end
+        -- Restaurar compartimentos si existen (especialmente EVA)
+        if state.inventory.compartments and state.inventory.compartments.eva then
+            if self.inventory.compartments and self.inventory.compartments.eva then
+                self.inventory.compartments.eva.maxSlots = state.inventory.compartments.eva.maxSlots or self.inventory.compartments.eva.maxSlots or 3
+                self.inventory.compartments.eva.items = state.inventory.compartments.eva.items or self.inventory.compartments.eva.items or { nil, nil, nil }
+            end
         end
     end
     
@@ -1244,13 +1273,18 @@ end
 function Naves:shoot(mouseX, mouseY)
     -- Verificar que la nave no esté en EVA
     if self.isInEVA then
-        return
+        return false
+    end
+    
+    -- Si tenemos sistema de armas, usarlo en su lugar
+    if self.weaponSystem and self.weaponSystem.currentWeapon then
+        return self.weaponSystem:shoot(mouseX, mouseY)
     end
     
     -- Verificar que tenemos acceso al mundo de física
     if not _G.physicsManager or not _G.physicsManager:getWorld() then
         print("[SHOOT] Error: Physics world not available")
-        return
+        return false
     end
     
     -- Convertir coordenadas del mouse a coordenadas del mundo
@@ -1298,9 +1332,54 @@ function Naves:shoot(mouseX, mouseY)
         table.insert(self.projectiles, projectile)
         
         print("[SHOOT] Fired projectile from (", spawnX, ",", spawnY, ")")
+        return true
     else
         print("[SHOOT] Error: Could not create projectile or PhysicsManager doesn't have addProjectile method")
+        return false
     end
+end
+
+-- Manejar rueda del mouse para cambio de armas
+function Naves:wheelmoved(x, y)
+    if self.weaponSystem then
+        self.weaponSystem:wheelmoved(x, y)
+    end
+end
+
+-- Métodos de conveniencia para el sistema de armas
+function Naves:equipWeapon(weaponItem, slot)
+    if self.weaponSystem then
+        return self.weaponSystem:equipWeapon(weaponItem, slot)
+    end
+    return false
+end
+
+function Naves:getCurrentWeaponInfo()
+    if self.weaponSystem then
+        return self.weaponSystem:getCurrentWeaponInfo()
+    end
+    return nil
+end
+
+function Naves:getEquippedWeapons()
+    if self.weaponSystem then
+        return self.weaponSystem:getEquippedWeapons()
+    end
+    return {}
+end
+
+function Naves:switchToWeaponSlot(slot)
+    if self.weaponSystem then
+        return self.weaponSystem:switchToSlot(slot)
+    end
+    return false
+end
+
+function Naves:autoEquipWeaponsFromInventory()
+    if self.weaponSystem then
+        return self.weaponSystem:autoEquipFromInventory()
+    end
+    return false
 end
 
 return Naves
