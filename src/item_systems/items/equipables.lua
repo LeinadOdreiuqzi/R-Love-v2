@@ -40,7 +40,7 @@ function Equipables.registerAll()
         category = ItemSystem.CATEGORIES.EQUIPABLE,
         equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         slot = Equipables.SLOTS.WEAPON_PRIMARY,
-        rarity = ItemSystem.RARITY.COMMON,
+        rarity = "weapon",
         value = 200,
         weight = 1.2,
         icon = "laser_pistol",
@@ -54,9 +54,28 @@ function Equipables.registerAll()
         energyCost = 5,
         accuracy = 85,
         
+        -- Propiedades para weapon_system
+        maxAmmo = 30,
+        reloadTime = 2.0,
+        projectileType = "basic_red_projectile",
+        automatic = false,
+        
         onEquip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = self
+            end
+            -- Equipar en weapon system
+            if player.weaponSystem then
+                local slot = 1 -- Buscar primer slot libre
+                for i = 1, 4 do
+                    if not player.weaponSystem.weaponSlots[i] then
+                        slot = i
+                        break
+                    end
+                end
+                player.weaponSystem:equipWeapon(self, slot)
+            else
+                -- player.weaponSystem no existe para equipar arma
             end
             return "Pistola láser equipada"
         end,
@@ -77,7 +96,7 @@ function Equipables.registerAll()
         category = ItemSystem.CATEGORIES.EQUIPABLE,
         equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         slot = Equipables.SLOTS.WEAPON_PRIMARY,
-        rarity = ItemSystem.RARITY.RARE,
+        rarity = "weapon",
         value = 800,
         weight = 2.5,
         icon = "plasma_rifle",
@@ -90,9 +109,26 @@ function Equipables.registerAll()
         energyCost = 12,
         accuracy = 75,
         
+        -- Propiedades para weapon_system
+        maxAmmo = 20,
+        reloadTime = 3.0,
+        projectileType = "basic_red_projectile",
+        automatic = false,
+        
         onEquip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = self
+            end
+            -- Equipar en weapon system
+            if player.weaponSystem then
+                local slot = 1 -- Buscar primer slot libre
+                for i = 1, 4 do
+                    if not player.weaponSystem.weaponSlots[i] then
+                        slot = i
+                        break
+                    end
+                end
+                player.weaponSystem:equipWeapon(self, slot)
             end
             return "Rifle de plasma equipado"
         end,
@@ -105,41 +141,7 @@ function Equipables.registerAll()
         end
     })
     
-    -- Cuchillo de Combate
-    ItemSystem:registerItem({
-        id = "combat_knife",
-        name = "Cuchillo de Combate",
-        description = "Un cuchillo táctico para combate cuerpo a cuerpo. Daño: 8-15 cinético.",
-        category = ItemSystem.CATEGORIES.EQUIPABLE,
-        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
-        slot = Equipables.SLOTS.WEAPON_SECONDARY,
-        rarity = ItemSystem.RARITY.COMMON,
-        value = 50,
-        weight = 0.3,
-        icon = "combat_knife",
-        tags = {"weapon", "melee", "kinetic"},
-        
-        damage = { min = 8, max = 15 },
-        damageType = DAMAGE_TYPES.KINETIC,
-        range = 5,
-        fireRate = 3.0,
-        energyCost = 0,
-        accuracy = 95,
-        
-        onEquip = function(self, player)
-            if player.equipment then
-                player.equipment[self.slot] = self
-            end
-            return "Cuchillo de combate equipado"
-        end,
-        
-        onUnequip = function(self, player)
-            if player.equipment then
-                player.equipment[self.slot] = nil
-            end
-            return "Cuchillo de combate desequipado"
-        end
-    })
+    -- Cuchillo de combate eliminado - no coherente con el sistema actual
     
     -- Rifle de Asalto Cinético
     ItemSystem:registerItem({
@@ -149,7 +151,7 @@ function Equipables.registerAll()
         category = ItemSystem.CATEGORIES.EQUIPABLE,
         equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         slot = Equipables.SLOTS.WEAPON_PRIMARY,
-        rarity = ItemSystem.RARITY.UNCOMMON,
+        rarity = "weapon",
         value = 450,
         weight = 2.0,
         icon = "assault_rifle",
@@ -161,12 +163,27 @@ function Equipables.registerAll()
         fireRate = 4.0,
         energyCost = 3,
         accuracy = 80,
+        
+        -- Propiedades para weapon_system
         maxAmmo = 30,
         reloadTime = 1.5,
+        projectileType = "basic_red_projectile",
+        automatic = true,
         
         onEquip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = self
+            end
+            -- Equipar en weapon system
+            if player.weaponSystem then
+                local slot = 1 -- Buscar primer slot libre
+                for i = 1, 4 do
+                    if not player.weaponSystem.weaponSlots[i] then
+                        slot = i
+                        break
+                    end
+                end
+                player.weaponSystem:equipWeapon(self, slot)
             end
             return "Rifle de asalto cinético equipado"
         end,
@@ -187,7 +204,7 @@ function Equipables.registerAll()
         category = ItemSystem.CATEGORIES.EQUIPABLE,
         equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         slot = Equipables.SLOTS.WEAPON_PRIMARY,
-        rarity = ItemSystem.RARITY.EPIC,
+        rarity = "weapon",
         value = 1500,
         weight = 4.0,
         icon = "plasma_cannon",
@@ -199,12 +216,27 @@ function Equipables.registerAll()
         fireRate = 0.8,
         energyCost = 25,
         accuracy = 70,
+        
+        -- Propiedades para weapon_system
         maxAmmo = 8,
         reloadTime = 3.0,
+        projectileType = "basic_red_projectile",
+        automatic = false,
         
         onEquip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = self
+            end
+            -- Equipar en weapon system
+            if player.weaponSystem then
+                local slot = 1 -- Buscar primer slot libre
+                for i = 1, 4 do
+                    if not player.weaponSystem.weaponSlots[i] then
+                        slot = i
+                        break
+                    end
+                end
+                player.weaponSystem:equipWeapon(self, slot)
             end
             return "Cañón de plasma pesado equipado"
         end,
@@ -225,7 +257,7 @@ function Equipables.registerAll()
         category = ItemSystem.CATEGORIES.EQUIPABLE,
         equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         slot = Equipables.SLOTS.WEAPON_PRIMARY,
-        rarity = ItemSystem.RARITY.RARE,
+        rarity = "weapon",
         value = 700,
         weight = 2.8,
         icon = "energy_shotgun",
@@ -237,13 +269,28 @@ function Equipables.registerAll()
         fireRate = 1.5,
         energyCost = 15,
         accuracy = 60,
+        
+        -- Propiedades para weapon_system
         maxAmmo = 12,
         reloadTime = 2.0,
+        projectileType = "basic_red_projectile",
+        automatic = false,
         projectileCount = 5, -- Dispara 5 proyectiles
         
         onEquip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = self
+            end
+            -- Equipar en weapon system
+            if player.weaponSystem then
+                local slot = 1 -- Buscar primer slot libre
+                for i = 1, 4 do
+                    if not player.weaponSystem.weaponSlots[i] then
+                        slot = i
+                        break
+                    end
+                end
+                player.weaponSystem:equipWeapon(self, slot)
             end
             return "Escopeta de energía equipada"
         end,

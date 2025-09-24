@@ -18,6 +18,9 @@ local PROJECTILE_TYPES = {
     basic_laser_pistol = "basic_red_projectile",
     plasma_rifle = "plasma_projectile", 
     combat_knife = "melee_projectile",
+    kinetic_assault_rifle = "kinetic_projectile",
+    heavy_plasma_cannon = "heavy_plasma_projectile",
+    energy_shotgun = "energy_shotgun_projectile",
     laser_basic = "basic_red_projectile",
     -- Agregar más tipos según se necesiten
 }
@@ -68,19 +71,22 @@ end
 -- Equipar arma en un slot específico
 function WeaponSystem:equipWeapon(weaponItem, slot)
     if not weaponItem or not slot then
+        -- Error: weaponItem o slot es nil
         return false
     end
+    
+    -- Intentando equipar arma
     
     -- Validar que es un arma
     if weaponItem.category ~= ItemSystem.CATEGORIES.EQUIPABLE or 
        weaponItem.equipType ~= ItemSystem.EQUIPABLE_TYPES.WEAPON then
-        print("[WEAPON_SYSTEM] Error: Item no es un arma válida")
+        -- Error: Item no es un arma válida
         return false
     end
     
     -- Validar slot
     if slot < 1 or slot > WEAPON_CONFIG.MAX_WEAPON_SLOTS then
-        print("[WEAPON_SYSTEM] Error: Slot inválido: " .. slot)
+        -- Error: Slot inválido
         return false
     end
     
@@ -102,7 +108,7 @@ function WeaponSystem:equipWeapon(weaponItem, slot)
         self:switchToSlot(slot)
     end
     
-    print("[WEAPON_SYSTEM] Arma equipada: " .. weaponItem.name .. " en slot " .. slot)
+    -- Arma equipada
     return true
 end
 
@@ -125,7 +131,7 @@ function WeaponSystem:unequipWeapon(slot)
     -- Remover del slot
     self.weaponSlots[slot] = nil
     
-    print("[WEAPON_SYSTEM] Arma desequipada: " .. weapon.name .. " del slot " .. slot)
+    -- Arma desequipada
     return true
 end
 
@@ -137,7 +143,7 @@ function WeaponSystem:switchToSlot(slot)
     
     local weapon = self.weaponSlots[slot]
     if not weapon then
-        print("[WEAPON_SYSTEM] No hay arma en slot " .. slot)
+        -- No hay arma en slot
         return false
     end
     
@@ -150,7 +156,7 @@ function WeaponSystem:switchToSlot(slot)
     local WeaponHUD = require 'src.ui.weapon_hud'
     WeaponHUD:onWeaponSwitch(slot)
     
-    print("[WEAPON_SYSTEM] Cambiado a: " .. weapon.name .. " (Slot " .. slot .. ")")
+    -- Cambiado a arma
     return true
 end
 
@@ -240,10 +246,62 @@ function WeaponSystem:shoot(mouseX, mouseY)
         return false
     end
     
-    -- Usar el método de disparo existente del jugador pero con parámetros del arma actual
-    local success = self.player:shoot(mouseX, mouseY)
+    -- Verificar que la nave no esté en EVA
+    if self.player.isInEVA then
+        return false
+    end
     
-    if success then
+    -- Verificar que tenemos acceso al mundo de física
+    if not _G.physicsManager or not _G.physicsManager:getWorld() then
+        -- Error: Physics world not available
+        return false
+    end
+    
+    -- Convertir coordenadas del mouse a coordenadas del mundo
+    local worldMouseX, worldMouseY
+    if _G.camera then
+        worldMouseX, worldMouseY = _G.camera:screenToWorld(mouseX, mouseY)
+    else
+        -- Fallback si no hay cámara
+        worldMouseX, worldMouseY = mouseX, mouseY
+    end
+    
+    -- Posición de spawn del proyectil (frente de la nave)
+    local dx = worldMouseX - self.player.x
+    local dy = worldMouseY - self.player.y
+    local distance = math.sqrt(dx * dx + dy * dy)
+    
+    -- Evitar división por cero
+    if distance < 1 then
+        return false
+    end
+    
+    -- Normalizar dirección para calcular posición de spawn
+    dx = dx / distance
+    dy = dy / distance
+    
+    local spawnDistance = self.player.size + 10 -- Un poco adelante de la nave
+    local spawnX = self.player.x + dx * spawnDistance
+    local spawnY = self.player.y + dy * spawnDistance
+    
+    -- Calcular ángulo de disparo
+    local angle = math.atan2(dy, dx)
+    
+    -- Crear el proyectil usando el tipo del arma actual
+    local projectileType = self.currentWeapon.projectileType or "basic_red_projectile"
+    local ProjectileClass = require('src.physics.projectiles.types.' .. projectileType)
+    local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle)
+    
+    -- Agregar el proyectil al sistema de física
+    if projectile and _G.physicsManager.addProjectile then
+        _G.physicsManager:addProjectile(projectile)
+        
+        -- Almacenar el proyectil para actualizaciones y renderizado
+        if not self.player.projectiles then
+            self.player.projectiles = {}
+        end
+        table.insert(self.player.projectiles, projectile)
+        
         -- Actualizar tiempo del último disparo
         self.lastShotTime = love.timer.getTime()
         
@@ -252,20 +310,12 @@ function WeaponSystem:shoot(mouseX, mouseY)
             self.ammunition[self.currentWeapon.id] = (self.ammunition[self.currentWeapon.id] or 0) - 1
         end
         
-        -- Consumir energía si aplica
-        if self.currentWeapon.energyCost and self.player.stats and self.player.stats.energy then
-            self.player.stats.energy.currentEnergy = math.max(0, 
-                self.player.stats.energy.currentEnergy - self.currentWeapon.energyCost)
-        end
-        
-        -- Activar muzzle flash
-        self.muzzleFlash.active = true
-        self.muzzleFlash.timer = 0
-        
-        print("[WEAPON_SYSTEM] Disparado: " .. self.currentWeapon.name)
+        -- Proyectil disparado
+        return true
+    else
+        -- Error: Could not create projectile
+        return false
     end
-    
-    return success
 end
 
 -- Recargar arma actual
@@ -287,7 +337,7 @@ function WeaponSystem:reload()
     self.isReloading = true
     self.reloadStartTime = love.timer.getTime()
     
-    print("[WEAPON_SYSTEM] Recargando: " .. self.currentWeapon.name)
+    -- Recargando arma
     return true
 end
 
@@ -310,7 +360,7 @@ function WeaponSystem:update(dt)
             -- Completar recarga
             self.ammunition[self.currentWeapon.id] = self.currentWeapon.maxAmmo
             self.isReloading = false
-            print("[WEAPON_SYSTEM] Recarga completada: " .. self.currentWeapon.name)
+            -- Recarga completada
         end
     end
     
@@ -406,14 +456,18 @@ function WeaponSystem:autoEquipFromInventory()
     
     -- Buscar armas en el inventario
     for _, item in pairs(self.player.inventory.items) do
-        if item.category == ItemSystem.CATEGORIES.EQUIPABLE and 
-           item.equipType == ItemSystem.EQUIPABLE_TYPES.WEAPON then
+        if item.data and item.data.category == ItemSystem.CATEGORIES.EQUIPABLE and 
+           item.data.equipType == ItemSystem.EQUIPABLE_TYPES.WEAPON then
             
             -- Buscar slot libre
             for slot = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
                 if not self.weaponSlots[slot] then
-                    self:equipWeapon(item, slot)
-                    return true
+                    -- Obtener los datos completos del item desde el sistema
+                    local fullItemData = ItemSystem:getItem(item.data.id)
+                    if fullItemData then
+                        self:equipWeapon(fullItemData, slot)
+                        return true
+                    end
                 end
             end
         end

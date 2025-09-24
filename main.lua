@@ -992,7 +992,7 @@ function love.keypressed(key)
         -- Crear inventario de prueba con items del sistema
         if player and InventoryUI then
             InventoryUI:createTestInventory(player)
-            print("[DEBUG] Presiona 'I' para abrir el inventario y probar los items")
+            -- Inventario de prueba creado
         end
     elseif key == "f6" then
         -- Toggle del overlay de performance (antes: daño de prueba)
@@ -1213,7 +1213,7 @@ function changeSeedWithLoading(newSeed)
     -- Limpiar todos los estados (salir de estaciones, etc.)
     if stateManager and stateManager.clear then
         stateManager:clear()
-        print("[DEBUG] Estados limpiados - jugador fuera de estaciones")
+        -- Estados limpiados - jugador fuera de estaciones
     end
     
     -- Limpiar recursos existentes
@@ -1272,7 +1272,7 @@ function regenerateMap(seed)
         -- Forzar salida del modo EVA si está activo
         if player.isInEVA and player.exitEVA then
             player:exitEVA()
-            print("[DEBUG] Forced exit from EVA mode during world regeneration")
+            -- Forced exit from EVA mode during world regeneration
         end
         
         player.x = 0

@@ -319,9 +319,6 @@ function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
     end
 end
 
--- Dibujar slot de mejora
-
-
 -- Dibujar slot EVA
 function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     local colors = uiState.colors
@@ -698,8 +695,8 @@ function InventoryUI:useItem(slotIndex, slotType, player)
     end
     
     if item and item.data then
-        local ItemSystem = require 'src.item_systems.items.init'
-        local itemData = ItemSystem.getItem(item.data.id)
+        local ItemSystem = require 'src.item_systems.item_system'
+        local itemData = ItemSystem:getItem(item.data.id)
         
         if itemData then
             if itemData.category == "consumable" then
@@ -718,7 +715,7 @@ function InventoryUI:useItem(slotIndex, slotType, player)
                     print("No se pudo usar: " .. itemData.name)
                 end
             elseif itemData.category == "equipable" then
-                local success = ItemSystem.equipItem(item.data.id, player)
+                local success = ItemSystem:equipItem(itemData, player)
                 if success then
                     print("Equipado: " .. itemData.name)
                 else
@@ -931,26 +928,14 @@ function InventoryUI:createTestInventory(player)
     local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
     shipComp.items = {}
     
-    -- Items de ejemplo para cada categoría
+    -- Items de ejemplo - Solo armas para testear integración con weapon_system
     local testItems = {
-        -- Consumibles
-        "eva_repair_kit",
-        "energy_stim",
-        "medical_nanobots",
-        
-        -- Materiales
-        "iron_ore",
-        "energy_crystal",
-        "titanium_ingot",
-        "alien_biomass",
-        
-        -- Equipables (Armas)
+        -- Armas principales
         "basic_laser_pistol",
         "plasma_rifle",
-        
-        -- Pasivos
-        "basic_neural_implant",
-        "personal_shield"
+        "kinetic_assault_rifle",
+        "heavy_plasma_cannon",
+        "energy_shotgun"
     }
     
     local slotIndex = 1
@@ -963,6 +948,7 @@ function InventoryUI:createTestInventory(player)
                     name = itemData.name,
                     category = itemData.category,
                     rarity = itemData.rarity,
+                    equipType = itemData.equipType,
                 },
                 quantity = itemData.category == "material" and 5 or 1
             }
@@ -972,7 +958,7 @@ function InventoryUI:createTestInventory(player)
         end
     end
     
-    print("[INVENTORY] Inventario de prueba creado con " .. (slotIndex - 1) .. " items de diferentes categorías")
+    print("[INVENTORY] Inventario de prueba creado con " .. (slotIndex - 1) .. " armas para testear weapon_system")
 end
 
 -- Lanzar item al mundo

@@ -3,15 +3,11 @@
 
 local InventorySystem = {}
 
--- Tipos de items disponibles
-local ITEM_TYPES = {
-    WEAPON = "weapon",
-    SHIELD = "shield", 
-    ENGINE = "engine",
-    UTILITY = "utility",
-    CONSUMABLE = "consumable",
-    RESOURCE = "resource"
-}
+-- Importar el sistema de items principal para usar tipos estándar
+local ItemSystem = require 'src.item_systems.item_system'
+
+-- Usar los tipos del sistema principal
+local ITEM_TYPES = ItemSystem.CATEGORIES
 
 -- Configuración de slots por tipo de nave
 local SHIP_INVENTORY_CONFIG = {
@@ -26,75 +22,85 @@ local SHIP_INVENTORY_CONFIG = {
     }
 }
 
--- Items de ejemplo para el sistema
+-- Items de ejemplo usando el formato estándar del ItemSystem
 local SAMPLE_ITEMS = {
     -- Armas
     {
         id = "laser_basic",
         name = "Láser Básico",
-        type = ITEM_TYPES.WEAPON,
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         description = "Arma láser estándar",
-        stats = { damage = 10, energy = 5 },
-        rarity = "common"
+        damage = { min = 8, max = 12 },
+        damageType = "energy",
+        fireRate = 2.0,
+        energyCost = 5,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 150,
+        weight = 1.0
     },
     {
         id = "plasma_cannon",
         name = "Cañón de Plasma",
-        type = ITEM_TYPES.WEAPON,
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON,
         description = "Arma de plasma avanzada",
-        stats = { damage = 25, energy = 12 },
-        rarity = "rare"
+        damage = { min = 20, max = 30 },
+        damageType = "plasma",
+        fireRate = 1.0,
+        energyCost = 12,
+        rarity = ItemSystem.RARITY.RARE,
+        value = 600,
+        weight = 2.2
     },
     -- Escudos
     {
         id = "shield_basic",
         name = "Escudo Básico",
-        type = ITEM_TYPES.SHIELD,
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.SHIELD,
         description = "Protección estándar",
-        stats = { shield = 50, regen = 2 },
-        rarity = "common"
+        shieldCapacity = 50,
+        regenRate = 2,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 200,
+        weight = 1.5
     },
     {
         id = "shield_advanced",
         name = "Escudo Avanzado",
-        type = ITEM_TYPES.SHIELD,
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.SHIELD,
         description = "Protección mejorada",
-        stats = { shield = 100, regen = 5 },
-        rarity = "uncommon"
-    },
-    -- Motores
-    {
-        id = "engine_basic",
-        name = "Motor Básico",
-        type = ITEM_TYPES.ENGINE,
-        description = "Propulsión estándar",
-        stats = { speed = 10, acceleration = 5 },
-        rarity = "common"
-    },
-    {
-        id = "engine_turbo",
-        name = "Motor Turbo",
-        type = ITEM_TYPES.ENGINE,
-        description = "Propulsión mejorada",
-        stats = { speed = 20, acceleration = 12 },
-        rarity = "rare"
+        shieldCapacity = 100,
+        regenRate = 5,
+        rarity = ItemSystem.RARITY.UNCOMMON,
+        value = 450,
+        weight = 2.0
     },
     -- Utilidades
     {
         id = "scanner_basic",
         name = "Escáner Básico",
-        type = ITEM_TYPES.UTILITY,
+        category = ItemSystem.CATEGORIES.EQUIPABLE,
+        equipType = ItemSystem.EQUIPABLE_TYPES.UTILITY,
         description = "Detecta recursos cercanos",
-        stats = { range = 100 },
-        rarity = "common"
+        scanRange = 100,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 100,
+        weight = 0.5
     },
     {
         id = "repair_kit",
         name = "Kit de Reparación",
-        type = ITEM_TYPES.CONSUMABLE,
+        category = ItemSystem.CATEGORIES.CONSUMABLE,
         description = "Restaura 50 puntos de vida",
-        stats = { heal = 50 },
-        rarity = "common"
+        healAmount = 50,
+        rarity = ItemSystem.RARITY.COMMON,
+        value = 75,
+        weight = 0.3,
+        stackable = true,
+        maxStack = 10
     }
 }
 
