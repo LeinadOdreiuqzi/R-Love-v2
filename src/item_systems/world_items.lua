@@ -140,14 +140,30 @@ function WorldItems.draw(camera, playerX, playerY)
                 local r, g, b, a = love.graphics.getColor()
                 
                 -- Aplicar alpha y color de rareza
-                local rarity = item.itemData.rarity or {color = {1, 1, 1}}
+                local rarity = item.itemData.rarity
+                local rarityColor = {1, 1, 1} -- Color por defecto (blanco)
+                
+                -- Obtener color de rareza de forma segura
+                if rarity then
+                    if type(rarity) == "table" and rarity.color then
+                        rarityColor = rarity.color
+                    elseif type(rarity) == "string" then
+                        -- Si es string, usar colores por defecto del sistema
+                        local ItemSystem = require("src.item_systems.item_system")
+                        local rarityData = ItemSystem.RARITY[rarity:upper()]
+                        if rarityData and rarityData.color then
+                            rarityColor = rarityData.color
+                        end
+                    end
+                end
+                
                 local baseAlpha = item.alpha
                 
                 -- Efecto de brillo pulsante
                 local pulseAlpha = baseAlpha + math.sin(currentTime * 3) * 0.2
                 pulseAlpha = math.max(0.3, math.min(1, pulseAlpha))
                 
-                love.graphics.setColor(rarity.color[1], rarity.color[2], rarity.color[3], pulseAlpha)
+                love.graphics.setColor(rarityColor[1], rarityColor[2], rarityColor[3], pulseAlpha)
                 
                 -- Dibujar item (rectángulo con esquinas redondeadas)
                 local itemSize = CONFIG.ITEM_SIZE
@@ -160,9 +176,18 @@ function WorldItems.draw(camera, playerX, playerY)
                                       itemSize, itemSize, 3, 3)
                 
                 -- Efecto de aura para items raros
-                if rarity.name and rarity.name ~= "COMMON" then
+                local hasAura = false
+                if rarity then
+                    if type(rarity) == "table" and rarity.name and rarity.name ~= "Común" then
+                        hasAura = true
+                    elseif type(rarity) == "string" and rarity:upper() ~= "COMMON" then
+                        hasAura = true
+                    end
+                end
+                
+                if hasAura then
                     local auraSize = itemSize + 8 + math.sin(currentTime * 4) * 3
-                    love.graphics.setColor(rarity.color[1], rarity.color[2], rarity.color[3], pulseAlpha * 0.3)
+                    love.graphics.setColor(rarityColor[1], rarityColor[2], rarityColor[3], pulseAlpha * 0.3)
                     love.graphics.rectangle("line", worldX - auraSize/2, worldY - auraSize/2, 
                                           auraSize, auraSize, 5, 5)
                 end

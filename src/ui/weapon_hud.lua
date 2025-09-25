@@ -76,13 +76,23 @@ function WeaponHUD:update(dt)
 end
 
 function WeaponHUD:draw(player)
-    if not hudState.visible or not player or not player.weaponSystem then
+    if not hudState.visible or not player then
+        return
+    end
+    
+    -- Verificar que el jugador tenga inventario y sistema de armas
+    if not player.inventory or not player.weaponSystem then
+        return
+    end
+    
+    local weaponComp = player.inventory:getCompartment("weapons")
+    if not weaponComp then
         return
     end
     
     local weaponSystem = player.weaponSystem
-    local equippedWeapons = weaponSystem:getEquippedWeapons()
     local currentWeaponInfo = weaponSystem:getCurrentWeaponInfo()
+    local equippedWeapons = weaponSystem:getEquippedWeapons()
     
     -- Guardar estado gráfico completo
     love.graphics.push()
@@ -95,7 +105,11 @@ function WeaponHUD:draw(player)
         local x = HUD_CONFIG.position.x + (slot - 1) * HUD_CONFIG.slotSpacing
         local y = HUD_CONFIG.position.y
         
-        self:drawWeaponSlot(x, y, slot, equippedWeapons[slot], currentWeaponInfo)
+        -- Obtener arma del compartimento weapons
+        local weaponItem = player.inventory:getWeaponInSlot(slot)
+        local equippedWeaponInfo = equippedWeapons[slot]
+        
+        self:drawWeaponSlot(x, y, slot, weaponItem, currentWeaponInfo, equippedWeaponInfo)
     end
     
     -- Dibujar información del arma actual
@@ -110,9 +124,9 @@ function WeaponHUD:draw(player)
     love.graphics.pop()
 end
 
-function WeaponHUD:drawWeaponSlot(x, y, slot, weaponData, currentWeaponInfo)
+function WeaponHUD:drawWeaponSlot(x, y, slot, weaponItem, currentWeaponInfo, equippedWeaponInfo)
     local isActive = currentWeaponInfo and currentWeaponInfo.slot == slot
-    local hasWeapon = weaponData ~= nil
+    local hasWeapon = weaponItem ~= nil
     
     -- Calcular escala para animación
     local scale = 1.0
@@ -130,6 +144,12 @@ function WeaponHUD:drawWeaponSlot(x, y, slot, weaponData, currentWeaponInfo)
     love.graphics.setColor(HUD_CONFIG.colors.background)
     love.graphics.rectangle("fill", 0, 0, HUD_CONFIG.slotSize, HUD_CONFIG.slotSize)
     
+    -- Slot 1 tiene color especial (arma por defecto)
+    if slot == 1 then
+        love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
+        love.graphics.rectangle("fill", 0, 0, HUD_CONFIG.slotSize, HUD_CONFIG.slotSize)
+    end
+    
     -- Dibujar borde
     love.graphics.setLineWidth(2)
     if isActive then
@@ -139,8 +159,8 @@ function WeaponHUD:drawWeaponSlot(x, y, slot, weaponData, currentWeaponInfo)
     end
     love.graphics.rectangle("line", 0, 0, HUD_CONFIG.slotSize, HUD_CONFIG.slotSize)
     
-    if hasWeapon then
-        local weapon = weaponData.weapon
+    if hasWeapon and weaponItem.data then
+        local weapon = weaponItem.data
         
         -- Dibujar icono del arma (placeholder)
         love.graphics.setColor(0.6, 0.6, 0.6, 1.0)
@@ -150,14 +170,21 @@ function WeaponHUD:drawWeaponSlot(x, y, slot, weaponData, currentWeaponInfo)
         if HUD_CONFIG.fonts.weaponName then
             love.graphics.setFont(HUD_CONFIG.fonts.weaponName)
             love.graphics.setColor(HUD_CONFIG.colors.text)
-            local shortName = self:getShortWeaponName(weapon.name)
+            local shortName = self:getShortWeaponName(weapon.name or "Arma")
             local textWidth = HUD_CONFIG.fonts.weaponName:getWidth(shortName)
             love.graphics.print(shortName, (HUD_CONFIG.slotSize - textWidth) / 2, HUD_CONFIG.slotSize - 15)
         end
         
         -- Dibujar munición si aplica
-        if weapon.maxAmmo and weaponData.ammo then
-            self:drawAmmoInfo(weapon, weaponData.ammo, isActive)
+        if weapon.maxAmmo then
+            -- Obtener munición actual del sistema de armas
+            local currentAmmo = 0
+            if isActive and currentWeaponInfo and currentWeaponInfo.ammo then
+                currentAmmo = currentWeaponInfo.ammo
+            elseif equippedWeaponInfo and equippedWeaponInfo.ammo then
+                currentAmmo = equippedWeaponInfo.ammo
+            end
+            self:drawAmmoInfo(weapon, currentAmmo, isActive)
         end
         
         -- Dibujar barra de recarga si está recargando
@@ -198,18 +225,34 @@ end
 
 function WeaponHUD:drawReloadBar(progress)
     local barWidth = HUD_CONFIG.slotSize - 10
-    local barHeight = 4
+    local barHeight = 6
     local barX = 5
-    local barY = HUD_CONFIG.slotSize - 8
+    local barY = HUD_CONFIG.slotSize - 10
     
     -- Fondo de la barra
-    love.graphics.setColor(0.2, 0.2, 0.2, 0.8)
+    love.graphics.setColor(0.2, 0.2, 0.2, 0.9)
     love.graphics.rectangle("fill", barX, barY, barWidth, barHeight)
+    
+    -- Borde de la barra
+    love.graphics.setColor(0.4, 0.4, 0.4, 1.0)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", barX, barY, barWidth, barHeight)
     
     -- Barra de progreso con efecto de pulso
     local pulseAlpha = 0.8 + 0.2 * math.sin(love.timer.getTime() * HUD_CONFIG.animation.pulseSpeed)
-    love.graphics.setColor(HUD_CONFIG.colors.reloadBar[1], HUD_CONFIG.colors.reloadBar[2], HUD_CONFIG.colors.reloadBar[3], pulseAlpha)
-    love.graphics.rectangle("fill", barX, barY, barWidth * progress, barHeight)
+    local pulseScale = 1.0 + 0.1 * math.sin(love.timer.getTime() * HUD_CONFIG.animation.pulseSpeed * 2)
+    
+    -- Color que cambia según el progreso
+    local r = 1.0 - progress * 0.8  -- De rojo a verde
+    local g = 0.2 + progress * 0.6
+    local b = 0.2
+    
+    love.graphics.setColor(r, g, b, pulseAlpha)
+    love.graphics.rectangle("fill", barX + 1, barY + 1, (barWidth - 2) * progress, barHeight - 2)
+    
+    -- Efecto de brillo en el slot durante la recarga
+    love.graphics.setColor(r, g, b, 0.3 * pulseAlpha)
+    love.graphics.rectangle("fill", 0, 0, HUD_CONFIG.slotSize, HUD_CONFIG.slotSize)
 end
 
 function WeaponHUD:drawCurrentWeaponInfo(weaponInfo)

@@ -116,17 +116,28 @@ function InventoryUI:calculateLayout()
     uiState.layout.evaWidth = evaColumns * (slotSize + padding) - padding + panelPadding * 2
     uiState.layout.evaHeight = evaRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
     
-    -- Posicionamiento centrado con panel EVA integrado
-    uiState.layout.totalWidth = uiState.layout.inventoryWidth
-    uiState.layout.totalHeight = uiState.layout.inventoryHeight + uiState.layout.evaHeight + panelPadding
+    -- Configuración del panel de armas (4 slots horizontales)
+    local weaponColumns = 4
+    local weaponRows = 1
     
-    uiState.layout.inventoryX = (screenWidth - uiState.layout.totalWidth) / 2
-    uiState.layout.inventoryY = (screenHeight - uiState.layout.totalHeight) / 2
+    uiState.layout.weaponWidth = weaponColumns * (slotSize + padding) - padding + panelPadding * 2
+    uiState.layout.weaponHeight = weaponRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
     
-    -- Panel EVA en la parte inferior, centrado horizontalmente
-    local mainPanelsHeight = uiState.layout.inventoryHeight
-    uiState.layout.evaX = (screenWidth - uiState.layout.evaWidth) / 2
-    uiState.layout.evaY = uiState.layout.inventoryY + mainPanelsHeight + panelPadding
+    -- Posicionamiento mejorado: inventario centrado, EVA y armas a los lados
+    uiState.layout.totalWidth = uiState.layout.inventoryWidth + math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth) + panelPadding * 3
+    uiState.layout.totalHeight = uiState.layout.inventoryHeight
+    
+    -- Inventario principal centrado
+    uiState.layout.inventoryX = (screenWidth - uiState.layout.inventoryWidth) / 2
+    uiState.layout.inventoryY = (screenHeight - uiState.layout.inventoryHeight) / 2
+    
+    -- Panel EVA a la derecha del inventario, en la parte superior
+    uiState.layout.evaX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
+    uiState.layout.evaY = uiState.layout.inventoryY
+    
+    -- Panel de armas a la derecha del inventario, debajo del panel EVA
+    uiState.layout.weaponX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
+    uiState.layout.weaponY = uiState.layout.evaY + uiState.layout.evaHeight + panelPadding
 end
 
 -- Abrir/cerrar inventario
@@ -193,6 +204,12 @@ function InventoryUI:draw(player)
     local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
     if evaComp then
         self:drawEVAPanel(evaComp)
+    end
+    
+    -- Dibujar panel de armas
+    local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+    if weaponComp then
+        self:drawWeaponPanel(weaponComp)
     end
     
     -- Dibujar item arrastrado
@@ -285,6 +302,41 @@ function InventoryUI:drawEVAPanel(evaCompartment)
     end
 end
 
+-- Dibujar panel de armas
+function InventoryUI:drawWeaponPanel(weaponCompartment)
+    local layout = uiState.layout
+    local colors = uiState.colors
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    -- Fondo del panel
+    love.graphics.setColor(colors.background)
+    love.graphics.rectangle("fill", layout.weaponX, layout.weaponY, 
+                           layout.weaponWidth, layout.weaponHeight)
+    
+    -- Borde del panel
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", layout.weaponX, layout.weaponY, 
+                           layout.weaponWidth, layout.weaponHeight)
+    
+    -- Título
+    love.graphics.setColor(colors.text)
+    love.graphics.setFont(uiState.font)
+    love.graphics.print("Armas Equipadas", layout.weaponX + panelPadding, layout.weaponY + 5)
+    
+    -- Slots de armas (4 slots horizontales)
+    local startX = layout.weaponX + panelPadding
+    local startY = layout.weaponY + 30
+    
+    for i = 1, weaponCompartment.maxSlots do
+        local x = startX + (i - 1) * (slotSize + padding)
+        local y = startY
+        
+        self:drawWeaponSlot(x, y, i, weaponCompartment.items[i])
+    end
+end
+
 -- Dibujar slot de inventario
 function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
     local colors = uiState.colors
@@ -353,6 +405,73 @@ function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     end
 end
 
+-- Dibujar slot de arma
+function InventoryUI:drawWeaponSlot(x, y, slotIndex, item)
+    local colors = uiState.colors
+    local slotSize = uiState.slotSize
+    
+    -- Determinar color del slot
+    local slotColor = colors.slotEmpty
+    if item then
+        slotColor = colors.slotFilled
+    end
+    
+    -- Slot 1 tiene color especial (arma por defecto)
+    if slotIndex == 1 then
+        slotColor = {0.3, 0.2, 0.1, 1} -- Color dorado/marrón para slot por defecto
+        if item then
+            slotColor = {0.4, 0.3, 0.2, 1}
+        end
+    end
+    
+    -- Verificar hover
+    if self:isMouseOverSlot(x, y, slotSize) then
+        slotColor = colors.slotHover
+    end
+    
+    -- Verificar si es target de drag
+    if uiState.draggedItem and self:isMouseOverSlot(x, y, slotSize) then
+        -- Solo permitir drop de armas
+        if uiState.draggedItem.data and uiState.draggedItem.data.category == "equipable" and 
+           uiState.draggedItem.data.equipType == "weapon" then
+            slotColor = colors.slotDragTarget
+        else
+            slotColor = {0.6, 0.2, 0.2, 1} -- Rojo para indicar que no se puede hacer drop
+        end
+    end
+    
+    -- Dibujar slot
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    
+    -- Borde del slot
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    
+    -- Indicador de slot número
+    love.graphics.setColor(colors.textSecondary)
+    love.graphics.setFont(uiState.smallFont)
+    love.graphics.print(tostring(slotIndex), x + 2, y + 2)
+    
+    -- Dibujar item si existe
+    if item then
+        -- Color por rareza
+        local rarityColor = self:getItemRarityColor(item)
+        love.graphics.setColor(rarityColor)
+        love.graphics.rectangle("fill", x + 2, y + 12, slotSize - 4, slotSize - 14)
+        
+        -- Nombre del item
+        love.graphics.setColor(colors.text)
+        love.graphics.setFont(uiState.smallFont)
+        local itemName = item.data.name or "Unknown"
+        local textWidth = uiState.smallFont:getWidth(itemName)
+        if textWidth > slotSize - 4 then
+            itemName = string.sub(itemName, 1, 6) .. "..."
+        end
+        love.graphics.print(itemName, x + 2, y + slotSize - 15)
+    end
+end
+
 -- Dibujar item
 function InventoryUI:drawItem(x, y, size, item)
     local colors = uiState.colors
@@ -413,37 +532,82 @@ function InventoryUI:drawModal()
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", modal.x, modal.y, modal.width, modal.height)
     
-    -- Líneas divisorias
-    local optionHeight = modal.height / 3
-    local firstDividerY = modal.y + optionHeight
-    local secondDividerY = modal.y + optionHeight * 2
-    love.graphics.line(modal.x, firstDividerY, modal.x + modal.width, firstDividerY)
-    love.graphics.line(modal.x, secondDividerY, modal.x + modal.width, secondDividerY)
-    
     -- Texto de opciones
     love.graphics.setColor(colors.text)
     local font = love.graphics.getFont()
     
-    -- Opción "Usar/Equipar"
-    local useText = "Usar/Equipar"
-    local useTextWidth = font:getWidth(useText)
-    local useTextX = modal.x + (modal.width - useTextWidth) / 2
-    local useTextY = modal.y + (optionHeight - font:getHeight()) / 2
-    love.graphics.print(useText, useTextX, useTextY)
-    
-    -- Opción "Lanzar al mundo"
-    local dropText = "Lanzar al mundo"
-    local dropTextWidth = font:getWidth(dropText)
-    local dropTextX = modal.x + (modal.width - dropTextWidth) / 2
-    local dropTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
-    love.graphics.print(dropText, dropTextX, dropTextY)
-    
-    -- Opción "Eliminar"
-    local deleteText = "Eliminar"
-    local deleteTextWidth = font:getWidth(deleteText)
-    local deleteTextX = modal.x + (modal.width - deleteTextWidth) / 2
-    local deleteTextY = modal.y + optionHeight * 2 + (optionHeight - font:getHeight()) / 2
-    love.graphics.print(deleteText, deleteTextX, deleteTextY)
+    if modal.slotType == "weapons" then
+        -- Modal para armas equipadas - solo 2 opciones
+        local optionHeight = modal.height / 2
+        
+        -- Línea divisoria
+        local dividerY = modal.y + optionHeight
+        love.graphics.line(modal.x, dividerY, modal.x + modal.width, dividerY)
+        
+        -- Verificar si es slot 1 (arma por defecto)
+        local isDefaultWeapon = (modal.slotIndex == 1)
+        
+        if isDefaultWeapon then
+            -- Para arma por defecto, mostrar mensaje informativo
+            local infoText = "Arma por defecto"
+            local infoTextWidth = font:getWidth(infoText)
+            local infoTextX = modal.x + (modal.width - infoTextWidth) / 2
+            local infoTextY = modal.y + (optionHeight - font:getHeight()) / 2
+            love.graphics.setColor(0.7, 0.7, 0.7) -- Color gris
+            love.graphics.print(infoText, infoTextX, infoTextY)
+            
+            local disabledText = "(No se puede modificar)"
+            local disabledTextWidth = font:getWidth(disabledText)
+            local disabledTextX = modal.x + (modal.width - disabledTextWidth) / 2
+            local disabledTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
+            love.graphics.print(disabledText, disabledTextX, disabledTextY)
+        else
+            -- Para otras armas, mostrar opciones normales
+            love.graphics.setColor(colors.text)
+            
+            -- Opción "Mover a inventario"
+            local moveText = "Mover a inventario"
+            local moveTextWidth = font:getWidth(moveText)
+            local moveTextX = modal.x + (modal.width - moveTextWidth) / 2
+            local moveTextY = modal.y + (optionHeight - font:getHeight()) / 2
+            love.graphics.print(moveText, moveTextX, moveTextY)
+            
+            -- Opción "Eliminar"
+            local deleteText = "Eliminar"
+            local deleteTextWidth = font:getWidth(deleteText)
+            local deleteTextX = modal.x + (modal.width - deleteTextWidth) / 2
+            local deleteTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
+            love.graphics.print(deleteText, deleteTextX, deleteTextY)
+        end
+    else
+        -- Modal para inventario normal - 3 opciones
+        local optionHeight = modal.height / 3
+        local firstDividerY = modal.y + optionHeight
+        local secondDividerY = modal.y + optionHeight * 2
+        love.graphics.line(modal.x, firstDividerY, modal.x + modal.width, firstDividerY)
+        love.graphics.line(modal.x, secondDividerY, modal.x + modal.width, secondDividerY)
+        
+        -- Opción "Usar/Equipar"
+        local useText = "Usar/Equipar"
+        local useTextWidth = font:getWidth(useText)
+        local useTextX = modal.x + (modal.width - useTextWidth) / 2
+        local useTextY = modal.y + (optionHeight - font:getHeight()) / 2
+        love.graphics.print(useText, useTextX, useTextY)
+        
+        -- Opción "Lanzar al mundo"
+        local dropText = "Lanzar al mundo"
+        local dropTextWidth = font:getWidth(dropText)
+        local dropTextX = modal.x + (modal.width - dropTextWidth) / 2
+        local dropTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
+        love.graphics.print(dropText, dropTextX, dropTextY)
+        
+        -- Opción "Eliminar"
+        local deleteText = "Eliminar"
+        local deleteTextWidth = font:getWidth(deleteText)
+        local deleteTextX = modal.x + (modal.width - deleteTextWidth) / 2
+        local deleteTextY = modal.y + optionHeight * 2 + (optionHeight - font:getHeight()) / 2
+        love.graphics.print(deleteText, deleteTextX, deleteTextY)
+    end
 end
 
 -- Verificar si el mouse está sobre un slot
@@ -502,8 +666,6 @@ function InventoryUI:mousepressed(x, y, button, player)
             return
         end
         
-
-        
         -- Verificar click en panel EVA
         local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
         if evaComp then
@@ -530,6 +692,28 @@ function InventoryUI:mousepressed(x, y, button, player)
                 return
             end
         end
+        
+        -- Verificar click en panel de armas
+        local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+        if weaponComp then
+            local weaponSlot = self:getWeaponSlotAt(x, y)
+            if weaponSlot then
+                local item = weaponComp.items[weaponSlot]
+                if item then
+                    -- No permitir arrastrar el arma por defecto del slot 1
+                    if weaponSlot == 1 then
+                        print("[DRAG] Error: No se puede mover el arma por defecto")
+                        return
+                    end
+                    
+                    uiState.draggedItem = item
+                    uiState.draggedFromSlot = weaponSlot
+                    uiState.draggedFromType = "weapons"
+                    weaponComp.items[weaponSlot] = nil
+                end
+                return
+            end
+        end
 
     elseif button == 2 then -- Clic derecho
         -- Verificar clic derecho en inventario (compartimento 'ship')
@@ -540,14 +724,22 @@ function InventoryUI:mousepressed(x, y, button, player)
             return
         end
         
-
-        
         -- Verificar clic derecho en panel EVA
         local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
         if evaComp then
             local evaSlot = self:getEVASlotAt(x, y)
             if evaSlot and evaComp.items[evaSlot] then
                 self:openModal(x, y, evaSlot, "eva")
+                return
+            end
+        end
+        
+        -- Verificar clic derecho en panel de armas
+        local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+        if weaponComp then
+            local weaponSlot = self:getWeaponSlotAt(x, y)
+            if weaponSlot and weaponComp.items[weaponSlot] then
+                self:openModal(x, y, weaponSlot, "weapons")
                 return
             end
         end
@@ -563,6 +755,8 @@ function InventoryUI:mousereleased(x, y, button, player)
     
     local dropped = false
     local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
+    local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+    local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
     
     -- Verificar drop en inventario (compartimento 'ship')
     local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
@@ -571,31 +765,57 @@ function InventoryUI:mousereleased(x, y, button, player)
         shipComp.items[inventorySlot] = uiState.draggedItem
         
         -- Si había un item, intercambiar
-                if existingItem then
-                    if uiState.draggedFromType == "inventory" then
-                        shipComp.items[uiState.draggedFromSlot] = existingItem
-                    end
-                end
+        if existingItem then
+            if uiState.draggedFromType == "inventory" then
+                shipComp.items[uiState.draggedFromSlot] = existingItem
+            elseif uiState.draggedFromType == "eva" and evaComp then
+                evaComp.items[uiState.draggedFromSlot] = existingItem
+            elseif uiState.draggedFromType == "weapons" and weaponComp then
+                weaponComp.items[uiState.draggedFromSlot] = existingItem
+            end
+        end
         dropped = true
     end
     
-
-    
     -- Verificar drop en panel EVA
-    if not dropped then
-        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
-        if evaComp then
-            local evaSlot = self:getEVASlotAt(x, y)
-            if evaSlot then
-                local existingItem = evaComp.items[evaSlot]
-                evaComp.items[evaSlot] = uiState.draggedItem
+    if not dropped and evaComp then
+        local evaSlot = self:getEVASlotAt(x, y)
+        if evaSlot then
+            local existingItem = evaComp.items[evaSlot]
+            evaComp.items[evaSlot] = uiState.draggedItem
+            
+            -- Si había un item, intercambiar
+            if existingItem then
+                if uiState.draggedFromType == "inventory" then
+                    shipComp.items[uiState.draggedFromSlot] = existingItem
+                elseif uiState.draggedFromType == "eva" then
+                    evaComp.items[uiState.draggedFromSlot] = existingItem
+                elseif uiState.draggedFromType == "weapons" and weaponComp then
+                    weaponComp.items[uiState.draggedFromSlot] = existingItem
+                end
+            end
+            dropped = true
+        end
+    end
+    
+    -- Verificar drop en panel de armas
+    if not dropped and weaponComp then
+        local weaponSlot = self:getWeaponSlotAt(x, y)
+        if weaponSlot then
+            -- Solo permitir drop de armas
+            if uiState.draggedItem.data and uiState.draggedItem.data.category == "equipable" and 
+               uiState.draggedItem.data.equipType == "weapon" then
+                local existingItem = weaponComp.items[weaponSlot]
+                weaponComp.items[weaponSlot] = uiState.draggedItem
                 
                 -- Si había un item, intercambiar
                 if existingItem then
                     if uiState.draggedFromType == "inventory" then
                         shipComp.items[uiState.draggedFromSlot] = existingItem
-                    elseif uiState.draggedFromType == "eva" then
+                    elseif uiState.draggedFromType == "eva" and evaComp then
                         evaComp.items[uiState.draggedFromSlot] = existingItem
+                    elseif uiState.draggedFromType == "weapons" then
+                        weaponComp.items[uiState.draggedFromSlot] = existingItem
                     end
                 end
                 dropped = true
@@ -612,8 +832,23 @@ function InventoryUI:mousereleased(x, y, button, player)
                                      uiState.mouseY < layout.inventoryY or 
                                      uiState.mouseY > layout.inventoryY + layout.inventoryHeight
         
+        local mouseOutsideEVA = true
+        if evaComp then
+            mouseOutsideEVA = uiState.mouseX < layout.evaX or 
+                             uiState.mouseX > layout.evaX + layout.evaWidth or
+                             uiState.mouseY < layout.evaY or 
+                             uiState.mouseY > layout.evaY + layout.evaHeight
+        end
         
-        if mouseOutsideInventory then
+        local mouseOutsideWeapons = true
+        if weaponComp then
+            mouseOutsideWeapons = uiState.mouseX < layout.weaponX or 
+                                 uiState.mouseX > layout.weaponX + layout.weaponWidth or
+                                 uiState.mouseY < layout.weaponY or 
+                                 uiState.mouseY > layout.weaponY + layout.weaponHeight
+        end
+        
+        if mouseOutsideInventory and mouseOutsideEVA and mouseOutsideWeapons then
             -- Drop al mundo
             self:dropItemToWorld(uiState.draggedItem, player, uiState.mouseX, uiState.mouseY)
             dropped = true
@@ -621,8 +856,10 @@ function InventoryUI:mousereleased(x, y, button, player)
             -- Devolver item a su lugar original
             if uiState.draggedFromType == "inventory" then
                 shipComp.items[uiState.draggedFromSlot] = uiState.draggedItem
-            elseif uiState.draggedFromType == "eva" then
+            elseif uiState.draggedFromType == "eva" and evaComp then
                 evaComp.items[uiState.draggedFromSlot] = uiState.draggedItem
+            elseif uiState.draggedFromType == "weapons" and weaponComp then
+                weaponComp.items[uiState.draggedFromSlot] = uiState.draggedItem
             end
         end
     end
@@ -662,17 +899,41 @@ function InventoryUI:handleModalClick(x, y, button, player)
     
     -- Verificar si el clic está dentro del modal
     if x >= modal.x and x <= modal.x + modal.width and y >= modal.y and y <= modal.y + modal.height then
-        local optionHeight = modal.height / 3 -- Ahora hay 3 opciones
         
-        if y <= modal.y + optionHeight then
-            -- Opción "Usar/Equipar"
-            self:useItem(modal.slotIndex, modal.slotType, player)
-        elseif y <= modal.y + optionHeight * 2 then
-            -- Opción "Lanzar al mundo"
-            self:dropItemFromModal(modal.slotIndex, modal.slotType, player)
+        if modal.slotType == "weapons" then
+            -- Modal para armas equipadas
+            local isDefaultWeapon = (modal.slotIndex == 1)
+            
+            if isDefaultWeapon then
+                -- No hacer nada para el arma por defecto
+                modal.isOpen = false
+                return
+            end
+            
+            -- Para otras armas, solo 2 opciones
+            local optionHeight = modal.height / 2
+            
+            if y <= modal.y + optionHeight then
+                 -- Mover a inventario
+                 self:transferWeaponToInventory(player, modal.slotIndex)
+            else
+                -- Eliminar
+                self:deleteItem(modal.slotIndex, modal.slotType, player)
+            end
         else
-            -- Opción "Eliminar"
-            self:deleteItem(modal.slotIndex, modal.slotType, player)
+            -- Modal para inventario normal - 3 opciones
+            local optionHeight = modal.height / 3
+            
+            if y <= modal.y + optionHeight then
+                -- Opción "Usar/Equipar"
+                self:useItem(modal.slotIndex, modal.slotType, player)
+            elseif y <= modal.y + optionHeight * 2 then
+                -- Opción "Lanzar al mundo"
+                self:dropItemFromModal(modal.slotIndex, modal.slotType, player)
+            else
+                -- Opción "Eliminar"
+                self:deleteItem(modal.slotIndex, modal.slotType, player)
+            end
         end
     end
     
@@ -692,6 +953,10 @@ function InventoryUI:useItem(slotIndex, slotType, player)
         if evaComp then
             item = evaComp.items[slotIndex]
         end
+    elseif slotType == "weapons" then
+        -- No permitir usar/equipar desde armas equipadas - no tiene sentido
+        print("[USE] Error: No se puede usar/equipar un arma ya equipada")
+        return
     end
     
     if item and item.data then
@@ -715,11 +980,53 @@ function InventoryUI:useItem(slotIndex, slotType, player)
                     print("No se pudo usar: " .. itemData.name)
                 end
             elseif itemData.category == "equipable" then
-                local success = ItemSystem:equipItem(itemData, player)
-                if success then
-                    print("Equipado: " .. itemData.name)
+                -- Manejar armas específicamente
+                if itemData.equipType == "weapon" and player.weaponSystem then
+                    -- Buscar slot libre para arma (empezar desde slot 2)
+                    local weaponSlot = nil
+                    for slot = 2, 4 do
+                        if not player.inventory:getWeaponInSlot(slot) then
+                            weaponSlot = slot
+                            break
+                        end
+                    end
+                    
+                    if weaponSlot then
+                        local success = player.weaponSystem:equipWeapon(itemData, weaponSlot)
+                        if success then
+                            -- Remover item del inventario después de equipar exitosamente
+                            if slotType == "inventory" then
+                                shipComp.items[slotIndex] = nil
+                            elseif slotType == "eva" then
+                                local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+                                if evaComp then
+                                    evaComp.items[slotIndex] = nil
+                                end
+                            end
+                            print("Arma equipada: " .. itemData.name .. " en slot " .. weaponSlot)
+                        else
+                            print("No se pudo equipar arma: " .. itemData.name)
+                        end
+                    else
+                        print("No hay slots de arma disponibles")
+                    end
                 else
-                    print("No se pudo equipar: " .. itemData.name)
+                    -- Otros equipables (armaduras, etc.)
+                    local success = ItemSystem:equipItem(itemData, player)
+                    if success then
+                        -- Remover item del inventario después de equipar exitosamente
+                        if slotType == "inventory" then
+                            shipComp.items[slotIndex] = nil
+                        elseif slotType == "eva" then
+                            local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+                            if evaComp then
+                                evaComp.items[slotIndex] = nil
+                            end
+                        end
+                        print("Equipado: " .. itemData.name)
+                    else
+                        print("No se pudo equipar: " .. itemData.name)
+                    end
                 end
             else
                 print("Item: " .. itemData.name .. " (" .. itemData.category .. ")")
@@ -743,6 +1050,23 @@ function InventoryUI:deleteItem(slotIndex, slotType, player)
             evaComp.items[slotIndex] = nil
             print("Item eliminado del inventario EVA")
         end
+    elseif slotType == "weapons" then
+        -- No permitir eliminar arma del slot 1 (arma por defecto)
+        if slotIndex == 1 then
+            print("[DELETE] Error: No se puede eliminar el arma por defecto")
+            return
+        end
+        
+        local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+        if weaponComp then
+            -- Si era el arma actual, cambiar a la siguiente disponible
+            if player.weaponSystem and player.weaponSystem.currentSlot == slotIndex then
+                player.weaponSystem:switchToNextAvailableWeapon()
+            end
+            
+            weaponComp.items[slotIndex] = nil
+            print("Arma eliminada del slot " .. slotIndex)
+        end
     end
 end
 
@@ -757,6 +1081,17 @@ function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
         local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
         if evaComp then
             item = evaComp.items[slotIndex]
+        end
+    elseif slotType == "weapons" then
+        -- No permitir lanzar arma del slot 1 (arma por defecto)
+        if slotIndex == 1 then
+            print("[DROP MODAL] Error: No se puede lanzar el arma por defecto")
+            return
+        end
+        
+        local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+        if weaponComp then
+            item = weaponComp.items[slotIndex]
         end
     end
     
@@ -799,6 +1134,16 @@ function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
             local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
             if evaComp then
                 evaComp.items[slotIndex] = nil
+            end
+        elseif slotType == "weapons" then
+            local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+            if weaponComp then
+                -- Si era el arma actual, cambiar a la siguiente disponible
+                if player.weaponSystem and player.weaponSystem.currentSlot == slotIndex then
+                    player.weaponSystem:switchToNextAvailableWeapon()
+                end
+                
+                weaponComp.items[slotIndex] = nil
             end
         end
         
@@ -847,6 +1192,29 @@ function InventoryUI:getEVASlotAt(x, y)
     
     -- 3 slots horizontales
     for i = 1, 3 do
+        local slotX = startX + (i - 1) * (slotSize + padding)
+        local slotY = startY
+        
+        if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
+            return i
+        end
+    end
+    
+    return nil
+end
+
+-- Obtener slot de arma en posición
+function InventoryUI:getWeaponSlotAt(x, y)
+    local layout = uiState.layout
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    local startX = layout.weaponX + panelPadding
+    local startY = layout.weaponY + 30
+    
+    -- 4 slots horizontales
+    for i = 1, 4 do
         local slotX = startX + (i - 1) * (slotSize + padding)
         local slotY = startY
         
@@ -964,6 +1332,12 @@ end
 -- Lanzar item al mundo
 function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
     if not item or not item.data or not player or not _G.camera then return end
+    
+    -- Validación adicional: No permitir lanzar arma por defecto del slot 1
+    if uiState.draggedFromType == "weapons" and uiState.draggedFromSlot == 1 then
+        print("[DROP] Error: No se puede lanzar el arma por defecto al mundo")
+        return
+    end
     
     local WorldItems = require 'src.item_systems.world_items'
     local ItemSystem = require 'src.item_systems.items.init'
@@ -1111,6 +1485,105 @@ function InventoryUI:transferItemToShip(player, fromSlot)
     -- Realizar transferencia
     if player.inventory:transferItemBetweenCompartments('eva', fromSlot, 'ship', targetSlot) then
         print("[TRANSFER] Item transferido de EVA a nave: " .. (item.data.name or "item desconocido"))
+        return true
+    else
+        print("[TRANSFER] Error: Falló la transferencia")
+        return false
+    end
+end
+
+-- Transferir arma de slot a inventario
+function InventoryUI:transferWeaponToInventory(player, weaponSlot)
+    if not player or not player.inventory or not player.inventory.getCompartment then
+        print("[TRANSFER] Error: No se puede acceder al sistema de inventario")
+        return false
+    end
+    
+    -- No permitir remover arma del slot 1 (arma por defecto)
+    if weaponSlot == 1 then
+        print("[TRANSFER] Error: No se puede remover el arma por defecto")
+        return false
+    end
+    
+    local weaponComp = player.inventory:getCompartment('weapons')
+    local shipComp = player.inventory:getCompartment('ship')
+    
+    if not weaponComp or not shipComp then
+        print("[TRANSFER] Error: No se pueden encontrar los compartimentos")
+        return false
+    end
+    
+    local weaponItem = weaponComp.items[weaponSlot]
+    if not weaponItem then
+        print("[TRANSFER] Error: No hay arma en el slot especificado")
+        return false
+    end
+    
+    -- Buscar slot libre en inventario
+    local targetSlot = nil
+    for i = 1, shipComp.maxSlots do
+        if not shipComp.items[i] then
+            targetSlot = i
+            break
+        end
+    end
+    
+    if not targetSlot then
+        print("[TRANSFER] Error: Inventario de nave lleno")
+        return false
+    end
+    
+    -- Realizar transferencia
+    if player.inventory:transferItemBetweenCompartments('weapons', weaponSlot, 'ship', targetSlot) then
+        -- Si era el arma actual, cambiar a la siguiente disponible
+        if player.weaponSystem and player.weaponSystem.currentSlot == weaponSlot then
+            player.weaponSystem:switchToNextAvailableWeapon()
+        end
+        
+        print("[TRANSFER] Arma transferida de slot a inventario: " .. (weaponItem.data.name or "arma desconocida"))
+        return true
+    else
+        print("[TRANSFER] Error: Falló la transferencia")
+        return false
+    end
+end
+
+-- Transferir arma de inventario a slot específico
+function InventoryUI:transferInventoryToWeaponSlot(player, invSlot, weaponSlot)
+    if not player or not player.inventory or not player.inventory.getCompartment then
+        print("[TRANSFER] Error: No se puede acceder al sistema de inventario")
+        return false
+    end
+    
+    local shipComp = player.inventory:getCompartment('ship')
+    local weaponComp = player.inventory:getCompartment('weapons')
+    
+    if not shipComp or not weaponComp then
+        print("[TRANSFER] Error: No se pueden encontrar los compartimentos")
+        return false
+    end
+    
+    local item = shipComp.items[invSlot]
+    if not item or not item.data then
+        print("[TRANSFER] Error: No hay item en el slot especificado")
+        return false
+    end
+    
+    -- Verificar que sea un arma
+    if item.data.category ~= "equipable" or item.data.equipType ~= "weapon" then
+        print("[TRANSFER] Error: El item no es un arma")
+        return false
+    end
+    
+    -- Verificar restricciones del slot 1
+    if weaponSlot == 1 and not item.data.isDefault then
+        print("[TRANSFER] Error: Solo armas por defecto pueden ir en el slot 1")
+        return false
+    end
+    
+    -- Realizar transferencia (si hay arma en destino, se intercambia automáticamente)
+    if player.inventory:transferItemBetweenCompartments('ship', invSlot, 'weapons', weaponSlot) then
+        print("[TRANSFER] Arma transferida de inventario a slot " .. weaponSlot .. ": " .. (item.data.name or "arma desconocida"))
         return true
     else
         print("[TRANSFER] Error: Falló la transferencia")

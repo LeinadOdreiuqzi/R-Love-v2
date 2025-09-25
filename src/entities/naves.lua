@@ -19,7 +19,8 @@ local SHIP_TYPES = {
         hyperTravelCapable = true,
         boostMultiplier = 1.8,
         maxSpeed = 80,
-        acceleration = 12
+        acceleration = 12,
+        defaultWeapon = "basic_laser_pistol"  -- Arma versátil para exploración
     },
     FIGHTER = {
         name = "Fighter",
@@ -29,7 +30,8 @@ local SHIP_TYPES = {
         hyperTravelCapable = false,
         boostMultiplier = 2.2,
         maxSpeed = 120,
-        acceleration = 18
+        acceleration = 18,
+        defaultWeapon = "kinetic_assault_rifle"  -- Arma de combate de alta cadencia
     },
     CARGO = {
         name = "Cargo",
@@ -39,7 +41,8 @@ local SHIP_TYPES = {
         hyperTravelCapable = true,
         boostMultiplier = 1.3,
         maxSpeed = 50,
-        acceleration = 8
+        acceleration = 8,
+        defaultWeapon = "basic_laser_pistol"  -- Arma básica para defensa
     }
 }
 

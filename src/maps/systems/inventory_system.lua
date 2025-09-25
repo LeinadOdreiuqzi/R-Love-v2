@@ -143,6 +143,18 @@ function InventorySystem:new(shipType)
         items = { nil, nil, nil },
         allowedTypes = { tool = true, consumable = true, resource = true }
     }
+    
+    -- Compartimento de armas: 4 slots para armas equipadas
+    inventory.compartments.weapons = {
+        name = "weapons",
+        maxSlots = 4,
+        items = { nil, nil, nil, nil },
+        allowedTypes = { weapon = true },
+        slotRestrictions = {
+            [1] = "default_weapon_only"  -- Slot 1 reservado para arma por defecto
+        }
+    }
+    
     return inventory
 end
 
@@ -246,6 +258,11 @@ end
 function InventorySystem:addItemToCompartment(name, itemData, quantity)
     local c = self:getCompartment(name)
     if not c or not c.items then return false end
+    
+    -- Validaciones específicas para compartimento de armas
+    if name == "weapons" then
+        return self:addWeaponToSlot(itemData, nil, quantity)
+    end
 
     -- Validación opcional de tipos permitidos en el compartimento
     if c.allowedTypes and itemData and itemData.category then
@@ -303,7 +320,33 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     local itemFrom = fromC.items[fromSlot]
     local itemTo = toC.items[toSlot]
 
-    -- Validar tipos permitidos en destino
+    -- Validaciones especiales para el compartimento weapons
+    if toName == "weapons" then
+        if itemFrom then
+            -- Validar que es un arma
+            if not itemFrom.data or itemFrom.data.category ~= ItemSystem.CATEGORIES.EQUIPABLE or 
+               itemFrom.data.equipType ~= ItemSystem.EQUIPABLE_TYPES.WEAPON then
+                return false
+            end
+            
+            -- Validar restricciones del slot 1 (solo armas por defecto)
+            if toSlot == 1 and toC.slotRestrictions and toC.slotRestrictions[1] == "default_weapon_only" then
+                local isDefaultWeapon = self:isDefaultWeapon(itemFrom.data.id)
+                if not isDefaultWeapon then
+                    return false
+                end
+            end
+        end
+    end
+    
+    if fromName == "weapons" then
+        -- El slot 1 está reservado para arma por defecto y no se puede remover
+        if fromSlot == 1 then
+            return false
+        end
+    end
+
+    -- Validar tipos permitidos en destino (validación general)
     if toC.allowedTypes and itemFrom and itemFrom.data and itemFrom.data.type and not toC.allowedTypes[itemFrom.data.type] then
         return false
     end
@@ -315,4 +358,139 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     toC.items[toSlot] = itemFrom
     return true
 end
+
+-- Funciones específicas para el compartimento de armas
+function InventorySystem:addWeaponToSlot(weaponData, slot, quantity)
+    local weaponsComp = self:getCompartment('weapons')
+    if not weaponsComp then return false end
+    
+    quantity = quantity or 1
+    
+    -- Validar que es un arma
+    if not weaponData or weaponData.category ~= ItemSystem.CATEGORIES.EQUIPABLE or 
+       weaponData.equipType ~= ItemSystem.EQUIPABLE_TYPES.WEAPON then
+        return false
+    end
+    
+    -- Si no se especifica slot, buscar uno libre (empezando desde slot 2)
+    if not slot then
+        for i = 2, weaponsComp.maxSlots do
+            if not weaponsComp.items[i] then
+                slot = i
+                break
+            end
+        end
+        if not slot then return false end -- No hay slots libres
+    end
+    
+    -- Validar slot
+    if slot < 1 or slot > weaponsComp.maxSlots then return false end
+    
+    -- Validar restricciones del slot 1 (solo armas por defecto)
+    if slot == 1 and weaponsComp.slotRestrictions and weaponsComp.slotRestrictions[1] == "default_weapon_only" then
+        local isDefaultWeapon = self:isDefaultWeapon(weaponData.id)
+        if not isDefaultWeapon then
+            return false -- No se puede equipar arma no-por-defecto en slot 1
+        end
+    end
+    
+    -- Equipar arma
+    weaponsComp.items[slot] = {
+        data = weaponData,
+        quantity = quantity
+    }
+    
+    return true
+end
+
+function InventorySystem:removeWeaponFromSlot(slot)
+    local weaponsComp = self:getCompartment('weapons')
+    if not weaponsComp or not slot or slot < 1 or slot > weaponsComp.maxSlots then
+        return nil
+    end
+    
+    -- El slot 1 está reservado para arma por defecto y no se puede remover
+    if slot == 1 then
+        return nil
+    end
+    
+    local weapon = weaponsComp.items[slot]
+    weaponsComp.items[slot] = nil
+    return weapon
+end
+
+function InventorySystem:getWeaponInSlot(slot)
+    local weaponsComp = self:getCompartment('weapons')
+    if not weaponsComp or not slot or slot < 1 or slot > weaponsComp.maxSlots then
+        return nil
+    end
+    return weaponsComp.items[slot]
+end
+
+function InventorySystem:isDefaultWeapon(weaponId)
+    -- Lista de armas por defecto (debería coincidir con DEFAULT_WEAPONS en weapon_system.lua)
+    local defaultWeapons = {
+        "basic_laser_pistol",
+        "kinetic_assault_rifle"
+    }
+    
+    for _, defaultId in ipairs(defaultWeapons) do
+        if weaponId == defaultId then
+            return true
+        end
+    end
+    return false
+end
+
+-- Transferir arma al inventario principal
+function InventorySystem:transferWeaponToInventory(slot)
+    if slot < 1 or slot > 4 then return false end
+    
+    -- No se puede remover el arma del slot 1 (arma por defecto)
+    if slot == 1 then
+        return false
+    end
+    
+    local weaponItem = self:getWeaponInSlot(slot)
+    if not weaponItem then return false end
+    
+    -- Buscar espacio libre en el inventario principal
+    local shipComp = self:getCompartment('ship')
+    if not shipComp then return false end
+    
+    for i = 1, shipComp.maxSlots do
+        if not shipComp.items[i] then
+            shipComp.items[i] = weaponItem
+            self:removeWeaponFromSlot(slot)
+            return true
+        end
+    end
+    
+    return false -- No hay espacio en el inventario
+end
+
+-- Transferir item desde inventario principal a slot de arma
+function InventorySystem:transferItemToWeaponSlot(inventorySlot, weaponSlot)
+    if inventorySlot < 1 or weaponSlot < 1 or weaponSlot > 4 then return false end
+    
+    local shipComp = self:getCompartment('ship')
+    if not shipComp or inventorySlot > shipComp.maxSlots then return false end
+    
+    local item = shipComp.items[inventorySlot]
+    if not item then return false end
+    
+    -- Intentar agregar al slot de arma
+    if self:addWeaponToSlot(item.data, weaponSlot) then
+        shipComp.items[inventorySlot] = nil
+        return true
+    end
+    
+    return false
+end
+
+-- Intercambiar items entre compartimentos
+function InventorySystem:swapItemsBetweenCompartments(fromName, fromSlot, toName, toSlot)
+    return self:transferItemBetweenCompartments(fromName, fromSlot, toName, toSlot)
+end
+
 return InventorySystem

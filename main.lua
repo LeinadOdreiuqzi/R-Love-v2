@@ -1036,10 +1036,10 @@ function love.keypressed(key)
     --     end
     elseif key == "f12" then
         HUD.toggleBiomeInfo()
-    elseif key == "r" then
+    elseif key == "f" then
         -- Regenerar con semilla completamente nueva
         if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-            -- Ctrl+R: Force garbage collection
+            -- Ctrl+F: Force garbage collection
             if biomeDebug.enabled then
                 print("=== MANUAL MEMORY CLEANUP ===")
                 local beforeMB = collectgarbage("count") / 1024
@@ -1053,6 +1053,11 @@ function love.keypressed(key)
             -- Regenerar mundo con nueva semilla
             local newSeed = SeedSystem.generate()
             changeSeedWithLoading(newSeed)
+        end
+    elseif key == "r" then
+        -- Reload weapon
+        if player and player.weaponSystem then
+            player.weaponSystem:reload()
         end
     elseif key == "p" then
         gameState.paused = not gameState.paused

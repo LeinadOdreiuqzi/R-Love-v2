@@ -13,6 +13,13 @@ local WEAPON_CONFIG = {
     SHOW_WEAPON_HUD = true -- Mostrar HUD de armas
 }
 
+-- Armas por defecto para cada tipo de nave
+local DEFAULT_WEAPONS = {
+    EXPLORER = "basic_laser_pistol",  -- Arma versátil para exploración
+    FIGHTER = "kinetic_assault_rifle", -- Arma de combate de alta cadencia
+    CARGO = "basic_laser_pistol"      -- Arma básica para defensa
+}
+
 -- Tipos de proyectiles por arma
 local PROJECTILE_TYPES = {
     basic_laser_pistol = "basic_red_projectile",
@@ -33,13 +40,8 @@ function WeaponSystem:new(player)
     -- Referencia al jugador
     weaponSystem.player = player
     
-    -- Slots de armas (máximo 4 armas equipadas)
-    weaponSystem.weaponSlots = {
-        [1] = nil,  -- Slot 1 - Tecla "1"
-        [2] = nil,  -- Slot 2 - Tecla "2" 
-        [3] = nil,  -- Slot 3 - Tecla "3"
-        [4] = nil   -- Slot 4 - Tecla "4"
-    }
+    -- Ya no usamos weaponSlots internos, ahora usamos el compartimento 'weapons' del InventorySystem
+    -- Los slots de armas se manejan a través de player.inventory:getCompartment('weapons')
     
     -- Estado del sistema
     weaponSystem.currentSlot = 1
@@ -65,7 +67,42 @@ function WeaponSystem:new(player)
     end
     weaponSystem.scrollState = 0
     
+    -- Equipar arma por defecto en slot 1
+    weaponSystem:equipDefaultWeapon()
+    
     return weaponSystem
+end
+
+-- Equipar arma por defecto según el tipo de nave
+function WeaponSystem:equipDefaultWeapon()
+    if not self.player or not self.player.shipType then
+        return false
+    end
+    
+    local defaultWeaponId
+    
+    -- Intentar obtener el arma por defecto desde la configuración de la nave
+    if self.player.shipSettings and self.player.shipSettings.defaultWeapon then
+        defaultWeaponId = self.player.shipSettings.defaultWeapon
+    else
+        -- Fallback a la tabla DEFAULT_WEAPONS
+        defaultWeaponId = DEFAULT_WEAPONS[self.player.shipType]
+    end
+    
+    if not defaultWeaponId then
+        -- Fallback final a arma básica
+        defaultWeaponId = "basic_laser_pistol"
+    end
+    
+    -- Obtener el arma desde el sistema de items
+    local defaultWeapon = ItemSystem:getItem(defaultWeaponId)
+    if defaultWeapon then
+        -- Equipar en slot 1 (slot reservado para arma por defecto)
+        self:equipWeapon(defaultWeapon, 1)
+        return true
+    end
+    
+    return false
 end
 
 -- Equipar arma en un slot específico
@@ -75,28 +112,16 @@ function WeaponSystem:equipWeapon(weaponItem, slot)
         return false
     end
     
-    -- Intentando equipar arma
-    
-    -- Validar que es un arma
-    if weaponItem.category ~= ItemSystem.CATEGORIES.EQUIPABLE or 
-       weaponItem.equipType ~= ItemSystem.EQUIPABLE_TYPES.WEAPON then
-        -- Error: Item no es un arma válida
+    -- Verificar que el jugador tiene inventario
+    if not self.player.inventory then
         return false
     end
     
-    -- Validar slot
-    if slot < 1 or slot > WEAPON_CONFIG.MAX_WEAPON_SLOTS then
-        -- Error: Slot inválido
+    -- Usar el sistema de inventario para equipar el arma
+    local success = self.player.inventory:addWeaponToSlot(weaponItem, slot)
+    if not success then
         return false
     end
-    
-    -- Desequipar arma anterior si existe
-    if self.weaponSlots[slot] then
-        self:unequipWeapon(slot)
-    end
-    
-    -- Equipar nueva arma
-    self.weaponSlots[slot] = weaponItem
     
     -- Inicializar munición si es necesario
     if weaponItem.maxAmmo then
@@ -118,7 +143,13 @@ function WeaponSystem:unequipWeapon(slot)
         return false
     end
     
-    local weapon = self.weaponSlots[slot]
+    -- Verificar que el jugador tiene inventario
+    if not self.player.inventory then
+        return false
+    end
+    
+    -- Obtener el arma antes de removerla
+    local weapon = self.player.inventory:getWeaponInSlot(slot)
     if not weapon then
         return false
     end
@@ -128,11 +159,11 @@ function WeaponSystem:unequipWeapon(slot)
         self:switchToNextAvailableWeapon()
     end
     
-    -- Remover del slot
-    self.weaponSlots[slot] = nil
+    -- Remover del slot usando el sistema de inventario
+    local removedWeapon = self.player.inventory:removeWeaponFromSlot(slot)
     
     -- Arma desequipada
-    return true
+    return removedWeapon ~= nil
 end
 
 -- Cambiar a un slot específico
@@ -141,15 +172,21 @@ function WeaponSystem:switchToSlot(slot)
         return false
     end
     
-    local weapon = self.weaponSlots[slot]
-    if not weapon then
+    -- Verificar que el jugador tiene inventario
+    if not self.player.inventory then
+        return false
+    end
+    
+    -- Obtener el arma del compartimento weapons
+    local weaponItem = self.player.inventory:getWeaponInSlot(slot)
+    if not weaponItem then
         -- No hay arma en slot
         return false
     end
     
     -- Cambiar arma actual
     self.currentSlot = slot
-    self.currentWeapon = weapon
+    self.currentWeapon = weaponItem.data  -- Usar .data ya que el compartimento almacena {data, quantity}
     self.isReloading = false  -- Cancelar recarga si estaba en proceso
     
     -- Notificar al WeaponHUD del cambio
@@ -162,6 +199,10 @@ end
 
 -- Cambiar a la siguiente arma disponible
 function WeaponSystem:switchToNextAvailableWeapon()
+    if not self.player.inventory then
+        return false
+    end
+    
     local startSlot = self.currentSlot
     local nextSlot = startSlot
     
@@ -171,7 +212,7 @@ function WeaponSystem:switchToNextAvailableWeapon()
             nextSlot = 1
         end
         
-        if self.weaponSlots[nextSlot] then
+        if self.player.inventory:getWeaponInSlot(nextSlot) then
             return self:switchToSlot(nextSlot)
         end
     until nextSlot == startSlot
@@ -184,6 +225,10 @@ end
 
 -- Cambiar a la anterior arma disponible
 function WeaponSystem:switchToPreviousWeapon()
+    if not self.player.inventory then
+        return false
+    end
+    
     local startSlot = self.currentSlot
     local prevSlot = startSlot
     
@@ -193,7 +238,7 @@ function WeaponSystem:switchToPreviousWeapon()
             prevSlot = WEAPON_CONFIG.MAX_WEAPON_SLOTS
         end
         
-        if self.weaponSlots[prevSlot] then
+        if self.player.inventory:getWeaponInSlot(prevSlot) then
             return self:switchToSlot(prevSlot)
         end
     until prevSlot == startSlot
@@ -225,6 +270,10 @@ function WeaponSystem:canShoot()
     if self.currentWeapon.maxAmmo then
         local ammo = self.ammunition[self.currentWeapon.id] or 0
         if ammo <= 0 then
+            -- Iniciar recarga automática si no está ya recargando
+            if not self.isReloading then
+                self:reload()
+            end
             return false
         end
     end
@@ -308,6 +357,11 @@ function WeaponSystem:shoot(mouseX, mouseY)
         -- Consumir munición si aplica
         if self.currentWeapon.maxAmmo then
             self.ammunition[self.currentWeapon.id] = (self.ammunition[self.currentWeapon.id] or 0) - 1
+            
+            -- Verificar si se agotó la munición e iniciar recarga automática
+            if self.ammunition[self.currentWeapon.id] <= 0 and not self.isReloading then
+                self:reload()
+            end
         end
         
         -- Proyectil disparado
@@ -436,11 +490,17 @@ end
 -- Obtener todas las armas equipadas
 function WeaponSystem:getEquippedWeapons()
     local weapons = {}
+    
+    if not self.player.inventory then
+        return weapons
+    end
+    
     for slot = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
-        if self.weaponSlots[slot] then
+        local weaponItem = self.player.inventory:getWeaponInSlot(slot)
+        if weaponItem then
             weapons[slot] = {
-                weapon = self.weaponSlots[slot],
-                ammo = self.ammunition[self.weaponSlots[slot].id],
+                weapon = weaponItem.data,
+                ammo = self.ammunition[weaponItem.data.id],
                 isCurrent = (slot == self.currentSlot)
             }
         end
@@ -454,18 +514,25 @@ function WeaponSystem:autoEquipFromInventory()
         return false
     end
     
-    -- Buscar armas en el inventario
-    for _, item in pairs(self.player.inventory.items) do
-        if item.data and item.data.category == ItemSystem.CATEGORIES.EQUIPABLE and 
+    -- Obtener el compartimento ship (inventario principal)
+    local shipComp = self.player.inventory:getCompartment('ship')
+    if not shipComp then
+        return false
+    end
+    
+    -- Buscar armas en el inventario principal
+    for i = 1, shipComp.maxSlots do
+        local item = shipComp.items[i]
+        if item and item.data and item.data.category == ItemSystem.CATEGORIES.EQUIPABLE and 
            item.data.equipType == ItemSystem.EQUIPABLE_TYPES.WEAPON then
             
-            -- Buscar slot libre
-            for slot = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
-                if not self.weaponSlots[slot] then
-                    -- Obtener los datos completos del item desde el sistema
-                    local fullItemData = ItemSystem:getItem(item.data.id)
-                    if fullItemData then
-                        self:equipWeapon(fullItemData, slot)
+            -- Buscar slot libre en el compartimento weapons (empezar desde slot 2)
+            for slot = 2, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
+                if not self.player.inventory:getWeaponInSlot(slot) then
+                    -- Equipar el arma
+                    if self:equipWeapon(item.data, slot) then
+                        -- Remover del inventario principal
+                        shipComp.items[i] = nil
                         return true
                     end
                 end
