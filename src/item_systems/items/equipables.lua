@@ -55,9 +55,8 @@ function Equipables.registerAll()
         accuracy = 85,
         
         -- Propiedades para weapon_system
-        maxAmmo = 30,
+        maxAmmo = 12,
         reloadTime = 2.0,
-        projectileType = "basic_red_projectile",
         automatic = false,
         
         onEquip = function(self, player)
@@ -112,7 +111,6 @@ function Equipables.registerAll()
         -- Propiedades para weapon_system
         maxAmmo = 20,
         reloadTime = 3.0,
-        projectileType = "basic_red_projectile",
         automatic = false,
         
         onEquip = function(self, player)
@@ -167,7 +165,6 @@ function Equipables.registerAll()
         -- Propiedades para weapon_system
         maxAmmo = 30,
         reloadTime = 1.5,
-        projectileType = "basic_red_projectile",
         automatic = true,
         
         onEquip = function(self, player)
@@ -219,8 +216,7 @@ function Equipables.registerAll()
         
         -- Propiedades para weapon_system
         maxAmmo = 8,
-        reloadTime = 3.0,
-        projectileType = "basic_red_projectile",
+        reloadTime = 4.0,
         automatic = false,
         
         onEquip = function(self, player)
@@ -271,9 +267,8 @@ function Equipables.registerAll()
         accuracy = 60,
         
         -- Propiedades para weapon_system
-        maxAmmo = 12,
+        maxAmmo = 15,
         reloadTime = 2.0,
-        projectileType = "basic_red_projectile",
         automatic = false,
         projectileCount = 5, -- Dispara 5 proyectiles
         

@@ -24,7 +24,6 @@ local DEFAULT_WEAPONS = {
 local PROJECTILE_TYPES = {
     basic_laser_pistol = "basic_red_projectile",
     plasma_rifle = "plasma_projectile", 
-    combat_knife = "melee_projectile",
     kinetic_assault_rifle = "kinetic_projectile",
     heavy_plasma_cannon = "heavy_plasma_projectile",
     energy_shotgun = "energy_shotgun_projectile",
@@ -337,20 +336,60 @@ function WeaponSystem:shoot(mouseX, mouseY)
     local angle = math.atan2(dy, dx)
     
     -- Crear el proyectil usando el tipo del arma actual
-    local projectileType = self.currentWeapon.projectileType or "basic_red_projectile"
+    local weaponId = self.currentWeapon.id
+    local projectileType = PROJECTILE_TYPES[weaponId] or "basic_red_projectile"
     local ProjectileClass = require('src.physics.projectiles.types.' .. projectileType)
-    local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle)
     
-    -- Agregar el proyectil al sistema de física
-    if projectile and _G.physicsManager.addProjectile then
-        _G.physicsManager:addProjectile(projectile)
+    local projectilesCreated = 0
+    
+    -- Verificar si es una escopeta de energía para crear múltiples proyectiles
+    if weaponId == "energy_shotgun" then
+        -- Configuración de dispersión para escopeta
+        local pelletCount = 5 -- Número de proyectiles por disparo
+        local spreadAngle = math.pi / 6 -- 30 grados de dispersión total
         
-        -- Almacenar el proyectil para actualizaciones y renderizado
-        if not self.player.projectiles then
-            self.player.projectiles = {}
+        for i = 1, pelletCount do
+            -- Calcular ángulo de dispersión para cada proyectil
+            local spreadOffset = (i - (pelletCount + 1) / 2) / pelletCount
+            local pelletAngle = angle + spreadOffset * spreadAngle
+            
+            -- Añadir variación aleatoria pequeña
+            pelletAngle = pelletAngle + (math.random() - 0.5) * 0.1
+            
+            -- Crear proyectil individual
+            local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, pelletAngle)
+            
+            -- Agregar el proyectil al sistema de física
+            if projectile and _G.physicsManager.addProjectile then
+                _G.physicsManager:addProjectile(projectile)
+                
+                -- Almacenar el proyectil para actualizaciones y renderizado
+                if not self.player.projectiles then
+                    self.player.projectiles = {}
+                end
+                table.insert(self.player.projectiles, projectile)
+                projectilesCreated = projectilesCreated + 1
+            end
         end
-        table.insert(self.player.projectiles, projectile)
+    else
+        -- Disparo normal para otras armas
+        local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle)
         
+        -- Agregar el proyectil al sistema de física
+        if projectile and _G.physicsManager.addProjectile then
+            _G.physicsManager:addProjectile(projectile)
+            
+            -- Almacenar el proyectil para actualizaciones y renderizado
+            if not self.player.projectiles then
+                self.player.projectiles = {}
+            end
+            table.insert(self.player.projectiles, projectile)
+            projectilesCreated = 1
+        end
+    end
+    
+    -- Si se crearon proyectiles exitosamente
+    if projectilesCreated > 0 then
         -- Actualizar tiempo del último disparo
         self.lastShotTime = love.timer.getTime()
         
@@ -364,10 +403,10 @@ function WeaponSystem:shoot(mouseX, mouseY)
             end
         end
         
-        -- Proyectil disparado
+        -- Proyectiles disparados
         return true
     else
-        -- Error: Could not create projectile
+        -- Error: Could not create projectiles
         return false
     end
 end
