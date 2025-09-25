@@ -517,7 +517,7 @@ function EVAInventoryUI:dropItemFromModal(slotIndex, evaPlayer)
     local targetX = playerX + offsetX
     local targetY = playerY + offsetY
     
-    local quantity = item.data.quantity or 1
+    local quantity = item.quantity or 1
     local worldItem = WorldItems.drop(itemData, playerX, playerY, targetX, targetY, quantity)
     
     if worldItem then

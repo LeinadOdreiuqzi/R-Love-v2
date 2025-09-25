@@ -12,6 +12,11 @@ local uiState = {
     mouseX = 0,
     mouseY = 0,
     
+    -- Selección de slots
+    selectedPassiveSlot = nil,
+    passiveSlotHighlightTimer = 0,
+    selectedPassiveItemFromInventory = nil, -- Item pasivo seleccionado del inventario común
+    
     -- Modal de opciones
     modal = {
         isOpen = false,
@@ -123,8 +128,16 @@ function InventoryUI:calculateLayout()
     uiState.layout.weaponWidth = weaponColumns * (slotSize + padding) - padding + panelPadding * 2
     uiState.layout.weaponHeight = weaponRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
     
-    -- Posicionamiento mejorado: inventario centrado, EVA y armas a los lados
-    uiState.layout.totalWidth = uiState.layout.inventoryWidth + math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth) + panelPadding * 3
+    -- Configuración del panel de pasivos (6 slots en grid 3x2)
+    local passiveColumns = 3
+    local passiveRows = 2
+    
+    uiState.layout.passiveWidth = passiveColumns * (slotSize + padding) - padding + panelPadding * 2
+    uiState.layout.passiveHeight = passiveRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
+    
+    -- Posicionamiento mejorado: inventario centrado, paneles a los lados
+    local maxRightPanelWidth = math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth, uiState.layout.passiveWidth)
+    uiState.layout.totalWidth = uiState.layout.inventoryWidth + maxRightPanelWidth + panelPadding * 3
     uiState.layout.totalHeight = uiState.layout.inventoryHeight
     
     -- Inventario principal centrado
@@ -138,6 +151,10 @@ function InventoryUI:calculateLayout()
     -- Panel de armas a la derecha del inventario, debajo del panel EVA
     uiState.layout.weaponX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
     uiState.layout.weaponY = uiState.layout.evaY + uiState.layout.evaHeight + panelPadding
+    
+    -- Panel de pasivos a la derecha del inventario, debajo del panel de armas
+    uiState.layout.passiveX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
+    uiState.layout.passiveY = uiState.layout.weaponY + uiState.layout.weaponHeight + panelPadding
 end
 
 -- Abrir/cerrar inventario
@@ -165,6 +182,40 @@ function InventoryUI:isOpen()
     return uiState.isOpen
 end
 
+-- Función helper para manejar drops de manera centralizada
+-- Helper function para convertir tipos de UI a nombres de compartimentos
+function InventoryUI:getCompartmentName(uiType)
+    if uiType == "inventory" then
+        return "ship"
+    elseif uiType == "eva" then
+        return "eva"
+    elseif uiType == "weapons" then
+        return "equipable"
+    elseif uiType == "passives" then
+        return "passives"
+    end
+    return nil
+end
+
+function InventoryUI:handleDrop(player, targetCompartment, targetSlot)
+    if not uiState.draggedItem or not uiState.draggedFromType or not uiState.draggedFromSlot then
+        return false
+    end
+    
+    -- Convertir tipos de UI a nombres de compartimentos
+    local fromCompartment = self:getCompartmentName(uiState.draggedFromType)
+    
+    -- Realizar transferencia usando el sistema centralizado
+    local success = player.inventory:transferItemBetweenCompartments(
+        fromCompartment, 
+        uiState.draggedFromSlot, 
+        targetCompartment, 
+        targetSlot
+    )
+    
+    return success
+end
+
 -- Exponer paleta de colores para otras UIs
 function InventoryUI:getColors()
     return uiState.colors
@@ -177,6 +228,14 @@ function InventoryUI:update(dt, player)
     -- Actualizar posición del mouse
     uiState.mouseX = love.mouse.getX()
     uiState.mouseY = love.mouse.getY()
+    
+    -- Actualizar timer de highlight para items pasivos
+    if uiState.passiveSlotHighlightTimer > 0 then
+        uiState.passiveSlotHighlightTimer = uiState.passiveSlotHighlightTimer - dt
+        if uiState.passiveSlotHighlightTimer <= 0 then
+            uiState.selectedPassiveSlot = nil
+        end
+    end
     
     -- Recalcular layout si cambió el tamaño de pantalla
     local screenWidth = love.graphics.getWidth()
@@ -210,6 +269,12 @@ function InventoryUI:draw(player)
     local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
     if weaponComp then
         self:drawWeaponPanel(weaponComp)
+    end
+    
+    -- Dibujar panel de pasivos
+    local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
+    if passiveComp then
+        self:drawPassivePanel(passiveComp, player)
     end
     
     -- Dibujar item arrastrado
@@ -463,7 +528,7 @@ function InventoryUI:drawWeaponSlot(x, y, slotIndex, item)
         -- Nombre del item
         love.graphics.setColor(colors.text)
         love.graphics.setFont(uiState.smallFont)
-        local itemName = item.data.name or "Unknown"
+        local itemName = item.data and item.data.name or "Unknown"
         local textWidth = uiState.smallFont:getWidth(itemName)
         if textWidth > slotSize - 4 then
             itemName = string.sub(itemName, 1, 6) .. "..."
@@ -489,7 +554,8 @@ function InventoryUI:drawItem(x, y, size, item)
     -- Texto del item (primera letra del nombre)
     love.graphics.setColor(colors.text)
     love.graphics.setFont(uiState.font)
-    local firstLetter = string.sub(item.data.name, 1, 1)
+    local itemName = item.data and item.data.name or "Unknown"
+    local firstLetter = string.sub(itemName, 1, 1)
     local textWidth = uiState.font:getWidth(firstLetter)
     local textHeight = uiState.font:getHeight()
     love.graphics.print(firstLetter, 
@@ -579,6 +645,29 @@ function InventoryUI:drawModal()
             local deleteTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
             love.graphics.print(deleteText, deleteTextX, deleteTextY)
         end
+    elseif modal.slotType == "passives" then
+        -- Modal para items pasivos - solo 2 opciones (sin usar/equipar)
+        local optionHeight = modal.height / 2
+        
+        -- Línea divisoria
+        local dividerY = modal.y + optionHeight
+        love.graphics.line(modal.x, dividerY, modal.x + modal.width, dividerY)
+        
+        love.graphics.setColor(colors.text)
+        
+        -- Opción "Expulsar de la nave"
+        local ejectText = "Expulsar de la nave"
+        local ejectTextWidth = font:getWidth(ejectText)
+        local ejectTextX = modal.x + (modal.width - ejectTextWidth) / 2
+        local ejectTextY = modal.y + (optionHeight - font:getHeight()) / 2
+        love.graphics.print(ejectText, ejectTextX, ejectTextY)
+        
+        -- Opción "Eliminar"
+        local deleteText = "Eliminar"
+        local deleteTextWidth = font:getWidth(deleteText)
+        local deleteTextX = modal.x + (modal.width - deleteTextWidth) / 2
+        local deleteTextY = modal.y + optionHeight + (optionHeight - font:getHeight()) / 2
+        love.graphics.print(deleteText, deleteTextX, deleteTextY)
     else
         -- Modal para inventario normal - 3 opciones
         local optionHeight = modal.height / 3
@@ -624,8 +713,24 @@ function InventoryUI:isValidDropTarget(targetType, targetSlot)
         return true -- Siempre se puede mover a inventario
     elseif targetType == "eva" then
         return true -- Siempre se puede mover a EVA (las restricciones se manejan en la transferencia)
+    elseif targetType == "passives" then
+        -- Solo items con categoría PASSIVE pueden ir a pasivos
+        return uiState.draggedItem.data.category == "passive"
     end
     
+    return false
+end
+
+-- Verificar si un slot pasivo debería mostrar feedback visual
+function InventoryUI:shouldShowPassiveSlotFeedback(slotIndex, player)
+    -- Si hay un item pasivo seleccionado del inventario común
+    if uiState.selectedPassiveItemFromInventory then
+        -- Verificar que el slot esté vacío (disponible para equipar)
+        local passiveComp = player.inventory:getCompartment('passives')
+        if passiveComp and not passiveComp.items[slotIndex] then
+            return true
+        end
+    end
     return false
 end
 
@@ -658,10 +763,20 @@ function InventoryUI:mousepressed(x, y, button, player)
                     return
                 end
                 
+                -- Verificar si es un item pasivo para mostrar feedback visual
+                if item.data and item.data.category == "passive" then
+                    uiState.selectedPassiveItemFromInventory = item
+                else
+                    uiState.selectedPassiveItemFromInventory = nil
+                end
+                
                 uiState.draggedItem = item
                 uiState.draggedFromSlot = inventorySlot
                 uiState.draggedFromType = "inventory"
-                shipComp.items[inventorySlot] = nil
+                -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
+            else
+                -- Si se hace clic en un slot vacío, limpiar selección
+                uiState.selectedPassiveItemFromInventory = nil
             end
             return
         end
@@ -684,10 +799,20 @@ function InventoryUI:mousepressed(x, y, button, player)
                         return
                     end
                     
+                    -- Verificar si es un item pasivo para mostrar feedback visual
+                    if item.data and item.data.category == "passive" then
+                        uiState.selectedPassiveItemFromInventory = item
+                    else
+                        uiState.selectedPassiveItemFromInventory = nil
+                    end
+                    
                     uiState.draggedItem = item
                     uiState.draggedFromSlot = evaSlot
                     uiState.draggedFromType = "eva"
-                    evaComp.items[evaSlot] = nil
+                    -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
+                else
+                    -- Si se hace clic en un slot vacío, limpiar selección
+                    uiState.selectedPassiveItemFromInventory = nil
                 end
                 return
             end
@@ -709,7 +834,34 @@ function InventoryUI:mousepressed(x, y, button, player)
                     uiState.draggedItem = item
                     uiState.draggedFromSlot = weaponSlot
                     uiState.draggedFromType = "weapons"
-                    weaponComp.items[weaponSlot] = nil
+                    -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
+                end
+                return
+            end
+        end
+        
+        -- Verificar click en panel de pasivos
+        local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
+        if passiveComp then
+            local passiveSlot = self:getPassiveSlotAt(x, y)
+            if passiveSlot then
+                local item = passiveComp.items[passiveSlot]
+                if item then
+                    -- Si se presiona Shift, transferir al inventario principal
+                    if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+                        -- Verificar proximidad a la nave si está en modo EVA
+                        if player.isInEVA and player.evaPlayer and not player.evaPlayer:canEnterShip() then
+                            print("[TRANSFER] Error: Debes estar cerca de la nave para transferir items")
+                            return
+                        end
+                        self:transferItemFromPassives(player, passiveSlot)
+                        return
+                    end
+                    
+                    uiState.draggedItem = item
+                    uiState.draggedFromSlot = passiveSlot
+                    uiState.draggedFromType = "passives"
+                    -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
                 end
                 return
             end
@@ -743,6 +895,16 @@ function InventoryUI:mousepressed(x, y, button, player)
                 return
             end
         end
+        
+        -- Verificar clic derecho en panel de pasivos
+        local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
+        if passiveComp then
+            local passiveSlot = self:getPassiveSlotAt(x, y)
+            if passiveSlot and passiveComp.items[passiveSlot] then
+                self:openModal(x, y, passiveSlot, "passives")
+                return
+            end
+        end
 
     end
 end
@@ -757,44 +919,19 @@ function InventoryUI:mousereleased(x, y, button, player)
     local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
     local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
     local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+    local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
     
     -- Verificar drop en inventario (compartimento 'ship')
     local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
     if inventorySlot then
-        local existingItem = shipComp.items[inventorySlot]
-        shipComp.items[inventorySlot] = uiState.draggedItem
-        
-        -- Si había un item, intercambiar
-        if existingItem then
-            if uiState.draggedFromType == "inventory" then
-                shipComp.items[uiState.draggedFromSlot] = existingItem
-            elseif uiState.draggedFromType == "eva" and evaComp then
-                evaComp.items[uiState.draggedFromSlot] = existingItem
-            elseif uiState.draggedFromType == "weapons" and weaponComp then
-                weaponComp.items[uiState.draggedFromSlot] = existingItem
-            end
-        end
-        dropped = true
+        dropped = self:handleDrop(player, "ship", inventorySlot)
     end
     
     -- Verificar drop en panel EVA
     if not dropped and evaComp then
         local evaSlot = self:getEVASlotAt(x, y)
         if evaSlot then
-            local existingItem = evaComp.items[evaSlot]
-            evaComp.items[evaSlot] = uiState.draggedItem
-            
-            -- Si había un item, intercambiar
-            if existingItem then
-                if uiState.draggedFromType == "inventory" then
-                    shipComp.items[uiState.draggedFromSlot] = existingItem
-                elseif uiState.draggedFromType == "eva" then
-                    evaComp.items[uiState.draggedFromSlot] = existingItem
-                elseif uiState.draggedFromType == "weapons" and weaponComp then
-                    weaponComp.items[uiState.draggedFromSlot] = existingItem
-                end
-            end
-            dropped = true
+            dropped = self:handleDrop(player, "eva", evaSlot)
         end
     end
     
@@ -805,20 +942,18 @@ function InventoryUI:mousereleased(x, y, button, player)
             -- Solo permitir drop de armas
             if uiState.draggedItem.data and uiState.draggedItem.data.category == "equipable" and 
                uiState.draggedItem.data.equipType == "weapon" then
-                local existingItem = weaponComp.items[weaponSlot]
-                weaponComp.items[weaponSlot] = uiState.draggedItem
-                
-                -- Si había un item, intercambiar
-                if existingItem then
-                    if uiState.draggedFromType == "inventory" then
-                        shipComp.items[uiState.draggedFromSlot] = existingItem
-                    elseif uiState.draggedFromType == "eva" and evaComp then
-                        evaComp.items[uiState.draggedFromSlot] = existingItem
-                    elseif uiState.draggedFromType == "weapons" then
-                        weaponComp.items[uiState.draggedFromSlot] = existingItem
-                    end
-                end
-                dropped = true
+                dropped = self:handleDrop(player, "weapons", weaponSlot)
+            end
+        end
+    end
+    
+    -- Verificar drop en panel de pasivos
+    if not dropped and passiveComp then
+        local passiveSlot = self:getPassiveSlotAt(x, y)
+        if passiveSlot then
+            -- Solo permitir drop de items pasivos
+            if uiState.draggedItem.data and uiState.draggedItem.data.category == "passive" then
+                dropped = self:handleDrop(player, "passives", passiveSlot)
             end
         end
     end
@@ -848,18 +983,24 @@ function InventoryUI:mousereleased(x, y, button, player)
                                  uiState.mouseY > layout.weaponY + layout.weaponHeight
         end
         
-        if mouseOutsideInventory and mouseOutsideEVA and mouseOutsideWeapons then
+        local mouseOutsidePassives = true
+        if passiveComp then
+            mouseOutsidePassives = uiState.mouseX < layout.passiveX or 
+                                  uiState.mouseX > layout.passiveX + layout.passiveWidth or
+                                  uiState.mouseY < layout.passiveY or 
+                                  uiState.mouseY > layout.passiveY + layout.passiveHeight
+        end
+        
+        if mouseOutsideInventory and mouseOutsideEVA and mouseOutsideWeapons and mouseOutsidePassives then
             -- Drop al mundo
             self:dropItemToWorld(uiState.draggedItem, player, uiState.mouseX, uiState.mouseY)
             dropped = true
         else
-            -- Devolver item a su lugar original
-            if uiState.draggedFromType == "inventory" then
-                shipComp.items[uiState.draggedFromSlot] = uiState.draggedItem
-            elseif uiState.draggedFromType == "eva" and evaComp then
-                evaComp.items[uiState.draggedFromSlot] = uiState.draggedItem
-            elseif uiState.draggedFromType == "weapons" and weaponComp then
-                weaponComp.items[uiState.draggedFromSlot] = uiState.draggedItem
+            -- Devolver item a su lugar original usando el sistema centralizado
+            local fromCompartment = self:getCompartmentName(uiState.draggedFromType)
+            if fromCompartment then
+                -- Usar el sistema centralizado para devolver el item
+                player.inventory:addItemToCompartment(fromCompartment, uiState.draggedItem, uiState.draggedFromSlot)
             end
         end
     end
@@ -868,6 +1009,7 @@ function InventoryUI:mousereleased(x, y, button, player)
     uiState.draggedItem = nil
     uiState.draggedFromSlot = nil
     uiState.draggedFromType = nil
+    uiState.selectedPassiveItemFromInventory = nil
 
 end
 
@@ -918,6 +1060,17 @@ function InventoryUI:handleModalClick(x, y, button, player)
                  self:transferWeaponToInventory(player, modal.slotIndex)
             else
                 -- Eliminar
+                self:deleteItem(modal.slotIndex, modal.slotType, player)
+            end
+        elseif modal.slotType == "passives" then
+            -- Modal para items pasivos - solo 2 opciones
+            local optionHeight = modal.height / 2
+            
+            if y <= modal.y + optionHeight then
+                -- Opción "Expulsar de la nave"
+                self:dropItemFromModal(modal.slotIndex, modal.slotType, player)
+            else
+                -- Opción "Eliminar"
                 self:deleteItem(modal.slotIndex, modal.slotType, player)
             end
         else
@@ -1028,6 +1181,9 @@ function InventoryUI:useItem(slotIndex, slotType, player)
                         print("No se pudo equipar: " .. itemData.name)
                     end
                 end
+            elseif itemData.category == "passive" then
+                -- Manejar items pasivos - transferir al compartimento de pasivos
+                self:equipPassiveItem(slotIndex, slotType, player)
             else
                 print("Item: " .. itemData.name .. " (" .. itemData.category .. ")")
             end
@@ -1067,6 +1223,19 @@ function InventoryUI:deleteItem(slotIndex, slotType, player)
             weaponComp.items[slotIndex] = nil
             print("Arma eliminada del slot " .. slotIndex)
         end
+    elseif slotType == "passives" then
+        local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
+        if passiveComp and passiveComp.items[slotIndex] then
+            -- Usar el método del inventario que maneja automáticamente los efectos pasivos
+            if player.inventory and player.inventory.removeItemFromCompartment then
+                player.inventory:removeItemFromCompartment('passives', slotIndex)
+                print("Item pasivo eliminado del slot " .. slotIndex)
+            else
+                print("[DELETE] Error: No se pudo acceder al sistema de inventario")
+            end
+        else
+            print("[DELETE] Error: No hay item pasivo en el slot " .. slotIndex)
+        end
     end
 end
 
@@ -1092,6 +1261,11 @@ function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
         local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
         if weaponComp then
             item = weaponComp.items[slotIndex]
+        end
+    elseif slotType == "passives" then
+        local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
+        if passiveComp then
+            item = passiveComp.items[slotIndex]
         end
     end
     
@@ -1144,6 +1318,17 @@ function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
                 end
                 
                 weaponComp.items[slotIndex] = nil
+            end
+        elseif slotType == "passives" then
+            -- Usar el método del inventario del jugador para remover correctamente el item pasivo y sus efectos
+            if player.inventory and player.inventory.removeItemFromCompartment then
+                player.inventory:removeItemFromCompartment('passives', slotIndex)
+            else
+                -- Fallback: remover manualmente del compartimento
+                local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
+                if passiveComp then
+                    passiveComp.items[slotIndex] = nil
+                end
             end
         end
         
@@ -1226,6 +1411,32 @@ function InventoryUI:getWeaponSlotAt(x, y)
     return nil
 end
 
+-- Obtener slot de pasivos en coordenadas específicas
+function InventoryUI:getPassiveSlotAt(x, y)
+    local layout = uiState.layout
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    local startX = layout.passiveX + panelPadding
+    local startY = layout.passiveY + 30
+    local columns = 3
+    
+    -- 6 slots en grid 3x2
+    for i = 1, 6 do
+        local col = (i - 1) % columns
+        local row = math.floor((i - 1) / columns)
+        local slotX = startX + col * (slotSize + padding)
+        local slotY = startY + row * (slotSize + padding)
+        
+        if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
+            return i
+        end
+    end
+    
+    return nil
+end
+
 -- Obtener color por rareza de item
 function InventoryUI:getItemRarityColor(item)
     if not item or not item.data then
@@ -1296,7 +1507,7 @@ function InventoryUI:createTestInventory(player)
     local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
     shipComp.items = {}
     
-    -- Items de ejemplo - Solo armas para testear integración con weapon_system
+    -- Items de ejemplo - Armas para testear integración con weapon_system
     local testItems = {
         -- Armas principales
         "basic_laser_pistol",
@@ -1325,6 +1536,32 @@ function InventoryUI:createTestInventory(player)
             print("[WARNING] Item no encontrado: " .. itemId)
         end
     end
+    
+    -- Agregar items pasivos de prueba al compartimento de pasivos
+    local passiveTestItems = {
+        "enhanced_thrusters",       -- +5% velocidad base
+        "rapid_fire_system",        -- +2% velocidad de disparo
+        "auxiliary_heart"           -- +1 corazón de vida
+    }
+    
+    local passiveSlotIndex = 1
+    for _, itemId in ipairs(passiveTestItems) do
+        local itemData = ItemSystem.getItem(itemId)
+        if itemData then
+            -- Usar el método correcto del inventario para agregar al compartimento de pasivos
+            local success = player.inventory:addItemToCompartment('passives', itemData, 1)
+            if success then
+                passiveSlotIndex = passiveSlotIndex + 1
+                print("[INVENTORY] Item pasivo agregado y aplicado: " .. itemId)
+            else
+                print("[WARNING] No se pudo agregar item pasivo: " .. itemId)
+            end
+        else
+            print("[WARNING] Item pasivo no encontrado: " .. itemId)
+        end
+    end
+    
+    print("[INVENTORY] Items pasivos de prueba procesados: " .. (passiveSlotIndex - 1) .. " items")
     
     print("[INVENTORY] Inventario de prueba creado con " .. (slotIndex - 1) .. " armas para testear weapon_system")
 end
@@ -1587,6 +1824,198 @@ function InventoryUI:transferInventoryToWeaponSlot(player, invSlot, weaponSlot)
         return true
     else
         print("[TRANSFER] Error: Falló la transferencia")
+        return false
+    end
+end
+
+-- Dibujar panel de pasivos
+function InventoryUI:drawPassivePanel(passiveCompartment, player)
+    local layout = uiState.layout
+    local colors = uiState.colors
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    -- Fondo del panel
+    love.graphics.setColor(colors.background)
+    love.graphics.rectangle("fill", layout.passiveX, layout.passiveY, 
+                           layout.passiveWidth, layout.passiveHeight)
+    
+    -- Borde del panel
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", layout.passiveX, layout.passiveY, 
+                           layout.passiveWidth, layout.passiveHeight)
+    
+    -- Título
+    love.graphics.setColor(colors.text)
+    love.graphics.setFont(uiState.font)
+    love.graphics.print("Items Pasivos", layout.passiveX + panelPadding, layout.passiveY + 5)
+    
+    -- Slots de pasivos (6 slots en grid 3x2)
+    local startX = layout.passiveX + panelPadding
+    local startY = layout.passiveY + 30
+    local columns = 3
+    
+    for i = 1, passiveCompartment.maxSlots do
+        local col = (i - 1) % columns
+        local row = math.floor((i - 1) / columns)
+        local x = startX + col * (slotSize + padding)
+        local y = startY + row * (slotSize + padding)
+        
+        self:drawPassiveSlot(x, y, i, passiveCompartment.items[i], player)
+    end
+end
+
+-- Dibujar slot de pasivos
+function InventoryUI:drawPassiveSlot(x, y, slotIndex, item, player)
+    local colors = uiState.colors
+    local slotSize = uiState.slotSize
+    
+    -- Determinar color del slot
+    local slotColor = colors.slotEmpty
+    if item then
+        slotColor = colors.slotFilled
+    end
+    
+    -- Verificar si está seleccionado (feedback visual)
+    if uiState.selectedPassiveSlot == slotIndex then
+        slotColor = colors.slotSelected
+    end
+    
+    -- Verificar si debería mostrar feedback visual para item pasivo seleccionado
+    if self:shouldShowPassiveSlotFeedback(slotIndex, player) then
+        slotColor = colors.slotDragTarget
+    end
+    
+    -- Verificar hover
+    if self:isMouseOverSlot(x, y, slotSize) then
+        slotColor = colors.slotHover
+    end
+    
+    -- Verificar si es target válido para drop
+    if uiState.draggedItem and self:isValidDropTarget("passives", slotIndex) then
+        slotColor = colors.slotDragTarget
+    end
+    
+    -- Dibujar slot
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    
+    love.graphics.setColor(colors.border)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    
+    -- Dibujar item si existe
+    if item then
+        self:drawItem(x + 2, y + 2, slotSize - 4, item)
+    end
+end
+
+-- Transferir item de pasivos a inventario principal
+function InventoryUI:transferItemFromPassives(player, fromSlot)
+    if not player or not player.inventory or not player.inventory.getCompartment then
+        print("[TRANSFER] Error: No se puede acceder al sistema de inventario")
+        return false
+    end
+    
+    local shipComp = player.inventory:getCompartment('ship')
+    local passiveComp = player.inventory:getCompartment('passives')
+    
+    if not shipComp or not passiveComp then
+        print("[TRANSFER] Error: No se pueden encontrar los compartimentos")
+        return false
+    end
+    
+    local item = passiveComp.items[fromSlot]
+    if not item then
+        print("[TRANSFER] Error: No hay item en el slot especificado")
+        return false
+    end
+    
+    -- Buscar slot vacío en inventario principal
+    local targetSlot = nil
+    for i = 1, shipComp.maxSlots do
+        if not shipComp.items[i] then
+            targetSlot = i
+            break
+        end
+    end
+    
+    if not targetSlot then
+        print("[TRANSFER] Error: Inventario principal lleno")
+        return false
+    end
+    
+    -- Realizar transferencia (los efectos pasivos se manejan automáticamente en inventory_system.lua)
+    if player.inventory:transferItemBetweenCompartments('passives', fromSlot, 'ship', targetSlot) then
+        print("[TRANSFER] Item pasivo transferido al inventario: " .. (item.data.name or "item desconocido"))
+        return true
+    else
+        print("[TRANSFER] Error: Falló la transferencia")
+        return false
+    end
+end
+
+-- Equipar item pasivo (transferir del inventario común al compartimento de pasivos)
+function InventoryUI:equipPassiveItem(slotIndex, slotType, player)
+    if not player or not player.inventory or not player.inventory.getCompartment then
+        print("[EQUIP PASSIVE] Error: No se puede acceder al sistema de inventario")
+        return false
+    end
+    
+    local shipComp = player.inventory:getCompartment('ship')
+    local passiveComp = player.inventory:getCompartment('passives')
+    
+    if not shipComp or not passiveComp then
+        print("[EQUIP PASSIVE] Error: No se pueden encontrar los compartimentos")
+        return false
+    end
+    
+    local item = nil
+    if slotType == "inventory" then
+        item = shipComp.items[slotIndex]
+    elseif slotType == "eva" then
+        local evaComp = player.inventory:getCompartment('eva')
+        if evaComp then
+            item = evaComp.items[slotIndex]
+        end
+    end
+    
+    if not item then
+        print("[EQUIP PASSIVE] Error: No hay item en el slot especificado")
+        return false
+    end
+    
+    -- Verificar que sea un item pasivo
+    if not item.data or item.data.category ~= "passive" then
+        print("[EQUIP PASSIVE] Error: El item no es un item pasivo")
+        return false
+    end
+    
+    -- Buscar slot vacío en compartimento de pasivos
+    local targetSlot = nil
+    for i = 1, passiveComp.maxSlots do
+        if not passiveComp.items[i] then
+            targetSlot = i
+            break
+        end
+    end
+    
+    if not targetSlot then
+        print("[EQUIP PASSIVE] Error: Compartimento de pasivos lleno")
+        return false
+    end
+    
+    -- Realizar transferencia (los efectos pasivos se aplican automáticamente en inventory_system.lua)
+    local fromCompartment = (slotType == "inventory") and 'ship' or 'eva'
+    if player.inventory:transferItemBetweenCompartments(fromCompartment, slotIndex, 'passives', targetSlot) then
+        -- Activar feedback visual en el slot de destino
+        uiState.selectedPassiveSlot = targetSlot
+        uiState.passiveSlotHighlightTimer = 2.0 -- Highlight por 2 segundos
+        
+        print("[EQUIP PASSIVE] Item pasivo equipado: " .. (item.data.name or "item desconocido"))
+        return true
+    else
+        print("[EQUIP PASSIVE] Error: Falló la transferencia")
         return false
     end
 end

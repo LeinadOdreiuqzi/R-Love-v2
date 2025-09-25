@@ -2,12 +2,39 @@
 -- Sistema de inventario básico con slots predeterminados por tipo de nave
 
 local InventorySystem = {}
+InventorySystem.__index = InventorySystem
 
 -- Importar el sistema de items principal para usar tipos estándar
 local ItemSystem = require 'src.item_systems.item_system'
+local Passives = require 'src.item_systems.items.passives'
+local PassiveManager = require 'src.item_systems.passive_manager'
 
 -- Usar los tipos del sistema principal
+local CATEGORIES = ItemSystem.CATEGORIES
+local EQUIPABLE_TYPES = ItemSystem.EQUIPABLE_TYPES
 local ITEM_TYPES = ItemSystem.CATEGORIES
+
+-- Función centralizada para manejar efectos pasivos usando PassiveManager
+local function handlePassiveEffects(item, player, action)
+    if not item or not item.data or item.data.category ~= CATEGORIES.PASSIVE then
+        return
+    end
+    
+    if action == "apply" then
+        -- Generar un ID único para el item si no lo tiene
+        if not item.passiveId then
+            item.passiveId = PassiveManager.applyPassiveEffect(player, item.data)
+        else
+            -- Si ya tiene ID, intentar aplicar con ese ID (previene duplicaciones)
+            PassiveManager.applyPassiveEffect(player, item.data, item.passiveId)
+        end
+    elseif action == "remove" then
+        if item.passiveId then
+            PassiveManager.removePassiveEffect(item.passiveId)
+            item.passiveId = nil -- Limpiar el ID después de remover
+        end
+    end
+end
 
 -- Configuración de slots por tipo de nave
 local SHIP_INVENTORY_CONFIG = {
@@ -155,6 +182,18 @@ function InventorySystem:new(shipType)
         }
     }
     
+    -- Compartimento de items pasivos: 6 slots para items que otorgan efectos permanentes
+    inventory.compartments.passives = {
+        name = "passives",
+        maxSlots = 6,
+        items = { nil, nil, nil, nil, nil, nil },
+        allowedTypes = { passive = true },
+        description = "Items que otorgan efectos permanentes mientras están equipados"
+    }
+    
+    -- Inicializar PassiveManager
+    PassiveManager.initialize()
+    
     return inventory
 end
 
@@ -263,6 +302,13 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
     if name == "weapons" then
         return self:addWeaponToSlot(itemData, nil, quantity)
     end
+    
+    -- Validaciones específicas para compartimento de pasivos
+    if name == "passives" then
+        if not itemData or itemData.category ~= ItemSystem.CATEGORIES.PASSIVE then
+            return false
+        end
+    end
 
     -- Validación opcional de tipos permitidos en el compartimento
     if c.allowedTypes and itemData and itemData.category then
@@ -270,7 +316,8 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
         local categoryToEVAType = {
             ["consumable"] = "consumable",
             ["equipable"] = "tool",
-            ["material"] = "resource"
+            ["material"] = "resource",
+            ["passive"] = "passive"
         }
         local itemType = categoryToEVAType[itemData.category] or itemData.category
         if not c.allowedTypes[itemType] then
@@ -281,7 +328,14 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
     quantity = quantity or 1
     for i = 1, c.maxSlots do
         if not c.items[i] then
-            c.items[i] = { data = itemData, quantity = quantity }
+            local newItem = { data = itemData, quantity = quantity }
+            c.items[i] = newItem
+            
+            -- Aplicar efectos pasivos si se está agregando al compartimento de pasivos
+            if name == "passives" then
+                handlePassiveEffects(newItem, self.player, "apply")
+            end
+            
             return true
         end
     end
@@ -293,6 +347,12 @@ function InventorySystem:removeItemFromCompartment(name, slotIndex)
     if not c or not c.items then return nil end
     if slotIndex >= 1 and slotIndex <= c.maxSlots then
         local item = c.items[slotIndex]
+        
+        -- Remover efectos pasivos si se está removiendo del compartimento de pasivos
+        if name == "passives" then
+            handlePassiveEffects(item, self.player, "remove")
+        end
+        
         c.items[slotIndex] = nil
         return item
     end
@@ -339,6 +399,16 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
         end
     end
     
+    -- Validaciones especiales para el compartimento passives
+    if toName == "passives" then
+        if itemFrom then
+            -- Validar que es un item pasivo
+            if not itemFrom.data or itemFrom.data.category ~= ItemSystem.CATEGORIES.PASSIVE then
+                return false
+            end
+        end
+    end
+    
     if fromName == "weapons" then
         -- El slot 1 está reservado para arma por defecto y no se puede remover
         if fromSlot == 1 then
@@ -352,6 +422,24 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     end
     if fromC.allowedTypes and itemTo and itemTo.data and itemTo.data.type and not fromC.allowedTypes[itemTo.data.type] then
         return false
+    end
+
+    -- Manejar efectos pasivos antes de la transferencia
+    
+    -- Remover efectos de items que salen del compartimento de pasivos
+    if fromName == "passives" then
+        handlePassiveEffects(itemFrom, self.player, "remove")
+    end
+    if toName == "passives" and itemTo then
+        handlePassiveEffects(itemTo, self.player, "remove")
+    end
+    
+    -- Aplicar efectos de items que entran al compartimento de pasivos
+    if toName == "passives" then
+        handlePassiveEffects(itemFrom, self.player, "apply")
+    end
+    if fromName == "passives" and itemTo then
+        handlePassiveEffects(itemTo, self.player, "apply")
     end
 
     fromC.items[fromSlot] = itemTo

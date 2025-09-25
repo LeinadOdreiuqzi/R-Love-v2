@@ -1034,6 +1034,10 @@ function love.keypressed(key)
     --         local enabled = player.stats:toggleFastRegen()
     --         print("Fast shield regen: " .. (enabled and "ON" or "OFF"))
     --     end
+    elseif key == "m" then
+        -- Debug del PassiveManager
+        local PassiveManager = require 'src.item_systems.passive_manager'
+        PassiveManager.printDebugInfo()
     elseif key == "f12" then
         HUD.toggleBiomeInfo()
     elseif key == "f" then

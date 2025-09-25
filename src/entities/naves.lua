@@ -150,6 +150,7 @@ function Naves:new(x, y, shipType)
     
     -- Sistema de inventario
     player.inventory = InventorySystem:new(shipType)
+    player.inventory.player = player  -- Asignar referencia del jugador al inventario
     
     -- Sistema de armas con cambio rápido
     player.weaponSystem = WeaponSystem:new(player)
@@ -960,17 +961,36 @@ function Naves:loadShipState(state)
         if self.inventory then
             self.inventory.items = state.inventory.items or {}
             self.inventory.shipType = state.inventory.shipType or self.shipType
+            self.inventory.player = self  -- Asegurar referencia del jugador
         else
             -- Crear nuevo inventario con el estado guardado
             local InventorySystem = require 'src.maps.systems.inventory_system'
             self.inventory = InventorySystem:new(state.inventory.shipType or self.shipType)
             self.inventory.items = state.inventory.items or {}
+            self.inventory.player = self  -- Asignar referencia del jugador al inventario
         end
         -- Restaurar compartimentos si existen (especialmente EVA)
         if state.inventory.compartments and state.inventory.compartments.eva then
             if self.inventory.compartments and self.inventory.compartments.eva then
                 self.inventory.compartments.eva.maxSlots = state.inventory.compartments.eva.maxSlots or self.inventory.compartments.eva.maxSlots or 3
                 self.inventory.compartments.eva.items = state.inventory.compartments.eva.items or self.inventory.compartments.eva.items or { nil, nil, nil }
+            end
+        end
+        
+        -- Restaurar efectos pasivos después de cargar el inventario
+        if self.inventory and self.inventory.compartments and self.inventory.compartments.passives then
+            local PassiveManager = require 'src.item_systems.passive_manager'
+            PassiveManager.initialize()
+            
+            local passiveComp = self.inventory.compartments.passives
+            if passiveComp and passiveComp.items then
+                for slotIndex, item in pairs(passiveComp.items) do
+                    if item and item.data then
+                        -- Aplicar efecto pasivo con ID único basado en slot
+                        local uniqueId = "passive_slot_" .. slotIndex
+                        PassiveManager.applyPassiveEffect(item, self, uniqueId)
+                    end
+                end
             end
         end
     end

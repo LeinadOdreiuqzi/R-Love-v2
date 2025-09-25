@@ -95,10 +95,8 @@ function ItemInit.getAvailableRecipes(inventory)
     return Materials.getAvailableRecipes(inventory)
 end
 
--- Función para aplicar efectos pasivos del inventario
-function ItemInit.applyPassiveEffects(player, inventory)
-    return Passives.applyInventoryPassives(player, inventory)
-end
+-- NOTA: Las funciones de efectos pasivos ahora se manejan directamente
+-- a través del PassiveManager para evitar duplicaciones y centralizar la lógica
 
 -- Función para obtener el daño de un arma
 function ItemInit.getWeaponDamage(weapon)
