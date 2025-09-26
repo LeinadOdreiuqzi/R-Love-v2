@@ -598,7 +598,7 @@ function HUD.getSafeChunkCoords(worldX, worldY)
 end
 
 -- Dibujar todo el HUD
-function HUD.draw()
+function HUD.draw(inventoryOpen)
     local r, g, b, a = love.graphics.getColor()
     
     -- Panel de información unificada
@@ -620,13 +620,28 @@ function HUD.draw()
     HUD.drawCurrentSeedInfo()
     
     -- HUD del jugador (barras de vida, escudo, combustible)
+    -- Reducir opacidad cuando el inventario está abierto para evitar interferencias
     if player and player.stats then
+        if inventoryOpen then
+            -- Aplicar transparencia cuando el inventario está abierto
+            love.graphics.setColor(1, 1, 1, 0.7)
+        end
         HUD.drawPlayerHUD()
+        if inventoryOpen then
+            -- Restaurar opacidad
+            love.graphics.setColor(1, 1, 1, 1)
+        end
     end
     
-    -- HUD de armas
+    -- HUD de armas - también con transparencia cuando inventario está abierto
     if player and player.weaponSystem then
+        if inventoryOpen then
+            love.graphics.setColor(1, 1, 1, 0.7)
+        end
         WeaponHUD:draw(player)
+        if inventoryOpen then
+            love.graphics.setColor(1, 1, 1, 1)
+        end
     end
 
     -- Aviso contextual para entrar a estación

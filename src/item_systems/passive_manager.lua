@@ -352,6 +352,34 @@ function PassiveManager.reset()
         duplicationsBlocked = 0,
         orphanedEffectsCleaned = 0
     }
+    
+    -- Restaurar estadísticas del jugador a valores base
+    if player and player.stats then
+        -- Restaurar sistema de vida a valores base
+        if player.stats.health then
+            player.stats.health.maxHearts = 5      -- Valor base
+            player.stats.health.maxHealth = 10     -- Valor base (5 corazones * 2)
+            -- Ajustar vida actual si excede el nuevo máximo
+            player.stats.health.currentHealth = math.min(player.stats.health.currentHealth, player.stats.health.maxHealth)
+            -- Actualizar display de corazones
+            if player.stats.updateHeartDisplay then
+                player.stats:updateHeartDisplay()
+            end
+        end
+        
+        -- Limpiar modificadores pasivos
+        if player.passiveModifiers then
+            player.passiveModifiers = {}
+        end
+        
+        -- Limpiar resistencias
+        if player.resistances then
+            player.resistances = {}
+        end
+        
+        print("[PassiveManager] Estadísticas del jugador restauradas a valores base")
+    end
+    
     -- No resetear el flag initialized aquí
     print("[PassiveManager] Sistema reiniciado")
 end

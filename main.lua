@@ -583,10 +583,15 @@ function love.draw()
         _G.camera:unapply()
     end
     
-    -- Dibujar HUD (no afectado por la cámara)
-    HUD.draw()
+    -- Verificar si algún inventario está abierto
+    local inventoryOpen = (InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen()) or 
+                         (EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen())
     
-    -- Dibujar InventoryUI (no afectado por la cámara)
+    -- Dibujar HUD (no afectado por la cámara)
+    -- Pasar información de estado del inventario al HUD
+    HUD.draw(inventoryOpen)
+    
+    -- Dibujar InventoryUI (no afectado por la cámara) - se dibuja después del HUD para estar encima
     if InventoryUI and InventoryUI.draw then
         InventoryUI:draw(player)
     end
@@ -1230,6 +1235,22 @@ function changeSeedWithLoading(newSeed)
         ChunkManager.cleanup()
     end
     
+    -- Limpiar efectos pasivos y items pasivos
+    local PassiveManager = require 'src.item_systems.passive_manager'
+    PassiveManager.reset()
+    
+    -- También limpiar items pasivos del inventario para evitar que se vuelvan a aplicar
+    if player and player.inventory and player.inventory.compartments and player.inventory.compartments.passives then
+        local passiveComp = player.inventory.compartments.passives
+        if passiveComp and passiveComp.items then
+            for i = 1, passiveComp.maxSlots do
+                passiveComp.items[i] = nil
+            end
+        end
+    end
+    
+    print("Passive effects and items cleared for seed change")
+    
     -- Comenzar nueva carga usando la función creadora de iterador
     LoadingScreen.start(loadWorld, function()
         print("New world generated with seed: " .. newSeed)
@@ -1272,6 +1293,22 @@ function regenerateMap(seed)
         if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
     end
     gameState.inventoryMode = "none"
+    
+    -- Limpiar efectos pasivos y items pasivos antes de regenerar
+    local PassiveManager = require 'src.item_systems.passive_manager'
+    PassiveManager.reset()
+    
+    -- También limpiar items pasivos del inventario para evitar que se vuelvan a aplicar
+    if player and player.inventory and player.inventory.compartments and player.inventory.compartments.passives then
+        local passiveComp = player.inventory.compartments.passives
+        if passiveComp and passiveComp.items then
+            for i = 1, passiveComp.maxSlots do
+                passiveComp.items[i] = nil
+            end
+        end
+    end
+    
+    print("Passive effects and items cleared for map regeneration")
     
     -- Regenerar mapa con nueva semilla usando el sistema mejorado
     Map.regenerate(seed)

@@ -1616,6 +1616,12 @@ function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
     local worldItem = WorldItems.drop(itemData, playerWorldX, playerWorldY, targetWorldX, targetWorldY, quantity)
     
     if worldItem then
+        -- Remover el item del inventario original solo si se creó exitosamente en el mundo
+        local fromCompartment = self:getCompartmentName(uiState.draggedFromType)
+        if fromCompartment and player.inventory and player.inventory.removeItemFromCompartment then
+            player.inventory:removeItemFromCompartment(fromCompartment, uiState.draggedFromSlot)
+        end
+        
         print("[DROP] Item lanzado:", itemData.name, "x" .. quantity, "desde", 
               string.format("(%.1f, %.1f)", playerWorldX, playerWorldY), 
               "hacia", string.format("(%.1f, %.1f)", targetWorldX, targetWorldY))
