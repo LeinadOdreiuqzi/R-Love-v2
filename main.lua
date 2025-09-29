@@ -1126,7 +1126,7 @@ function love.keypressed(key)
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() and player and not player.isInEVA then
         InventoryUI:keypressed(key, player)
     end
-    
+    -- Para testear en grandes distancias
     if key == "0" then
         if player and player.toggleHyperTravel then
             local enabled = player:toggleHyperTravel(100000)
@@ -1244,7 +1244,14 @@ function changeSeedWithLoading(newSeed)
         local passiveComp = player.inventory.compartments.passives
         if passiveComp and passiveComp.items then
             for i = 1, passiveComp.maxSlots do
-                passiveComp.items[i] = nil
+                if passiveComp.items[i] then
+                    -- Usar el método apropiado para remover items pasivos (aunque ya se hizo reset)
+                    if player.inventory.removeItemFromCompartment then
+                        player.inventory:removeItemFromCompartment('passives', i)
+                    else
+                        passiveComp.items[i] = nil
+                    end
+                end
             end
         end
     end
@@ -1303,7 +1310,14 @@ function regenerateMap(seed)
         local passiveComp = player.inventory.compartments.passives
         if passiveComp and passiveComp.items then
             for i = 1, passiveComp.maxSlots do
-                passiveComp.items[i] = nil
+                if passiveComp.items[i] then
+                    -- Usar el método apropiado para remover items pasivos (aunque ya se hizo reset)
+                    if player.inventory.removeItemFromCompartment then
+                        player.inventory:removeItemFromCompartment('passives', i)
+                    else
+                        passiveComp.items[i] = nil
+                    end
+                end
             end
         end
     end
