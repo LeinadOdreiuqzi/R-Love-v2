@@ -506,9 +506,36 @@ function Naves:update(dt)
         self.dy = (self.dy / speed) * currentMaxSpeed
     end
     
-    -- Update position
-    self.x = self.x + self.dx * dt * 60
-    self.y = self.y + self.dy * dt * 60
+    -- Update position with phase restrictions
+    local newX = self.x + self.dx * dt * 60
+    local newY = self.y + self.dy * dt * 60
+    
+    -- Check phase system restrictions
+    local PhaseSystem = require 'src.gameplay.phase_system'
+    if PhaseSystem and PhaseSystem.config.restrictMovement then
+        local success, result = pcall(function()
+            return PhaseSystem.update(dt, newX, newY)
+        end)
+        
+        if success and result == "boundary_hit" then
+            -- Player hit phase boundary, clamp position
+            local clampedX, clampedY = PhaseSystem.clampPlayerToCurrentPhase(newX, newY)
+            self.x = clampedX
+            self.y = clampedY
+            
+            -- Apply friction to velocity when hitting boundary
+            self.dx = self.dx * 0.3
+            self.dy = self.dy * 0.3
+        else
+            -- Normal movement
+            self.x = newX
+            self.y = newY
+        end
+    else
+        -- No phase restrictions, normal movement
+        self.x = newX
+        self.y = newY
+    end
     
     -- Thruster particles have been removed
     

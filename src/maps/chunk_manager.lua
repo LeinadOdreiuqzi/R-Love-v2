@@ -6,6 +6,9 @@ local MapConfig = require 'src.maps.config.map_config'
 local MapGenerator = require 'src.maps.systems.map_generator'
 local VisibilityUtils = require 'src.maps.visibility_utils'
 
+-- Integración con sistema de fases
+local PhaseSystem = nil  -- Se cargará dinámicamente para evitar dependencias circulares
+
 -- Cache de configuración optimizada
 local configCache = {
     lastUpdate = 0,
@@ -268,8 +271,48 @@ function ChunkManager.init(seed)
     -- Inicializar gestión de memoria
     configCache.lastUpdate = 0
     
+    -- Cargar PhaseSystem dinámicamente
+    local success, phaseSystem = pcall(require, 'src.gameplay.phase_system')
+    if success then
+        PhaseSystem = phaseSystem
+        print("ChunkManager: Phase System integration enabled")
+    else
+        print("ChunkManager: Phase System not available, running without phase limits")
+    end
+    
     print("ChunkManager initialized with pool size: " .. ChunkManager.config.poolSize)
     print("Adaptive Memory Management: " .. (ChunkManager.config.memoryManagement.enabled and "ON" or "OFF"))
+end
+
+-- Verificar si un chunk está dentro de los límites de la fase actual
+function ChunkManager.isChunkInCurrentPhase(chunkX, chunkY)
+    if not PhaseSystem then return true end  -- Sin límites si no hay PhaseSystem
+    
+    -- Convertir coordenadas de chunk a coordenadas de mundo
+    local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
+        * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
+    local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+    local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+    local strideScaled = stride * ws
+    
+    -- CORRECCIÓN: Calcular el CENTRO del chunk en coordenadas de mundo
+    -- En lugar de usar la esquina (chunkX * strideScaled), usar el centro
+    local worldX = chunkX * strideScaled + (strideScaled / 2)
+    local worldY = chunkY * strideScaled + (strideScaled / 2)
+    
+    -- Verificar si está dentro de la fase actual
+    return PhaseSystem.isPositionInCurrentPhase(worldX, worldY)
+end
+
+-- Callback cuando se expande una fase
+function ChunkManager.onPhaseExpanded(oldPhase, newPhase, newBounds)
+    print("ChunkManager: Phase expanded from " .. oldPhase .. " to " .. newPhase)
+    print("ChunkManager: New bounds - " .. newBounds.minX .. " to " .. newBounds.maxX)
+    
+    -- Aquí se puede implementar lógica adicional como:
+    -- - Precargar chunks en los nuevos límites
+    -- - Limpiar chunks que ya no son necesarios
+    -- - Ajustar prioridades de carga
 end
 
 -- Crear chunk vacío
@@ -598,6 +641,11 @@ end
 -- Solicitar carga de chunk
 function ChunkManager.requestChunkLoad(chunkX, chunkY, playerX, playerY, playerVelX, playerVelY)
     local chunkId = ChunkManager.generateChunkId(chunkX, chunkY)
+    
+    -- Verificar límites de fase ANTES de procesar
+    if not ChunkManager.isChunkInCurrentPhase(chunkX, chunkY) then
+        return nil  -- Chunk fuera de los límites de la fase actual
+    end
     
     -- Verificar si ya está en cola de carga
     for _, request in ipairs(ChunkManager.state.loadQueue) do

@@ -649,6 +649,9 @@ function HUD.draw(inventoryOpen)
         HUD.drawStationHint()
     end
     
+    -- Feedback visual del sistema de fases
+    HUD.drawPhaseVisualFeedback()
+    
     -- Menú de debug unificado
     if hudState.showDebugMenu then
         HUD.drawDebugMenu()
@@ -751,6 +754,259 @@ function HUD.drawStationHint()
     -- Información de estado
     love.graphics.setColor(stateColor[1], stateColor[2], stateColor[3], 0.9)
     love.graphics.print(stateText, px + (maxWidth - stateWidth) * 0.5, py + promptHeight + infoHeight + 8)
+end
+
+-- Feedback visual del sistema de fases
+function HUD.drawPhaseVisualFeedback()
+    -- Obtener información del sistema de fases
+    local phaseInfo = nil
+    pcall(function()
+        local PhaseSystem = require 'src.gameplay.phase_system'
+        if PhaseSystem and PhaseSystem.getHUDInfo then
+            phaseInfo = PhaseSystem.getHUDInfo()
+        end
+    end)
+    
+    if not phaseInfo then return end
+    
+    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+    local t = love.timer.getTime()
+    
+    -- Feedback visual para proximidad al borde
+    if phaseInfo.status == "Near boundary" or phaseInfo.status == "At boundary" then
+        -- Efecto de pulso más intenso para "At boundary"
+        local pulseSpeed = phaseInfo.status == "At boundary" and 6 or 3
+        local pulse = 0.3 + 0.7 * math.abs(math.sin(t * pulseSpeed))
+        
+        -- Color basado en el estado
+        local r, g, b = 1, 1, 0.3  -- Amarillo para "Near boundary"
+        if phaseInfo.status == "At boundary" then
+            r, g, b = 1, 0.3, 0.3  -- Rojo para "At boundary"
+        end
+        
+        -- Borde de pantalla pulsante
+        local borderWidth = 8
+        love.graphics.setColor(r, g, b, pulse * 0.6)
+        
+        -- Bordes superior e inferior
+        love.graphics.rectangle("fill", 0, 0, w, borderWidth)
+        love.graphics.rectangle("fill", 0, h - borderWidth, w, borderWidth)
+        
+        -- Bordes izquierdo y derecho
+        love.graphics.rectangle("fill", 0, 0, borderWidth, h)
+        love.graphics.rectangle("fill", w - borderWidth, 0, borderWidth, h)
+        
+        -- Mensaje de advertencia centrado
+        local warningText = phaseInfo.status == "At boundary" and "PHASE BOUNDARY REACHED!" or "APPROACHING PHASE BOUNDARY"
+        local font = hudState.font or love.graphics.getFont()
+        local textWidth = font:getWidth(warningText)
+        local textHeight = font:getHeight()
+        
+        -- Fondo del mensaje
+        local msgPadding = 20
+        local msgX = (w - textWidth) * 0.5 - msgPadding
+        local msgY = 80
+        local msgW = textWidth + msgPadding * 2
+        local msgH = textHeight + msgPadding
+        
+        love.graphics.setColor(0, 0, 0, pulse * 0.8)
+        love.graphics.rectangle("fill", msgX, msgY, msgW, msgH, 8, 8)
+        
+        -- Borde del mensaje
+        love.graphics.setColor(r, g, b, pulse)
+        love.graphics.rectangle("line", msgX, msgY, msgW, msgH, 8, 8)
+        
+        -- Texto del mensaje
+        love.graphics.setColor(r, g, b, 1)
+        love.graphics.setFont(font)
+        love.graphics.print(warningText, msgX + msgPadding, msgY + msgPadding * 0.5)
+        
+        -- Información adicional
+        if phaseInfo.distanceToBoundary then
+            local distText = "Distance: " .. phaseInfo.distanceToBoundary
+            local distWidth = font:getWidth(distText)
+            love.graphics.setColor(1, 1, 1, pulse * 0.9)
+            love.graphics.print(distText, (w - distWidth) * 0.5, msgY + msgH + 10)
+        end
+    end
+    
+    -- Feedback visual para liberación del mapa
+    if phaseInfo.showUnlockPrompt then
+        local pulse = 0.4 + 0.6 * math.abs(math.sin(t * 2))
+        
+        -- Mensaje de liberación prominente
+        local unlockText = "PRESS E TO UNLOCK FULL MAP!"
+        local subText = "Final phase boundary reached"
+        local font = hudState.font or love.graphics.getFont()
+        local smallFont = hudState.smallFont or font
+        
+        local mainWidth = font:getWidth(unlockText)
+        local subWidth = smallFont:getWidth(subText)
+        local maxWidth = math.max(mainWidth, subWidth)
+        
+        -- Posición centrada en la pantalla
+        local msgPadding = 30
+        local msgX = (w - maxWidth) * 0.5 - msgPadding
+        local msgY = h * 0.4
+        local msgW = maxWidth + msgPadding * 2
+        local msgH = font:getHeight() + smallFont:getHeight() + msgPadding * 1.5
+        
+        -- Fondo con efecto de brillo
+        love.graphics.setColor(0, 0.2, 0.4, pulse * 0.9)
+        love.graphics.rectangle("fill", msgX, msgY, msgW, msgH, 12, 12)
+        
+        -- Borde brillante
+        love.graphics.setColor(0.2, 0.8, 1, pulse)
+        love.graphics.setLineWidth(3)
+        love.graphics.rectangle("line", msgX, msgY, msgW, msgH, 12, 12)
+        love.graphics.setLineWidth(1)
+        
+        -- Texto principal
+        love.graphics.setColor(0.8, 1, 1, 1)
+        love.graphics.setFont(font)
+        love.graphics.print(unlockText, (w - mainWidth) * 0.5, msgY + msgPadding * 0.5)
+        
+        -- Subtexto
+        love.graphics.setColor(0.6, 0.9, 1, 0.8)
+        love.graphics.setFont(smallFont)
+        love.graphics.print(subText, (w - subWidth) * 0.5, msgY + font:getHeight() + msgPadding * 0.8)
+        
+        -- Efectos de partículas simples (puntos brillantes)
+        for i = 1, 8 do
+            local angle = (t * 2 + i * math.pi / 4) % (math.pi * 2)
+            local radius = 60 + 20 * math.sin(t * 3 + i)
+            local px = w * 0.5 + math.cos(angle) * radius
+            local py = msgY + msgH * 0.5 + math.sin(angle) * radius * 0.5
+            
+            love.graphics.setColor(0.4, 0.8, 1, pulse * 0.7)
+            love.graphics.circle("fill", px, py, 3)
+        end
+    end
+    
+    -- Feedback visual para mapa completamente liberado
+    if phaseInfo.mapFullyUnlocked then
+        local fadeTime = 3.0  -- Mostrar por 3 segundos después de liberar
+        local alpha = math.max(0, 1 - (t % 10) / fadeTime)  -- Se desvanece cada 10 segundos
+        
+        if alpha > 0 then
+            local celebrationText = "MAP FULLY UNLOCKED!"
+            local subText = "Infinite exploration enabled"
+            local font = hudState.font or love.graphics.getFont()
+            local smallFont = hudState.smallFont or font
+            
+            local mainWidth = font:getWidth(celebrationText)
+            local subWidth = smallFont:getWidth(subText)
+            
+            -- Mensaje de celebración en la parte superior
+            love.graphics.setColor(0.2, 1, 0.2, alpha * 0.9)
+            love.graphics.setFont(font)
+            love.graphics.print(celebrationText, (w - mainWidth) * 0.5, 30)
+            
+            love.graphics.setColor(0.6, 1, 0.6, alpha * 0.7)
+            love.graphics.setFont(smallFont)
+            love.graphics.print(subText, (w - subWidth) * 0.5, 30 + font:getHeight() + 5)
+        end
+    end
+    
+    -- Feedback visual para expansiones de fase recientes
+    if phaseInfo.recentExpansion then
+        local progress = 1 - (phaseInfo.expansionTimer / 3.0)  -- 3 segundos de duración
+        local pulse = 0.5 + 0.5 * math.sin(t * 4)
+        local alpha = math.max(0, 1 - progress * 0.7)  -- Se desvanece gradualmente
+        
+        -- Mensaje de celebración de expansión
+        local expansionText = "PHASE " .. phaseInfo.lastExpandedPhase .. " UNLOCKED!"
+        local subText = "New area available for exploration"
+        local font = hudState.font or love.graphics.getFont()
+        local smallFont = hudState.smallFont or font
+        
+        local mainWidth = font:getWidth(expansionText)
+        local subWidth = smallFont:getWidth(subText)
+        local maxWidth = math.max(mainWidth, subWidth)
+        
+        -- Posición centrada en la pantalla
+        local msgPadding = 25
+        local msgX = (w - maxWidth) * 0.5 - msgPadding
+        local msgY = h * 0.3
+        local msgW = maxWidth + msgPadding * 2
+        local msgH = font:getHeight() + smallFont:getHeight() + msgPadding * 1.5
+        
+        -- Fondo con efecto de brillo
+        love.graphics.setColor(0.1, 0.4, 0.1, alpha * pulse * 0.8)
+        love.graphics.rectangle("fill", msgX, msgY, msgW, msgH, 10, 10)
+        
+        -- Borde brillante
+        love.graphics.setColor(0.2, 1, 0.2, alpha * pulse)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", msgX, msgY, msgW, msgH, 10, 10)
+        love.graphics.setLineWidth(1)
+        
+        -- Texto principal
+        love.graphics.setColor(0.8, 1, 0.8, alpha)
+        love.graphics.setFont(font)
+        love.graphics.print(expansionText, (w - mainWidth) * 0.5, msgY + msgPadding * 0.5)
+        
+        -- Subtexto
+        love.graphics.setColor(0.6, 1, 0.6, alpha * 0.8)
+        love.graphics.setFont(smallFont)
+        love.graphics.print(subText, (w - subWidth) * 0.5, msgY + font:getHeight() + msgPadding * 0.8)
+        
+        -- Efectos de partículas de celebración
+        for i = 1, 6 do
+            local angle = (t * 3 + i * math.pi / 3) % (math.pi * 2)
+            local radius = 50 + 15 * math.sin(t * 2 + i)
+            local px = w * 0.5 + math.cos(angle) * radius
+            local py = msgY + msgH * 0.5 + math.sin(angle) * radius * 0.3
+            
+            love.graphics.setColor(0.3, 1, 0.3, alpha * pulse * 0.8)
+            love.graphics.circle("fill", px, py, 2 + math.sin(t * 5 + i))
+        end
+    end
+    
+    -- Prompt para expandir el mapa (fases normales)
+    if phaseInfo.showExpansionPrompt then
+        local pulse = 0.6 + 0.4 * math.sin(t * 3)
+        
+        -- Mensaje de prompt de expansión
+        local promptText = "E para expandir el mapa"
+        local font = hudState.smallFont or love.graphics.getFont()
+        local textWidth = font:getWidth(promptText)
+        local textHeight = font:getHeight()
+        
+        -- Posición en la parte inferior de la pantalla
+        local msgPadding = 15
+        local msgX = (w - textWidth) * 0.5 - msgPadding
+        local msgY = h - 120
+        local msgW = textWidth + msgPadding * 2
+        local msgH = textHeight + msgPadding
+        
+        -- Fondo semi-transparente
+        love.graphics.setColor(0.2, 0.3, 0.5, pulse * 0.7)
+        love.graphics.rectangle("fill", msgX, msgY, msgW, msgH, 6, 6)
+        
+        -- Borde brillante
+        love.graphics.setColor(0.4, 0.7, 1, pulse)
+        love.graphics.rectangle("line", msgX, msgY, msgW, msgH, 6, 6)
+        
+        -- Texto del prompt
+        love.graphics.setColor(0.8, 0.9, 1, pulse)
+        love.graphics.setFont(font)
+        love.graphics.print(promptText, msgX + msgPadding, msgY + msgPadding * 0.5)
+        
+        -- Indicador visual de la tecla E
+        local keySize = 20
+        local keyX = msgX - keySize - 10
+        local keyY = msgY + (msgH - keySize) * 0.5
+        
+        love.graphics.setColor(0.3, 0.5, 0.8, pulse * 0.8)
+        love.graphics.rectangle("fill", keyX, keyY, keySize, keySize, 3, 3)
+        love.graphics.setColor(0.6, 0.8, 1, pulse)
+        love.graphics.rectangle("line", keyX, keyY, keySize, keySize, 3, 3)
+        
+        love.graphics.setColor(1, 1, 1, pulse)
+        love.graphics.setFont(hudState.smallFont or font)
+        love.graphics.print("E", keyX + 6, keyY + 3)
+    end
 end
 
 -- Panel de información de biomas optimizado
@@ -1105,6 +1361,52 @@ function HUD.drawUnifiedInfoPanel()
         love.graphics.print("Grid: OFF", x + 15, infoY)
     end
     infoY = infoY + lineHeight
+    
+    -- Información del sistema de fases
+    pcall(function()
+        local PhaseSystem = require 'src.gameplay.phase_system'
+        if PhaseSystem and PhaseSystem.getHUDInfo then
+            local phaseInfo = PhaseSystem.getHUDInfo()
+            if phaseInfo then
+                -- Título de la fase
+                love.graphics.setColor(0.8, 1, 1, 1)
+                love.graphics.print("Phase: " .. phaseInfo.currentPhase .. "/" .. phaseInfo.totalPhases, x + 15, infoY)
+                infoY = infoY + lineHeight
+                
+                -- Estado actual con colores
+                if phaseInfo.status == "Can expand (Press E)" then
+                    love.graphics.setColor(0.2, 1, 0.2, 1)  -- Verde brillante
+                elseif phaseInfo.status == "At boundary" then
+                    love.graphics.setColor(1, 0.3, 0.3, 1)  -- Rojo
+                elseif phaseInfo.status == "Near boundary" then
+                    love.graphics.setColor(1, 1, 0.3, 1)    -- Amarillo
+                else
+                    love.graphics.setColor(0.8, 0.8, 0.8, 1) -- Gris
+                end
+                love.graphics.print("Status: " .. phaseInfo.status, x + 15, infoY)
+                infoY = infoY + lineHeight
+                
+                -- Distancia al límite
+                if phaseInfo.distanceToBoundary then
+                    love.graphics.setColor(0.7, 0.9, 1, 1)
+                    love.graphics.print("Distance to boundary: " .. phaseInfo.distanceToBoundary, x + 15, infoY)
+                    infoY = infoY + lineHeight
+                end
+                
+                -- Coordenadas del mundo
+                if phaseInfo.worldPosition then
+                    love.graphics.setColor(0.6, 0.8, 0.9, 1)
+                    love.graphics.print("World: (" .. phaseInfo.worldPosition.x .. ", " .. phaseInfo.worldPosition.y .. ")", x + 15, infoY)
+                    infoY = infoY + lineHeight
+                end
+                
+                -- Límites de la fase actual
+                love.graphics.setColor(0.8, 0.8, 0.8, 1)
+                love.graphics.print("Bounds: " .. phaseInfo.boundsString, x + 15, infoY)
+                infoY = infoY + lineHeight
+            end
+        end
+    end)
     
     -- Estadísticas de renderizado si están disponibles
     local renderStats = stats.rendering or stats.renderStats

@@ -628,6 +628,12 @@ end
 
 -- Verificar límites del mundo
 function BiomeSystem.isWithinWorldLimits(x, y)
+    -- Si el mapa está completamente desbloqueado, no aplicar límites
+    local success, PhaseSystem = pcall(require, 'src.gameplay.phase_system')
+    if success and PhaseSystem and PhaseSystem.isMapFullyUnlocked and PhaseSystem.isMapFullyUnlocked() then
+        return true  -- Sin límites cuando el mapa está completamente desbloqueado
+    end
+    
     return math.abs(x) <= BiomeSystem.WORLD_LIMIT and math.abs(y) <= BiomeSystem.WORLD_LIMIT
 end
 

@@ -81,6 +81,17 @@ function Map.init(seed)
         print("Warning: ChunkManager not available")
     end
     
+    -- Inicializar sistema de fases
+    local phaseSuccess = pcall(function()
+        local PhaseSystem = require 'src.gameplay.phase_system'
+        PhaseSystem.init()
+        -- Registrar callback para expansión de fases
+        PhaseSystem.onPhaseExpanded = ChunkManager.onPhaseExpanded
+    end)
+    if not phaseSuccess then
+        print("Warning: PhaseSystem not available")
+    end
+    
     local rendererSuccess, rendererErr = pcall(function()
         if not OptimizedRenderer or not OptimizedRenderer.init then
             error("OptimizedRenderer.init is missing")
@@ -135,6 +146,14 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
     pcall(function()
         if ChunkManager and ChunkManager.update then
             ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
+        end
+    end)
+    
+    -- Actualizar sistema de fases
+    pcall(function()
+        local PhaseSystem = require 'src.gameplay.phase_system'
+        if PhaseSystem and PhaseSystem.update then
+            PhaseSystem.update(dt, playerX, playerY)
         end
     end)
     

@@ -24,6 +24,7 @@ local WorldItems = require 'src.item_systems.world_items'
 -- Nuevos módulos de gameplay (esqueleto, sin efectos en comportamiento)
 local RunState = require 'src.gameplay.run_state'
 local GameDirector = require 'src.gameplay.game_director'
+local PhaseSystem = require 'src.gameplay.phase_system'
 
 -- Sistema de física Box2D
 local PhysicsManager = require 'src.physics.physics_manager'
@@ -284,7 +285,9 @@ local function loadWorld(updateProgress)
     end
 end
 
-function love.load()
+function love.load(args)
+
+    
     love.graphics.setDefaultFilter("nearest", "nearest")
     
     -- Inicializar FullscreenManager después de configurar los filtros
@@ -1081,6 +1084,13 @@ function love.keypressed(key)
             player:addFuel(25)
             print("Fuel added")
         end
+    elseif key == "e" then
+        -- Manejo de expansión de fases
+        pcall(function()
+            if PhaseSystem and PhaseSystem.handleInput then
+                PhaseSystem.handleInput(key)
+            end
+        end)
     elseif key == "tab" then
         -- Control centralizado de inventarios basado en inventoryMode y estado EVA
         if not player then return end
