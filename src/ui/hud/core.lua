@@ -11,6 +11,7 @@ hudState = {
   showSeedInput = false,
   showBiomeInfo = true,
   showDebugMenu = false,
+  phaseVisualsEnabled = true,
   seedInputText = "",
   font = nil,
   smallFont = nil,
@@ -45,6 +46,11 @@ hudState = {
     screenY = 0
   }
 }
+
+-- Permitir activar/desactivar visuales de fases (para subniveles)
+function HUD.setPhaseVisualsEnabled(enabled)
+  hudState.phaseVisualsEnabled = not not enabled
+end
 
 -- Sistema de semillas alfanuméricas integrado (idéntico al original)
 SeedSystem = {

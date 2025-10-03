@@ -1367,9 +1367,18 @@ function Naves:shoot(mouseX, mouseY)
     -- Calcular ángulo de disparo
     local angle = math.atan2(dy, dx)
     
-    -- Crear el proyectil
+    -- Crear el proyectil, aplicando límites si estamos en subnivel
+    local custom_config = nil
+    local ok, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
+    if ok and SubLevelManager and SubLevelManager.getStatus then
+        local status = SubLevelManager.getStatus()
+        if status and status.active then
+            custom_config = { world_bounds = { min_x = -20000, max_x = 20000, min_y = -20000, max_y = 20000 } }
+        end
+    end
+
     local BasicRedProjectile = require('src.physics.projectiles.types.basic_red_projectile')
-    local projectile = BasicRedProjectile.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle)
+    local projectile = BasicRedProjectile.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle, nil, custom_config)
     
     -- Agregar el proyectil al sistema de física
     if projectile and _G.physicsManager.addProjectile then

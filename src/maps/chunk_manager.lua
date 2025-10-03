@@ -286,6 +286,31 @@ end
 
 -- Verificar si un chunk está dentro de los límites de la fase actual
 function ChunkManager.isChunkInCurrentPhase(chunkX, chunkY)
+    -- Si estamos en modo subnivel, aplicar límites propios del subnivel (sin PhaseSystem)
+    if MapGenerator and MapGenerator.subLevelMode and MapGenerator.subLevelMode.active and MapGenerator.subLevelMode.config then
+        local cfg = MapGenerator.subLevelMode.config
+        local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
+            * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
+        local stride = sizePixels + ((MapConfig and MapConfig.chunk and MapConfig.chunk.spacing) or 0)
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        local strideScaled = stride * ws
+
+        local ex = (cfg.entry and cfg.entry.x) or 0
+        local ey = (cfg.entry and cfg.entry.y) or 0
+        local entryChunkX = math.floor(ex / strideScaled)
+        local entryChunkY = math.floor(ey / strideScaled)
+        local w = (cfg.size and cfg.size.width) or 8
+        local h = (cfg.size and cfg.size.height) or 8
+        local halfW = math.floor(w / 2)
+        local halfH = math.floor(h / 2)
+        local minX = entryChunkX - halfW
+        local minY = entryChunkY - halfH
+        local maxX = minX + w - 1
+        local maxY = minY + h - 1
+
+        return chunkX >= minX and chunkX <= maxX and chunkY >= minY and chunkY <= maxY
+    end
+
     if not PhaseSystem then return true end  -- Sin límites si no hay PhaseSystem
     
     -- Convertir coordenadas de chunk a coordenadas de mundo

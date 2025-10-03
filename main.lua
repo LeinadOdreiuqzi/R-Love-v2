@@ -15,6 +15,8 @@ local LoadingScreen = require 'src.ui.loading_screen'
 local FullscreenManager = require 'src.utils.fullscreen_manager'
 local StateManager = require 'src.states.state_manager'
 local StationScene = require 'src.states.station_scene'
+local SubLevelScene = require 'src.sublevels.sublevel_scene'
+local SubLevelManager = require 'src.maps.systems.sublevel_manager'
 local stateManager = StateManager:new()
 
 -- Sistema de items
@@ -1196,6 +1198,22 @@ function love.keypressed(key)
         end
         end -- Cerrar el bloque if not collected
 
+    elseif key == "u" then
+        -- Entrar a escena de subnivel (mapa limitado) de prueba
+        local SeedSystem = require 'src.utils.seed_system'
+        local currentSeed = gameState.currentSeed
+        local px, py = 0, 0
+        if player and player.x and player.y then px, py = player.x, player.y end
+        local cfg = SubLevelManager.createConfig({
+            parentSeed = currentSeed,
+            type = SubLevelManager.Types.Generic,
+            cx = math.floor(px / (Map.stride or 1)),
+            cy = math.floor(py / (Map.stride or 1)),
+            width = 8, height = 8,
+            entryX = 0, entryY = 0,
+        })
+        local scene = SubLevelScene:new(cfg)
+        stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
     end
 end
 

@@ -9,6 +9,82 @@ local ColorHarmony = require 'src.utils.color_harmony'
 local SeedSystem = require 'src.utils.seed_system'
 
 MapGenerator.debugLogs = false
+
+-- Estado de modo subnivel (sencillo y extensible)
+MapGenerator.subLevelMode = { active = false, config = nil }
+
+function MapGenerator.setSubLevelMode(active, config)
+    MapGenerator.subLevelMode.active = not not active
+    MapGenerator.subLevelMode.config = config
+end
+
+-- Generación mínima para chunks de subnivel (esqueleto)
+function MapGenerator.generateSubLevelChunk(chunkX, chunkY, cfg, rng)
+    -- Limitar generación a los límites del subnivel
+    do
+        local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+        local spacing = MapConfig.chunk.spacing or 0
+        local stride = sizePixels + spacing
+        local ws = MapConfig.chunk.worldScale or 1
+        local strideScaled = stride * ws
+        local ex = (cfg and cfg.entry and cfg.entry.x) or 0
+        local ey = (cfg and cfg.entry and cfg.entry.y) or 0
+        local entryChunkX = math.floor(ex / strideScaled)
+        local entryChunkY = math.floor(ey / strideScaled)
+        local w = (cfg and cfg.size and cfg.size.width) or 8
+        local h = (cfg and cfg.size and cfg.size.height) or 8
+        local halfW = math.floor(w / 2)
+        local halfH = math.floor(h / 2)
+        local minX = entryChunkX - halfW
+        local minY = entryChunkY - halfH
+        local maxX = minX + w - 1
+        local maxY = minY + h - 1
+        if chunkX < minX or chunkX > maxX or chunkY < minY or chunkY > maxY then
+            -- Fuera de límites: devolver chunk vacío ligero
+            local c = { x = chunkX, y = chunkY, tiles = {}, objects = {stars = {}, nebulae = {}}, specialObjects = {} }
+            local size = MapConfig.chunk.size
+            for yy = 0, size - 1 do
+                c.tiles[yy] = {}
+                for xx = 0, size - 1 do c.tiles[yy][xx] = MapConfig.ObjectType.EMPTY end
+            end
+            c.biome = { type = BiomeSystem.BiomeType.DEEP_SPACE, name = "SubLevel-Empty" }
+            return c
+        end
+    end
+
+    local chunk = {
+        x = chunkX,
+        y = chunkY,
+        tiles = {},
+        objects = {stars = {}, nebulae = {}},
+        specialObjects = {},
+        biome = { type = BiomeSystem.BiomeType.ANCIENT_RUINS, name = "SubLevel" },
+        bounds = (function()
+            local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+            local spacing = MapConfig.chunk.spacing or 0
+            local stride = sizePixels + spacing
+            local ws = MapConfig.chunk.worldScale or 1
+            local left = chunkX * stride * ws
+            local top = chunkY * stride * ws
+            return {left = left, top = top, right = left + stride * ws, bottom = top + stride * ws}
+        end)()
+    }
+
+    -- Inicializar vacío
+    local size = MapConfig.chunk.size
+    for y = 0, size - 1 do
+        chunk.tiles[y] = {}
+        for x = 0, size - 1 do
+            chunk.tiles[y][x] = MapConfig.ObjectType.EMPTY
+        end
+    end
+
+    -- Esqueleto: generar unas pocas estrellas para visualización
+    local densities = MapConfig.density or { stars = 0.1 }
+    MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities, rng or SeedSystem.makeRNG(0))
+
+    return chunk
+end
 -- Función de ruido multi-octava
 function MapGenerator.multiOctaveNoise(x, y, octaves, persistence, scale)
 
@@ -1005,6 +1081,12 @@ end
 
 -- Generar chunk completo
 function MapGenerator.generateChunk(chunkX, chunkY)
+    -- Despachar a modo subnivel si está activo
+    if MapGenerator.subLevelMode and MapGenerator.subLevelMode.active then
+        local cfg = MapGenerator.subLevelMode.config or {}
+        local rng = SeedSystem.makeRNG(cfg.numericSeed or 0)
+        return MapGenerator.generateSubLevelChunk(chunkX, chunkY, cfg, rng)
+    end
     local chunk = {
         x = chunkX,
         y = chunkY,

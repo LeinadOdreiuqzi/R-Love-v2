@@ -13,6 +13,10 @@ end
 
 -- Obtener los límites de la fase actual
 function PhaseSystem.getCurrentPhaseBounds()
+    -- Permitir límites temporales para modos especiales (p.ej., subniveles)
+    if PhaseSystem.state and PhaseSystem.state.temporaryBounds then
+        return PhaseSystem.state.temporaryBounds
+    end
     return PhaseSystem.getPhaseBounds(PhaseSystem.state.currentPhase)
 end
 

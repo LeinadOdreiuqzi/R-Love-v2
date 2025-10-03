@@ -334,6 +334,22 @@ function WeaponSystem:shoot(mouseX, mouseY)
     
     -- Calcular ángulo de disparo
     local angle = math.atan2(dy, dx)
+
+    -- Si estamos dentro de un subnivel, aplicar límites de mundo a proyectiles
+    local custom_config = nil
+    local inSublevel = false
+    local bounds = nil
+    local ok, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
+    if ok and SubLevelManager and SubLevelManager.getStatus then
+        local status = SubLevelManager.getStatus()
+        if status and status.active then
+            inSublevel = true
+            bounds = { min_x = -20000, max_x = 20000, min_y = -20000, max_y = 20000 }
+        end
+    end
+    if inSublevel and bounds then
+        custom_config = { world_bounds = bounds }
+    end
     
     -- Crear el proyectil usando el tipo del arma actual
     local weaponId = self.currentWeapon.id
@@ -357,7 +373,7 @@ function WeaponSystem:shoot(mouseX, mouseY)
             pelletAngle = pelletAngle + (math.random() - 0.5) * 0.1
             
             -- Crear proyectil individual
-            local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, pelletAngle)
+            local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, pelletAngle, nil, custom_config)
             
             -- Agregar el proyectil al sistema de física
             if projectile and _G.physicsManager.addProjectile then
@@ -373,7 +389,7 @@ function WeaponSystem:shoot(mouseX, mouseY)
         end
     else
         -- Disparo normal para otras armas
-        local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle)
+        local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle, nil, custom_config)
         
         -- Agregar el proyectil al sistema de física
         if projectile and _G.physicsManager.addProjectile then

@@ -42,7 +42,9 @@ function HUD.draw(inventoryOpen)
         HUD.drawStationHint()
     end
     
-    HUD.drawPhaseVisualFeedback()
+    if hudState.phaseVisualsEnabled then
+        HUD.drawPhaseVisualFeedback()
+    end
     
     if hudState.showDebugMenu then
         HUD.drawDebugMenu()
