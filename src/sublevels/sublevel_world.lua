@@ -10,6 +10,13 @@ local SeedSystem = require 'src.utils.seed_system'
 local SublevelWorld = {}
 SublevelWorld.__index = SublevelWorld
 
+-- Presupuestos de generación/culling específicos para subnivel
+SublevelWorld.config = {
+    marginPx = 180,         -- margen de pantalla más pequeño que el mapa principal
+    preloadRing = 1,        -- anillo de precarga reducido
+    maxChunksPerFrame = 6   -- presupuesto de generación por frame
+}
+
 function SublevelWorld.new(cfg)
     local o = setmetatable({}, SublevelWorld)
     o.cfg = cfg or {}
@@ -56,6 +63,36 @@ function SublevelWorld:update(dt, player)
     if player then
         self.lastPlayerPosition.x = player.x or self.lastPlayerPosition.x
         self.lastPlayerPosition.y = player.y or self.lastPlayerPosition.y
+    end
+
+    -- Precarga limitada de chunks alrededor de la cámara para evitar sobrecarga
+    local camera = _G.camera
+    if not camera then return end
+
+    local sizePixels = (MapConfig.chunk.size or 64) * (MapConfig.chunk.tileSize or 32)
+    local spacing = MapConfig.chunk.spacing or 0
+    local stride = (sizePixels + spacing) * (MapConfig.chunk.worldScale or 1)
+
+    local centerChunkX = math.floor((camera.x or 0) / stride)
+    local centerChunkY = math.floor((camera.y or 0) / stride)
+
+    local generated = 0
+    for dx = -1, 1 do
+        for dy = -1, 1 do
+            if generated >= (SublevelWorld.config.maxChunksPerFrame or 6) then break end
+            local cx = centerChunkX + dx
+            local cy = centerChunkY + dy
+            if self:isChunkInBounds(cx, cy) then
+                self.chunks[cx] = self.chunks[cx] or {}
+                if not self.chunks[cx][cy] then
+                    local chunk = self:getChunkNonBlocking(cx, cy)
+                    if chunk then
+                        generated = generated + 1
+                    end
+                end
+            end
+        end
+        if generated >= (SublevelWorld.config.maxChunksPerFrame or 6) then break end
     end
 end
 

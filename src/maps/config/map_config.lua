@@ -107,7 +107,9 @@ MapConfig.ObjectType = {
     WORMHOLE = 6,
     STAR = 7,
     SPECIAL_FEATURE = 8,
-    BIOME_TRANSITION = 9
+    BIOME_TRANSITION = 9,
+    -- Declaración del nuevo objeto especial: entrada a subnivel
+    SUBLEVEL_ENTRANCE = 10
 }
 
 -- Paleta de colores

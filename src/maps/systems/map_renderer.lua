@@ -1277,7 +1277,7 @@ function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
                 local chunkBaseY = chunkY * STRIDE * MapConfig.chunk.worldScale
                 for _, obj in ipairs(chunk.specialObjects) do
                     if rendered >= maxSpecialPerFrame then return rendered end
-                    if obj.type == MapConfig.ObjectType.STATION or obj.type == MapConfig.ObjectType.WORMHOLE then
+                    if obj.type == MapConfig.ObjectType.STATION or obj.type == MapConfig.ObjectType.WORMHOLE or obj.type == MapConfig.ObjectType.SUBLEVEL_ENTRANCE then
                         local worldX = chunkBaseX + obj.x * MapConfig.chunk.worldScale
                         local worldY = chunkBaseY + obj.y * MapConfig.chunk.worldScale
                         if MapRenderer.isObjectVisible(worldX, worldY, obj.size * 2, camera) then
@@ -1286,6 +1286,8 @@ function MapRenderer.drawSpecialObjects(chunkInfo, camera, getChunkFunc)
                             elseif obj.type == MapConfig.ObjectType.WORMHOLE then
                                 -- FIX: pasar el objeto correcto
                                 MapRenderer.drawWormhole(obj, worldX, worldY, camera)
+                            elseif obj.type == MapConfig.ObjectType.SUBLEVEL_ENTRANCE then
+                                MapRenderer.drawSublevelEntrance(obj, worldX, worldY, camera)
                             end
                             rendered = rendered + 1
                         end
@@ -1408,6 +1410,75 @@ function MapRenderer.drawWormhole(wormhole, worldX, worldY, camera)
     end
 
     love.graphics.pop()
+    love.graphics.setColor(r, g, b, a)
+end
+
+-- Dibujar entrada de subnivel (placeholder visible)
+function MapRenderer.drawSublevelEntrance(entrance, worldX, worldY, camera)
+    if not entrance then return end
+
+    local r, g, b, a = love.graphics.getColor()
+    local screenX, screenY = camera:worldToScreen(worldX, worldY)
+    local baseSize = entrance.size or (18 * MapConfig.chunk.worldScale)
+    local renderSize = baseSize * (camera.zoom or 1)
+    if renderSize < 6 then renderSize = 6 end
+    local alpha = MapRenderer.calculateEdgeFade(screenX, screenY, baseSize, camera)
+
+    -- Feedback visual por proximidad al jugador
+    local px, py = 0, 0
+    if _G.player and _G.player.x and _G.player.y then px, py = _G.player.x, _G.player.y end
+    local dx, dy = worldX - px, worldY - py
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local enterFactor = (HUD and HUD.getEnterRadiusFactor and HUD.getEnterRadiusFactor()) or 1.0
+    local allowedRadius = (HUD and HUD.computeEnterRadius and HUD.computeEnterRadius(entrance, enterFactor)) or (48 * (MapConfig.chunk.worldScale or 1))
+    local proximity = 0
+    if allowedRadius > 0 then proximity = math.max(0, 1 - dist / allowedRadius) end
+    local t = love.timer.getTime()
+
+    love.graphics.push()
+    love.graphics.origin()
+    love.graphics.translate(screenX, screenY)
+
+    local s = renderSize
+    local glow = 0.35 + 0.65 * proximity
+    local pulse = 0.5 + 0.5 * math.sin(t * 2.0 + (entrance.cx or 0) * 0.3 + (entrance.cy or 0) * 0.3)
+
+    -- Nueva forma: anillos concéntricos de portal con arco animado
+    love.graphics.setColor(0.6, 0.8, 1.0, (0.35 + 0.45 * pulse) * alpha)
+    love.graphics.circle("line", 0, 0, s, 40)
+    love.graphics.setColor(0.8, 0.95, 1.0, (0.5 + 0.4 * glow) * alpha)
+    love.graphics.circle("line", 0, 0, s * 0.75, 36)
+    love.graphics.setColor(0.9, 1.0, 1.0, (0.4 + 0.5 * glow) * alpha)
+    love.graphics.circle("line", 0, 0, s * 0.5, 24)
+
+    -- Relleno suave del portal
+    love.graphics.setColor(0.15, 0.25, 0.4, (0.25 + 0.45 * proximity) * alpha)
+    love.graphics.circle("fill", 0, 0, s * 0.45, 24)
+
+    -- Arco rotatorio como indicador de actividad
+    local arcStart = t * 1.5 % (2 * math.pi)
+    local arcEnd = arcStart + math.pi * 0.6
+    love.graphics.setColor(0.9, 0.95, 1.0, (0.6 + 0.35 * glow) * alpha)
+    love.graphics.arc("line", "open", 0, 0, s * 0.9, arcStart, arcEnd, 48)
+
+    -- Efecto de brillo interno dependiente de proximidad
+    love.graphics.setColor(0.7, 0.9, 1.0, (0.2 + 0.6 * proximity) * alpha)
+    love.graphics.circle("fill", 0, 0, s * (0.25 + 0.1 * pulse), 24)
+
+    love.graphics.pop()
+
+    -- Etiqueta y prompt de entrada cerca del icono
+    local zoom = camera and camera.zoom or 1.0
+    if zoom > 0.55 then
+        love.graphics.push()
+        love.graphics.origin()
+        local textAlpha = 0.7 * alpha + 0.3 * proximity
+        love.graphics.setColor(1, 1, 1, textAlpha)
+        local label = (proximity > 0.65) and "Presiona E para entrar" or "Portal Subnivel"
+        love.graphics.print(label, screenX + renderSize + 6, screenY - 12)
+        love.graphics.pop()
+    end
+
     love.graphics.setColor(r, g, b, a)
 end
 -- Función para aplicar efectos de anomalía gravitatoria

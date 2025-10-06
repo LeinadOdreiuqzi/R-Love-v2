@@ -149,6 +149,12 @@ function SubLevelManager.exit()
         _G.camera.zoom = prev.camera.zoom or _G.camera.zoom
     end
 
+    -- Restaurar semilla del mapa para evitar fugas de estado
+    if prev and Map then
+        if prev.seed ~= nil then Map.seed = prev.seed end
+        if prev.numericSeed ~= nil then Map.numericSeed = prev.numericSeed end
+    end
+
     -- Si la pila quedó vacía, desactivar estado
     if #SubLevelManager.state.stack == 0 then
         SubLevelManager.state.active = false

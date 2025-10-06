@@ -962,6 +962,37 @@ function MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, dens
             table.insert(chunk.specialObjects, wormhole)
         end
     end
+
+    -- Entradas de Subnivel (deterministas y parte de la seed principal)
+    -- Nota: se generan como objetos especiales ligeros para que queden registradas en el mapa.
+    -- Su ejecución seguirá siendo aislada al entrar en la SubLevelScene.
+    do
+        -- Probabilidad base muy baja, modulada suavemente por presencia de ruinas
+        local baseChance = 0.015
+        local addProbEntrance = math.max(0, math.min(0.12, baseChance + 0.20 * presenceRu + 0.05 * wRu))
+        local entranceNoise = MapGenerator.multiOctaveNoise(chunkX * 1.31, chunkY * 1.73, 2, 0.5, 0.01)
+        if entranceNoise < baseChance or (addProbEntrance > 0 and rng:random() < addProbEntrance) then
+            -- Posicionar preferentemente cerca del centro del chunk (estable y visible)
+            local cx = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
+            local cy = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
+            local entrance = {
+                -- Usar el enum de MapConfig para que el renderer lo detecte correctamente
+                type = MapConfig.ObjectType.SUBLEVEL_ENTRANCE,
+                x = cx,
+                y = cy,
+                size = 22 * (MapConfig.chunk.worldScale or 1),
+                active = true,
+                biomeType = chunk.biome and chunk.biome.type or nil,
+                -- Metadatos deterministas mínimos para reconstruir el cfg después
+                entranceType = "GENERIC",
+                cx = chunkX,
+                cy = chunkY,
+                -- Clave determinista basada en coordenadas del chunk (se combinará con la seed padre al entrar)
+                entranceKey = tostring(chunkX) .. ":" .. tostring(chunkY)
+            }
+            table.insert(chunk.specialObjects, entrance)
+        end
+    end
 end
 
 -- Generar estrellas balanceadas
