@@ -135,6 +135,10 @@ function SubLevelScene:update(dt)
     end
     -- Actualizar HUD para mantener todos los sistemas visibles
     if HUD and HUD.update then HUD.update(dt) end
+
+    -- Actualizar UIs vía orquestador unificado
+    local UIManager = require 'src.ui.ui_manager'
+    UIManager.updateAll(dt, _G.player)
 end
 
 function SubLevelScene:draw()

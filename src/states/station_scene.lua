@@ -92,6 +92,10 @@ function StationScene:update(dt)
     -- Ya no hacemos transición automática al tocar puertas; se hace con tecla 'E'
 
     self:updateCamera(dt)
+
+    -- Actualizar UIs de inventario si están abiertas
+    local UIManager = require 'src.ui.ui_manager'
+    UIManager.updateAll(dt, _G.player)
 end
 
 function StationScene:getCurrentRoom()
