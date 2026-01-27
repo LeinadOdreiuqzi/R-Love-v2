@@ -2,6 +2,7 @@
 -- Sistema de renderizado tradicional mejorado
 
 local MapRenderer = {}
+local TwinkleManager = require 'src.utils.twinkle_manager'
 local CoordinateSystem = require 'src.maps.coordinate_system'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
@@ -298,16 +299,19 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         return false
     end
     
-    -- Construir buffer instanced
+    -- Construir buffer instanced (medir tiempo de construcción)
+    local t0_build = love.timer.getTime()
     StarfieldInstanced.beginBuildStarData(#filteredStars)
     
     local time = love.timer.getTime()
+    local zoom = (camera and camera.zoom or 1.0)
     
     -- Limpiar cache automáticamente
     if StarfieldInstanced.cleanupEffectsCache then
         StarfieldInstanced.cleanupEffectsCache(time)
     end
     
+    MapRenderer._instancedDrawList = {}
     for i, star in ipairs(filteredStars) do
         -- Asegurar que la estrella tenga un ID único para el cache
         if not star.id then
@@ -318,16 +322,9 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         local worldX, worldY = star.x or 0, star.y or 0
         local depth = star.depth or 0.5
         local parallaxStrength = starConfig.parallaxStrength or 0.2
-        
-        -- Aplicar parallax
-        local parallaxX = worldX - camera.x * depth * parallaxStrength
-        local parallaxY = worldY - camera.y * depth * parallaxStrength
-        
-        -- Convertir a coordenadas de pantalla
-        local screenX = (parallaxX - camera.x) * camera.zoom + camera.screenWidth * 0.5
-        local screenY = (parallaxY - camera.y) * camera.zoom + camera.screenHeight * 0.5
-        
-        local size = (star.size or 1) * camera.zoom * (starConfig.sizeScaleGlobal or 1.0)
+
+        -- Escalado base en mundo (el shader aplicará worldScale y zoom)
+        local baseSizeWorld = (star.size or 1) * (starConfig.sizeScaleGlobal or 1.0)
         local starType = star.type or 1
         
         -- OPTIMIZADO: Usar cache de efectos
@@ -335,24 +332,14 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         local pulseIntensity = 1.0
         local flareEffects = {1.0, 1.0, 1.0}
         
-        if StarfieldInstanced.getCachedTwinkle then
-            -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
-            local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
-            local adjustedTime = time * zoomSlowdown
-            twinkleIntensity = StarfieldInstanced.getCachedTwinkle(star, adjustedTime)
-        else
-            -- Fallback tradicional
-            -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
-            local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
-            local adjustedTime = time * zoomSlowdown
-            local twinklePhase = adjustedTime * (star.twinkleSpeed or 1) + (star.twinkle or 0)
-            local angleIndex = math.floor(twinklePhase * 57.29) % 360
-            twinkleIntensity = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
-        end
+        -- Twinkle precomputado compartido por tipo/fase con cache por banda temporal
+        TwinkleManager.update(time, zoom)
+        local phaseBin = TwinkleManager.phaseBin(star.twinkle or 0)
+        twinkleIntensity = TwinkleManager.getTwinkle(starType, phaseBin)
         
-        if StarfieldInstanced.getCachedPulse then
-            pulseIntensity = StarfieldInstanced.getCachedPulse(star, time, starType)
-        end
+        -- Pulse precomputado compartido
+        local pBin = TwinkleManager.phaseBin(star.pulseOffset or (star.pulsePhase or 0))
+        pulseIntensity = TwinkleManager.getPulse(starType, pBin)
         
         if StarfieldInstanced.getCachedFlare then
             flareEffects = StarfieldInstanced.getCachedFlare(star, time, size)
@@ -360,59 +347,83 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         
         -- Calcular color con efectos aplicados
         local color = star.color or {1, 1, 1, 1}
-        local brightness = (star.brightness or 1) * twinkleIntensity * pulseIntensity
-        
-        -- Escribir datos al buffer con efectos optimizados
-        local d0 = {screenX, screenY, size, starType}
-        local d1 = {depth, brightness, time * (star.twinkleSpeed or 1), star.twinkleSpeed or 1}
+        -- Normalizar brillo a [0..1] para compresión
+        local brightnessRaw = (star.brightness or 1) * twinkleIntensity * pulseIntensity
+        local brightnessNorm = math.max(0.0, math.min(1.0, brightnessRaw))
+
+        -- Escribir datos comprimidos al buffer (posiciones en mundo)
+        -- d1.z y d1.w ahora hornean intensidades de twinkle/pulse (sin cálculos en fragment)
+        local d0 = {worldX, worldY, baseSizeWorld, starType}
+        local d1 = {depth, brightnessNorm, twinkleIntensity, pulseIntensity}
         local d2 = {color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1}
-        local d3 = {flareEffects[1], flareEffects[2], flareEffects[3], pulseIntensity} -- Efectos cacheados
-        
-        StarfieldInstanced.writeStarDataAt(i - 1, d0, d1, d2, d3)
+
+        StarfieldInstanced.writeStarDataAt(i - 1, d0, d1, d2)
         star._sfIndex = i - 1 -- Guardar índice para referencia
+
+        -- Calcular posición/s y guardar para el draw del quad (CPU ligero)
+        local depthFactor = (1.0 - depth)
+        local parallaxX = worldX - camera.x * depthFactor * parallaxStrength
+        local parallaxY = worldY - camera.y * depthFactor * parallaxStrength
+        local screenX = (parallaxX - camera.x) * camera.zoom + camera.screenWidth * 0.5
+        local screenY = (parallaxY - camera.y) * camera.zoom + camera.screenHeight * 0.5
+        local worldScale = MapConfig.chunk and (MapConfig.chunk.worldScale or 1.0) or 1.0
+        local screenRadius = (baseSizeWorld * worldScale) * camera.zoom
+        local quadSize = math.max(2, screenRadius * (starConfig.instancedSizeScale or 2.5) * 4.0)
+        MapRenderer._instancedDrawList[i - 1] = { x = screenX, y = screenY, s = quadSize }
     end
     
     StarfieldInstanced.endBuildStarData()
+    -- Guardar tiempo de construcción
+    MapRenderer._perf = MapRenderer._perf or {}
+    MapRenderer._perf.instancedBuildMs = (love.timer.getTime() - t0_build) * 1000.0
     return true, #filteredStars
 end
 
 -- Dibujar estrellas con efectos mejorados
 function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConfig)
+    -- Configurar uniforms globales una sola vez por frame (si instanced activo)
+    if starConfig and starConfig.useInstancedShader and StarfieldInstanced and StarfieldInstanced.setGlobals then
+        StarfieldInstanced.setGlobals({
+            time = love.timer.getTime(),
+            twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) or true,
+            enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
+        })
+    end
+
     -- NUEVO: Intentar usar buffer instanced primero
     if starConfig and starConfig.useInstancedShader then
         local bufferBuilt, starCount = MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, starConfig)
         if bufferBuilt then
-            -- Renderizar usando buffer instanced
-            if StarfieldInstanced.setGlobals then
-                StarfieldInstanced.setGlobals({
-                    time = love.timer.getTime(),
-                    twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) or true,
-                    enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
-                })
-            end
-            
-            -- Dibujar todas las estrellas del buffer de una vez
+            -- Dibujar todas las estrellas del buffer de una vez con batching
             love.graphics.push()
             love.graphics.origin()
-            
             if StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
-                local ShaderManager = require 'src.shaders.shader_manager'
-                ShaderManager.setShaderSafe(StarfieldInstanced.getShader())
-                
-                -- Dibujar quad para cada estrella en el buffer
+                local t0_draw = love.timer.getTime()
+                StarfieldInstanced.beginBatchDraw()
                 for i = 0, starCount - 1 do
-                    StarfieldInstanced.drawStarQuad(i, 0, 0, 1) -- Posición y tamaño ya están en el buffer
+                    local info = MapRenderer._instancedDrawList and MapRenderer._instancedDrawList[i]
+                    if info then
+                        StarfieldInstanced.drawStarQuadRaw(i, info.x, info.y, info.s)
+                    end
                 end
-                
-                ShaderManager.unsetShader()
+                StarfieldInstanced.endBatchDraw()
+                MapRenderer._perf = MapRenderer._perf or {}
+                MapRenderer._perf.instancedDrawMs = (love.timer.getTime() - t0_draw) * 1000.0
             end
             
             love.graphics.pop()
+            -- Ajuste dinámico de presupuesto si excede tiempo objetivo
+            local totalMs = (MapRenderer._perf and (MapRenderer._perf.instancedBuildMs or 0) + (MapRenderer._perf.instancedDrawMs or 0)) or 0
+            if MapRenderer.adjustStarBudget then
+                MapRenderer.adjustStarBudget(totalMs)
+            end
             return starCount, starCount
         end
     end
     
     -- Fallback: renderizado tradicional
+    MapRenderer._perf = MapRenderer._perf or {}
+    MapRenderer._perf.fallbackStart = love.timer.getTime()
     local time = love.timer.getTime()
     local starsRendered = 0
     -- Limitar por configuración (sin tope duro adicional)
@@ -495,15 +506,63 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             end
         end
     end
+    -- Índice espacial en pantalla para nebulosas (grid)
+    local spatialIndex
+    do
+        -- Aumentar el tamaño de celda al máximo posible para evitar pop-in brusco
+        -- Usamos el mayor de ancho/alto del viewport, creando 1–2 celdas como máximo
+        local cellSize = math.max(screenWidth, screenHeight)
+        local cols = math.max(1, math.ceil(screenWidth / cellSize))
+        local rows = math.max(1, math.ceil(screenHeight / cellSize))
+        spatialIndex = { cellSize = cellSize, cols = cols, rows = rows, grid = {} }
+        for r = 1, rows do spatialIndex.grid[r] = {} end
+        local function addCircle(c)
+            local cx1 = math.max(1, math.floor((c.sx - c.radius) / cellSize) + 1)
+            local cy1 = math.max(1, math.floor((c.sy - c.radius) / cellSize) + 1)
+            local cx2 = math.min(cols, math.floor((c.sx + c.radius) / cellSize) + 1)
+            local cy2 = math.min(rows, math.floor((c.sy + c.radius) / cellSize) + 1)
+            for gy = cy1, cy2 do
+                for gx = cx1, cx2 do
+                    local row = spatialIndex.grid[gy]
+                    row[gx] = row[gx] or {}
+                    local cell = row[gx]
+                    cell[#cell + 1] = c
+                end
+            end
+        end
+        for i = 1, #nebulaCircles do addCircle(nebulaCircles[i]) end
+        function getNebulaCandidatesAt(sx, sy)
+            local gx = math.floor(sx / cellSize) + 1
+            local gy = math.floor(sy / cellSize) + 1
+            if gy < 1 or gy > rows or gx < 1 or gx > cols then
+                return nebulaCircles
+            end
+            local candidates = {}
+            -- Expandir vecindad de búsqueda para suavizar transiciones en bordes
+            for oy = -2, 2 do
+                local row = spatialIndex.grid[gy + oy]
+                if row then
+                    for ox = -2, 2 do
+                        local cell = row[gx + ox]
+                        if cell then
+                            for j = 1, #cell do candidates[#candidates + 1] = cell[j] end
+                        end
+                    end
+                end
+            end
+            return candidates
+        end
+    end
     -- Calcula factor de atenuación [0.35..1] según proximidad y si la estrella está “detrás”
     local function computeNebulaDimmingFactor(starScreenX, starScreenY, starDepth)
-        if #nebulaCircles == 0 then return 1.0 end
+        local candidates = (getNebulaCandidatesAt and getNebulaCandidatesAt(starScreenX, starScreenY)) or nebulaCircles
+        if #candidates == 0 then return 1.0 end
         -- Aproximación de parallax de estrella (profundidad -> menos parallax cuanto más “detrás”)
         local depth = clamp(starDepth or 0.5, 0.0, 1.0)
         local starPar = 0.60 + (1.0 - depth) * 0.40  -- ~[0.60..1.0]
         local best = 0.0
-        for i = 1, #nebulaCircles do
-            local n = nebulaCircles[i]
+        for i = 1, #candidates do
+            local n = candidates[i]
             -- Detrás si la estrella tiene parallax menor que la nebulosa (con margen)
             if starPar < (n.parallax - 0.01) then
                 local dx = starScreenX - n.sx
@@ -619,7 +678,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
 
     -- Helper: cuantización de color (B: bins de color)
     local function quantizeColor(r, g, b, a)
-        local levels = 16
+        local levels = (MapConfig.stars and MapConfig.stars.colorBinLevels) or 12
         local rq = math.floor(math.max(0, math.min(1, r)) * (levels - 1) + 0.5)
         local gq = math.floor(math.max(0, math.min(1, g)) * (levels - 1) + 0.5)
         local bq = math.floor(math.max(0, math.min(1, b)) * (levels - 1) + 0.5)
@@ -831,6 +890,14 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
         end
     end
 
+    -- Medir tiempo de renderizado en fallback y ajustar presupuesto
+    MapRenderer._perf = MapRenderer._perf or {}
+    MapRenderer._perf.fallbackMs = (MapRenderer._perf.fallbackStart and (love.timer.getTime() - MapRenderer._perf.fallbackStart) * 1000.0) or (MapRenderer._perf.fallbackMs or 0)
+    local totalMs = (MapRenderer._perf.instancedBuildMs or 0) + (MapRenderer._perf.instancedDrawMs or 0) + (MapRenderer._perf.fallbackMs or 0)
+    if MapRenderer.adjustStarBudget then
+        MapRenderer.adjustStarBudget(totalMs)
+    end
+
     -- Capas existentes (1..6) - Filtrar solo estrellas tipo 1 (las más pequeñas)
     for layer = 1, 6 do
         if visibleStars[layer] then
@@ -867,6 +934,63 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     return starsRendered, totalStars
 end
 
+-- Ajuste dinámico de presupuesto de estrellas según tiempo total de fase
+MapRenderer._perf = MapRenderer._perf or {}
+function MapRenderer.adjustStarBudget(totalMs)
+    local cfg = MapConfig.stars or {}
+    local target = cfg.targetFrameTime or 0.0167
+    local current = cfg.maxStarsPerFrame or 5000
+    local minB = cfg.budgetMin or 1000
+    local maxB = cfg.budgetMax or 20000
+    local incF = cfg.budgetIncreaseFactor or 1.05
+    local decF = cfg.budgetDecreaseFactor or 0.90
+    local newBudget = current
+    if totalMs > (target * 1000.0) * 1.10 then
+        newBudget = math.max(minB, math.floor(current * decF))
+        -- Ajustar densidades de capas pequeñas si el frame excede el objetivo
+        MapRenderer._defaults = MapRenderer._defaults or {}
+        local d = MapRenderer._defaults
+        -- Guardar valores originales una sola vez
+        if not d.microMax then d.microMax = (MapConfig.stars.microStars and MapConfig.stars.microStars.maxCount) or 1000 end
+        if not d.small1Max then d.small1Max = (MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer1 and MapConfig.stars.smallStars.layer1.maxCount) or 500 end
+        if not d.small2Max then d.small2Max = (MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer2 and MapConfig.stars.smallStars.layer2.maxCount) or 350 end
+        -- Reducir hacia 700–800 en micro; 350/250 en small
+        if MapConfig.stars.microStars then
+            local cur = MapConfig.stars.microStars.maxCount or d.microMax
+            MapConfig.stars.microStars.maxCount = math.max(700, math.min(cur - 50, 800))
+        end
+        if MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer1 then
+            local cur = MapConfig.stars.smallStars.layer1.maxCount or d.small1Max
+            MapConfig.stars.smallStars.layer1.maxCount = math.max(250, math.min(cur - 30, 350))
+        end
+        if MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer2 then
+            local cur = MapConfig.stars.smallStars.layer2.maxCount or d.small2Max
+            MapConfig.stars.smallStars.layer2.maxCount = math.max(200, math.min(cur - 30, 250))
+        end
+    elseif totalMs < (target * 1000.0) * 0.80 then
+        newBudget = math.min(maxB, math.floor(current * incF))
+        -- Volver a subir lentamente densidades hacia valores originales
+        MapRenderer._defaults = MapRenderer._defaults or {}
+        local d = MapRenderer._defaults
+        if MapConfig.stars.microStars and d.microMax then
+            local cur = MapConfig.stars.microStars.maxCount or d.microMax
+            MapConfig.stars.microStars.maxCount = math.min(d.microMax, cur + 30)
+        end
+        if MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer1 and d.small1Max then
+            local cur = MapConfig.stars.smallStars.layer1.maxCount or d.small1Max
+            MapConfig.stars.smallStars.layer1.maxCount = math.min(d.small1Max, cur + 20)
+        end
+        if MapConfig.stars.smallStars and MapConfig.stars.smallStars.layer2 and d.small2Max then
+            local cur = MapConfig.stars.smallStars.layer2.maxCount or d.small2Max
+            MapConfig.stars.smallStars.layer2.maxCount = math.min(d.small2Max, cur + 20)
+        end
+    end
+    if newBudget ~= current then
+        MapConfig.stars.maxStarsPerFrame = newBudget
+        MapConfig.rendering.maxStarsPerFrame = newBudget
+    end
+end
+
 
 
 -- Dibujar estrella individual con efectos avanzados
@@ -874,11 +998,15 @@ end
 function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, camera, inScreenSpace, sizeScaleExtra, uniformsPreset, nebulaDim)
     -- Evitar asignaciones innecesarias y reducir cambios de estado
     local starType = star.type or 1
+    local zoom = (camera and camera.zoom or 1.0)
 
     -- Calcular parpadeo individual (compartido para shader y fallback)
-    -- OPTIMIZACIÓN: Usar cache de twinkle si está disponible (zoom alto)
+    -- OPTIMIZACIÓN: Cache de twinkle con invalidación por tiempo y zoom
     local twinkleIntensity
-    if star._twinkleCache and camera and camera.zoom and camera.zoom > 1.2 then
+    local cacheInterval = (MapConfig.stars and MapConfig.stars.twinkleCacheInterval) or 0.05
+    local lastCacheTime = star._twinkleCacheTime or -math.huge
+    local validCache = (star._twinkleCache ~= nil) and ((time - lastCacheTime) < cacheInterval) and (star._twinkleCacheZoom == zoom)
+    if validCache then
         twinkleIntensity = star._twinkleCache
     else
         -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
@@ -887,6 +1015,10 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
         local twinklePhase = adjustedTime * (star.twinkleSpeed or 1) + (star.twinkle or 0)
         local angleIndex = math.floor(twinklePhase * 57.29) % 360
         twinkleIntensity = 0.6 + 0.4 * MapRenderer.sinTable[angleIndex]
+        -- Actualizar cache
+        star._twinkleCache = twinkleIntensity
+        star._twinkleCacheTime = time
+        star._twinkleCacheZoom = zoom
     end
     local brightness = (star.brightness or 1)
 
@@ -904,7 +1036,6 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
 
     local color = star.color
     local localSizeScale = sizeScaleExtra or 1.0
-    local zoom = (camera and camera.zoom or 1.0)
     -- NUEVO: factor global para todas las estrellas
     local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
     local size = (star.size * localSizeScale) * zoom * globalSizeScale
@@ -912,13 +1043,6 @@ function MapRenderer.drawAdvancedStar(star, screenX, screenY, time, starConfig, 
     -- OPTIMIZADO: usar StarfieldInstanced con batching mejorado
     if starConfig and starConfig.useInstancedShader and StarfieldInstanced and StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
         local screenRadius = size
-        if StarfieldInstanced.setGlobals then
-            StarfieldInstanced.setGlobals({
-                time = love.timer.getTime(),
-                twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) or true,
-                enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
-            })
-        end
         -- Preferir buffer + índice si está disponible (más eficiente)
         if StarfieldInstanced.hasStarData and StarfieldInstanced.hasStarData() and star._sfIndex ~= nil then
             local s = math.max(2, (screenRadius or 8) * 4.0)
@@ -1850,23 +1974,11 @@ function MapRenderer.drawSmallStarsLayer(ss, camera)
     local pixels = screenW * screenH
     local desired = math.min(ss.config.maxCount, math.floor(pixels * (ss.config.densityPerPixel or 0.00010) + 0.5))
 
-    -- NUEVO: Calcular escalado inverso por zoom
-    local zoomScale = 1.0
-    if ss.config.inverseZoomScaling and ss.config.inverseZoomScaling.enabled then
-        local izs = ss.config.inverseZoomScaling
-        local baseZoom = izs.baseZoom or 1.0
-        local minScale = izs.minScale or 0.3
-        local maxScale = izs.maxScale or 2.0
-        
-        -- Escalado inverso: cuando zoom aumenta, tamaño disminuye
-        zoomScale = baseZoom / zoom
-        zoomScale = math.max(minScale, math.min(maxScale, zoomScale))
-    end
+    -- Eliminado: escalado inverso por zoom (causaba reducción de tamaño en zoom alto)
 
     -- Reconstruir si cambia resolución/densidad/zoom
     local needsRebuild = ss.dirty or (not ss.batch) or (ss.batch and ss.batch:getCount() == 0)
         or (ss.lastW ~= screenW) or (ss.lastH ~= screenH) or (ss.lastCount ~= desired)
-        or (ss.lastZoomScale ~= zoomScale)  -- NUEVO: rebuild si cambia zoom scale
 
     if needsRebuild then
         if not ss.batch then
@@ -1895,15 +2007,13 @@ function MapRenderer.drawSmallStarsLayer(ss, camera)
             local sizeMax = ss.config.sizeMax or 1.8
             local size = sizeMin + rs * (sizeMax - sizeMin)
             
-            -- NUEVO: Aplicar escalado inverso por zoom
-            size = size * zoomScale
+            -- Mantener tamaño base sin escalado inverso por zoom
 
             local iw, ih = ss.img:getWidth(), ss.img:getHeight()
             local s = size / math.max(1, iw)
             ss.batch:add(x, y, 0, s, s, 0, 0)
         end
         ss.lastW, ss.lastH, ss.lastCount = screenW, screenH, desired
-        ss.lastZoomScale = zoomScale  -- NUEVO: guardar zoom scale
         ss.dirty = nil
     end
 

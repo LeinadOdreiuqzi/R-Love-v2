@@ -3,6 +3,7 @@
 
 local OptimizedRenderer = {}
 local CoordinateSystem = require 'src.maps.coordinate_system'
+local TwinkleManager = require 'src.utils.twinkle_manager'
 local StarShader = require 'src.shaders.star_shader'
 local ShaderManager = require 'src.shaders.shader_manager'
 local BiomeSystem = require 'src.maps.biome_system'
@@ -617,15 +618,11 @@ function OptimizedRenderer.renderStarBatched(star, x, y, size, lodLevel)
         local frameCount = OptimizedRenderer.state.stats.frameCount or 0
         if not star._twinkleCache or frameCount % 8 == 0 then -- Reducido de 4 a 8 frames
             local time = love.timer.getTime()
-            -- Normalizar velocidad de twinkle independiente del zoom
-            local normalizedTwinkleSpeed = math.min(star.twinkleSpeed or 1, 2.0) -- Limitar velocidad máxima
-            local baseSpeed = 0.8 -- Velocidad base constante
-            -- Aplicar slowdown por zoom al tiempo base para hacer el parpadeo más lento
-            local zoomSlowdown = (zoom and zoom > 1.2) and math.max(0.2, 1.0 / math.sqrt(zoom)) or 1.0
-            local adjustedTime = time * zoomSlowdown
-            local twinklePhase = adjustedTime * baseSpeed * normalizedTwinkleSpeed + (star.twinkle or 0)
-            local angleIndex = math.floor(twinklePhase * 57.29) % 360
-            star._twinkleCache = 0.6 + 0.4 * (MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex)))
+            -- Twinkle precomputado compartido: tablas por tipo y fase con cache por banda temporal
+            local TwinkleManager = TwinkleManager or require 'src.utils.twinkle_manager'
+            TwinkleManager.update(time, zoom)
+            local phaseBin = TwinkleManager.phaseBin(star.twinkle or 0)
+            star._twinkleCache = TwinkleManager.getTwinkle(star.type or 1, phaseBin)
             star._lastTwinkleUpdate = frameCount
         end
         -- Hacer que el parpadeo se vea más lento con mayor zoom

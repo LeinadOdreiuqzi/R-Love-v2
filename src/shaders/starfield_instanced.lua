@@ -6,6 +6,8 @@ local StarfieldInstanced = {}
 
 local shader
 local whiteImage
+local _batchActive = false
+local _prevBlend, _prevAlpha
 
 -- OPTIMIZADO: buffer, writer y pooling system
 local writerShader
@@ -93,7 +95,7 @@ const float PI = 3.14159265358979323846;
 
 // Uniforms (mismo layout que starfield.glsl + índice de estrella)
 extern Image u_starData;
-extern number u_stride;           // 4 (filas por estrella)
+extern number u_stride;           // filas por estrella (3 tras compresión)
 extern vec2   u_dataTexSize;
 
 extern vec2   u_camera;
@@ -124,20 +126,18 @@ vec2 texelCoord(int x, int y, vec2 size) {
     return vec2((float(x) + 0.5) / size.x, (float(y) + 0.5) / size.y);
 }
 
-// Lee las 4 filas (stride = 4) para el índice de estrella 'idx'
+// Lee las filas para el índice de estrella 'idx' (stride comprimido = 3)
 void readStar(int idx,
-              out vec4 d0, out vec4 d1, out vec4 d2, out vec4 d3)
+              out vec4 d0, out vec4 d1, out vec4 d2)
 {
     int x = idx;
     int y0 = 0;
     int y1 = y0 + 1;
     int y2 = y0 + 2;
-    int y3 = y0 + 3;
 
     d0 = Texel(u_starData, texelCoord(x, y0, u_dataTexSize));
     d1 = Texel(u_starData, texelCoord(x, y1, u_dataTexSize));
     d2 = Texel(u_starData, texelCoord(x, y2, u_dataTexSize));
-    d3 = Texel(u_starData, texelCoord(x, y3, u_dataTexSize));
 }
 
 // Parallax consistente con tu renderer
@@ -350,8 +350,8 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     // Ruta original: leer del buffer por índice y proyectar
     int idx = int(aStarIndex);
 
-    vec4 d0, d1, d2, d3;
-    readStar(idx, d0, d1, d2, d3);
+    vec4 d0, d1, d2;
+    readStar(idx, d0, d1, d2);
 
     vec2 baseWorld = d0.xy;
     float size = d0.z;
@@ -359,11 +359,12 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
 
     float depth = d1.x;
     float brightness = d1.y;
-    float twPhase = d1.z;
-    float twSpeed = d1.w;
+    // Intensidades horneadas en buffer
+    float twinkleIntensity = d1.z;
+    float pulseIntensity = d1.w;
 
     vec4 starColor = d2;
-    float pulsePhase = d3.x;
+    // Usamos intensidad horneada para pulso
 
     vec2 world = applyParallax(baseWorld, u_camera, depth, float(u_parallaxStrength));
     float worldRadius = size * float(u_worldScale);
@@ -376,15 +377,11 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     float dist = length(screenCoord - center);
     if (dist > screenRadius * 4.0) return vec4(0.0);
 
-    // OPTIMIZADO: Versión branchless para ruta principal
-    float twEnabled = step(0.5, u_twinkleEnabled);
-    float twinkleSin = 0.6 + 0.4 * sin(float(u_time) * twSpeed + twPhase);
-    float twinkle = mix(1.0, twinkleSin, twEnabled);
-    float starBrightness = brightness * twinkle;
+    // OPTIMIZADO: usar brillo horneado (ya incluye twinkle/pulse en CPU)
+    float starBrightness = brightness;
 
     float isType4Main = 1.0 - step(0.5, abs(type - 4.0));
-    float pulse = sin(float(u_time) * 5.0 + pulsePhase);
-    float pulseMul = mix(1.0, 1.0 + 0.08 * pulse, isType4Main);
+    float pulseMul = mix(1.0, 1.0 + 0.08 * pulseIntensity, isType4Main);
 
     vec3 c = starColor.rgb;
     float a = starColor.a;
@@ -454,7 +451,7 @@ function StarfieldInstanced.init()
 
         -- Defaults seguros
         pcall(function()
-            shader:send("u_stride", 4)
+            shader:send("u_stride", 3)
             shader:send("u_parallaxStrength", MapConfig.stars and (MapConfig.stars.parallaxStrength or 0.15) or 0.15)
             shader:send("u_twinkleEnabled", MapConfig.stars and (MapConfig.stars.twinkleEnabled and 1.0 or 0.0) or 1.0)
             shader:send("u_enhancedEffects", MapConfig.stars and (MapConfig.stars.enhancedEffects and 1.0 or 0.0) or 1.0)
@@ -477,6 +474,73 @@ end
 
 function StarfieldInstanced.getWhiteImage()
     return whiteImage
+end
+
+-- NUEVO: pre-filtrado agresivo de estrellas por importancia y presupuesto
+function StarfieldInstanced.preFilterStars(allStars, camera, opts)
+    if not allStars or #allStars == 0 then return {} end
+    opts = opts or {}
+    local maxStars = math.max(1, opts.maxStars or 5000)
+    local aggressive = opts.aggressiveCulling ~= false
+    local threshold = opts.importanceThreshold or 0.0
+
+    -- Calcular importancia y filtrar por umbral
+    local scored = {}
+    for i = 1, #allStars do
+        local s = allStars[i]
+        local imp = StarfieldInstanced.calculateStarImportance and StarfieldInstanced.calculateStarImportance(s) or 1.0
+        if imp >= threshold then
+            scored[#scored + 1] = {star = s, importance = imp}
+        end
+    end
+
+    if #scored == 0 then return {} end
+
+    -- Ordenar por importancia descendente
+    table.sort(scored, function(a, b) return a.importance > b.importance end)
+
+    -- Aplicar presupuesto
+    local result = {}
+    local count = math.min(maxStars, #scored)
+    if aggressive then
+        for i = 1, count do result[i] = scored[i].star end
+    else
+        -- Si no agresivo, tomar una porción centrada
+        local start = math.max(1, math.floor((#scored - count) * 0.5))
+        local idx = 1
+        for i = start, math.min(#scored, start + count - 1) do
+            result[idx] = scored[i].star
+            idx = idx + 1
+        end
+    end
+    return result
+end
+
+-- NUEVO: batching de draw calls para instanced
+function StarfieldInstanced.beginBatchDraw()
+    if not shader or not whiteImage then return end
+    if _batchActive then return end
+    _prevBlend, _prevAlpha = love.graphics.getBlendMode()
+    love.graphics.setBlendMode("add", "alphamultiply")
+    love.graphics.setShader(shader)
+    _batchActive = true
+end
+
+function StarfieldInstanced.endBatchDraw()
+    if not _batchActive then return end
+    love.graphics.setShader()
+    love.graphics.setBlendMode(_prevBlend or "alpha", _prevAlpha)
+    _batchActive = false
+end
+
+-- NUEVO: dibujar quad sin cambiar estado (usar dentro de begin/endBatchDraw)
+function StarfieldInstanced.drawStarQuadRaw(index, x, y, s)
+    if not shader or not whiteImage then return end
+    s = math.max(2, (s or 64) * ((MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3))
+    local half = s * 0.5
+    pcall(function() shader:send("aStarIndex", index) end)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(whiteImage, (x or 0) - half, (y or 0) - half, 0, s, s)
 end
 
 -- Enviar el buffer de datos de estrellas (u_starData) y su tamaño (ancho, alto) y stride (normalmente 4)
@@ -530,15 +594,21 @@ function StarfieldInstanced.drawStarQuad(index, x, y, s)
     local instScale = (MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3
     s = math.max(2, (s or 64) * instScale)
     local half = s * 0.5
-    -- Blending aditivo
-    local oldBlend, oldAlpha = love.graphics.getBlendMode()
-    love.graphics.setBlendMode("add", "alphamultiply")
-    love.graphics.setShader(shader)
-    pcall(function() shader:send("aStarIndex", index) end)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(whiteImage, x - half, y - half, 0, s, s)
-    love.graphics.setShader()
-    love.graphics.setBlendMode(oldBlend or "alpha", oldAlpha)
+    if _batchActive then
+        pcall(function() shader:send("aStarIndex", index) end)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(whiteImage, x - half, y - half, 0, s, s)
+    else
+        -- Blending y shader por llamada (fallback)
+        local oldBlend, oldAlpha = love.graphics.getBlendMode()
+        love.graphics.setBlendMode("add", "alphamultiply")
+        love.graphics.setShader(shader)
+        pcall(function() shader:send("aStarIndex", index) end)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(whiteImage, x - half, y - half, 0, s, s)
+        love.graphics.setShader()
+        love.graphics.setBlendMode(oldBlend or "alpha", oldAlpha)
+    end
 end
 
 -- NUEVO: dibujar una estrella con uniforms (modo override en espacio de pantalla)
@@ -599,7 +669,7 @@ end
 function StarfieldInstanced.beginBuildStarData(count)
     if not love.graphics then return end
     ensureWriterShader()
-    starDataW, starDataH = math.max(1, count or 1), 4
+    starDataW, starDataH = math.max(1, count or 1), 3
     
     -- Intentar obtener Canvas del pool
     starDataCanvas = getPooledCanvas(starDataW, starDataH)
@@ -622,13 +692,13 @@ function StarfieldInstanced.beginBuildStarData(count)
     love.graphics.setShader(writerShader)
 end
 
--- NUEVO: escribir 4 filas para una estrella en índice 'idx' (0-based)
--- d0=(x,y,size,type), d1=(depth,brightness,twPhase,twSpeed), d2=(r,g,b,a), d3=(pulsePhase,_,_,_)
-function StarfieldInstanced.writeStarDataAt(idx, d0, d1, d2, d3)
+-- NUEVO: escribir 3 filas para una estrella en índice 'idx' (0-based)
+-- d0=(worldX,worldY,size,type), d1=(depth,brightnessNorm,twinkleIntensity,pulseIntensity), d2=(r,g,b,a)
+function StarfieldInstanced.writeStarDataAt(idx, d0, d1, d2)
     if not starDataCanvas or not writerShader then return end
     -- Guardar y normalizar los inputs a tablas de 4
     local function v4(v) return {v[1] or 0, v[2] or 0, v[3] or 0, v[4] or 0} end
-    d0, d1, d2, d3 = v4(d0 or {}), v4(d1 or {}), v4(d2 or {}), v4(d3 or {})
+    d0, d1, d2 = v4(d0 or {}), v4(d1 or {}), v4(d2 or {})
 
     -- Para escribir exactamente el texel (idx,row), dibujamos rect de 1x1 px
     -- writerShader ignora color/textura y devuelve u_value
@@ -640,9 +710,6 @@ function StarfieldInstanced.writeStarDataAt(idx, d0, d1, d2, d3)
 
     pcall(function() writerShader:send("u_value", d2) end)
     love.graphics.rectangle("fill", idx, 2, 1, 1)
-
-    pcall(function() writerShader:send("u_value", d3) end)
-    love.graphics.rectangle("fill", idx, 3, 1, 1)
 end
 
 -- NUEVO: finalizar construcción y enviar al shader principal
@@ -653,7 +720,7 @@ function StarfieldInstanced.endBuildStarData()
     love.graphics.pop()
 
     -- Enviar a shader y configurar tamaño/stride
-    StarfieldInstanced.setStarData(starDataCanvas, 4)
+    StarfieldInstanced.setStarData(starDataCanvas, 3)
 end
 
 -- NUEVO: consultar si hay buffer cargado
@@ -707,6 +774,7 @@ local effectsCache = {
 }
 
 -- OPTIMIZADO: Cache inteligente de twinkle con batching y interpolación temporal
+local TwinkleManager = require 'src.utils.twinkle_manager'
 function StarfieldInstanced.getCachedTwinkle(star, time, forceUpdate)
     if not star or not star.id then return 0.6 end
     
@@ -718,38 +786,26 @@ function StarfieldInstanced.getCachedTwinkle(star, time, forceUpdate)
     local needsUpdate = forceUpdate or not cache or (time - cache.lastUpdate) > 0.08
     
     if needsUpdate then
-        local twinkleSpeed = star.twinkleSpeed or 1
-        local twinklePhase = time * twinkleSpeed + (star.twinkle or 0)
-        
-        -- Optimización: usar tabla de senos precalculada si está disponible
-        local angleIndex = math.floor(twinklePhase * 57.29) % 360
-        local sinValue = MapRenderer and MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex))
-        local intensity = 0.6 + 0.4 * sinValue
+        -- Twinkle precomputado por tipo/fase con cache por banda temporal
+        local zoom = (StarfieldInstanced._lastCamera and StarfieldInstanced._lastCamera.zoom) or 1.0
+        TwinkleManager.update(time, zoom)
+        local phaseBin = TwinkleManager.phaseBin(star.twinkle or 0)
+        local intensity = TwinkleManager.getTwinkle(star.type or 1, phaseBin)
         
         effectsCache.twinkle[starId] = {
             intensity = intensity,
             lastUpdate = time,
-            phase = twinklePhase,
-            speed = twinkleSpeed -- Cache para interpolación
+            phaseBin = phaseBin,
+            typeId = star.type or 1
         }
         
         return intensity
     else
         effectsCache.hitRate = effectsCache.hitRate + 1
-        
-        -- Interpolación optimizada entre valores cacheados
-        local deltaTime = time - cache.lastUpdate
-        if deltaTime < 0.02 then -- Si es muy reciente, usar valor cacheado
-            return cache.intensity
-        end
-        
-        local phaseIncrement = deltaTime * (cache.speed or 1)
-        local newPhase = cache.phase + phaseIncrement
-        local angleIndex = math.floor(newPhase * 57.29) % 360
-        local sinValue = MapRenderer and MapRenderer.sinTable and MapRenderer.sinTable[angleIndex] or math.sin(math.rad(angleIndex))
-        local interpolatedIntensity = 0.6 + 0.4 * sinValue
-        
-        return interpolatedIntensity
+        -- Recalcular desde tablas si cambió la banda temporal
+        local zoom = (StarfieldInstanced._lastCamera and StarfieldInstanced._lastCamera.zoom) or 1.0
+        TwinkleManager.update(time, zoom)
+        return TwinkleManager.getTwinkle(cache.typeId, cache.phaseBin)
     end
 end
 
@@ -761,31 +817,26 @@ function StarfieldInstanced.getCachedPulse(star, time, starType)
     local cache = effectsCache.pulse[starId]
     
     if not cache or (time - cache.lastUpdate) > 0.04 then -- Más frecuente para mejor suavidad
-        local pulseSpeed = (star.pulseSpeed or 0.5) * (starType == 5 and 1.5 or 1.0)
-        local pulsePhase = time * pulseSpeed + (star.pulseOffset or 0)
-        
-        -- Optimización: diferentes patrones de pulso según el tipo
-        local pulseIntensity
-        if starType == 4 then
-            pulseIntensity = 0.85 + 0.15 * math.sin(pulsePhase) -- Pulso más sutil para tipo 4
-        elseif starType == 5 then
-            pulseIntensity = 0.75 + 0.25 * math.sin(pulsePhase * 1.3) -- Pulso más dramático para tipo 5
-        else
-            pulseIntensity = 0.8 + 0.2 * math.sin(pulsePhase)
-        end
+        -- Pulse precomputado: usar tablas compartidas del TwinkleManager
+        local zoom = (StarfieldInstanced._lastCamera and StarfieldInstanced._lastCamera.zoom) or 1.0
+        TwinkleManager.update(time, zoom)
+        local phaseBin = TwinkleManager.phaseBin(star.pulseOffset or (star.pulsePhase or 0))
+        local pulseIntensity = TwinkleManager.getPulse(starType, phaseBin)
         
         effectsCache.pulse[starId] = {
             intensity = pulseIntensity,
             lastUpdate = time,
-            phase = pulsePhase,
-            speed = pulseSpeed,
+            phaseBin = phaseBin,
             type = starType
         }
         
         return pulseIntensity
     end
     
-    return cache.intensity
+    -- Recalcular desde tablas si cambió la banda temporal
+    local zoom = (StarfieldInstanced._lastCamera and StarfieldInstanced._lastCamera.zoom) or 1.0
+    TwinkleManager.update(time, zoom)
+    return TwinkleManager.getPulse(cache.type, cache.phaseBin)
 end
 
 -- OPTIMIZADO: Cache de efectos de flare con batching mejorado
@@ -1051,6 +1102,7 @@ function StarfieldInstanced.getPerformanceStats()
     
     return {
         batching = batchStats,
+        twinkleManager = (require 'src.utils.twinkle_manager').stats,
         cache = {
             twinkleEntries = 0,
             pulseEntries = 0,

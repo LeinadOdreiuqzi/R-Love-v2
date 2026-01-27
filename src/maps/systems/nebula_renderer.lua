@@ -233,9 +233,9 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                             NebulasShaders.configureForNebula({
                                 seed = (n.seed or 0) * 0.001,
                                 noiseScale = n.noiseScale or 2.5,
-                                warpAmp = n.warpAmp or 0.65,
-                                warpFreq = n.warpFreq or 1.25,
-                                softness = n.softness or 0.28,
+                                warpAmp = n.warpAmp or 0.05,
+                                warpFreq = n.warpFreq or 0.20,
+                                softness = n.softness or 0.70,
                                 brightness = brightness,
                                 parallax = par,
                                 sparkleStrength = 0.0  -- Destellos desactivados

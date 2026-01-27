@@ -19,7 +19,20 @@ MapConfig.stars = {
     enhancedEffects = true,
     sizeScaleGlobal = 0.9,
     useInstancedShader = true,
-    instancedSizeScale = 5.0,
+    instancedSizeScale = 2.5,
+    -- Configuración de twinkle/pulse (bins y velocidades por tipo)
+    twinkle = {
+        phaseBins = 32,
+        pulseBins = 32,
+        typeTwinkleSpeed = { [1] = 0.8, [2] = 1.0, [3] = 1.2, [4] = 1.5, [5] = 1.1 },
+        typePulseSpeed   = { [1] = 5.0, [2] = 5.2, [3] = 5.5, [4] = 6.0, [5] = 6.5 }
+    },
+    -- Objetivo de tiempo por frame para ajustar presupuesto dinámicamente
+    targetFrameTime = 0.0167,
+    budgetMin = 1000,
+    budgetMax = 20000,
+    budgetIncreaseFactor = 1.05,
+    budgetDecreaseFactor = 0.90,
     -- Capas profundas ajustadas (removiendo niveles menos profundos para la nueva capa intermedia)
     deepLayers = {
         -- Solo mantener las capas más profundas
@@ -41,14 +54,7 @@ MapConfig.stars = {
             alphaMax = 0.8,             -- Aumentado para mejor visibilidad
             parallaxScale = 0.015,      -- Ligeramente aumentado
             depthRange = { min = 0.60, max = 0.80 },  -- Ajustado para capa cercana
-            useShaders = true,
-            -- Escalado inverso por zoom optimizado
-            inverseZoomScaling = {
-                enabled = true,
-                baseZoom = 1.0,
-                minScale = 0.4,         -- Aumentado de 0.3 a 0.4
-                maxScale = 2.5          -- Aumentado de 2.0 a 2.5
-            }
+            useShaders = true
         },
         -- Capa 2: Estrellas intermedias medianas (reemplaza estrellas cercanas medianas)
         layer2 = {
@@ -63,14 +69,7 @@ MapConfig.stars = {
             alphaMax = 0.9,             -- Aumentado para mejor visibilidad
             parallaxScale = 0.025,      -- Aumentado para efecto parallax más notorio
             depthRange = { min = 0.75, max = 0.90 },  -- Ajustado para capa cercana
-            useShaders = true,
-            -- Escalado inverso por zoom optimizado
-            inverseZoomScaling = {
-                enabled = true,
-                baseZoom = 1.0,
-                minScale = 0.5,         -- Aumentado de 0.4 a 0.5
-                maxScale = 2.2          -- Aumentado de 1.8 a 2.2
-            }
+            useShaders = true
         }
     },
     -- Configuración específica para microestrellas
@@ -153,11 +152,13 @@ MapConfig.nebulae = {
 
 -- Configuración de renderizado
 MapConfig.rendering = {
-    maxStarsPerFrame = 6000,
     enhancedEffects = true,
     lodEnabled = true,
     cullingEnabled = true
 }
+
+-- Alias explícito para mantener sincronizado el presupuesto de estrellas
+MapConfig.rendering.maxStarsPerFrame = MapConfig.stars.maxStarsPerFrame
 
 -- Ajuste de densidad por escala + caps (para no perder rendimiento)
 MapConfig.spawn = {

@@ -38,7 +38,8 @@ local gameState = {
     loaded = false,  -- Nueva bandera para saber si el mundo está cargado
     isLoading = false,  -- Nueva bandera para estado de carga
     inventoryMode = "none",  -- none | ship | eva
-    inventoryDebug = false
+    inventoryDebug = false,
+    showHUD = true  -- Controla la visibilidad del HUD (toggle con tecla L)
 }
 
 -- Sistema de luz eliminado (no se usaba)
@@ -592,9 +593,11 @@ function love.draw()
     local inventoryOpen = (InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen()) or 
                          (EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen())
     
-    -- Dibujar HUD (no afectado por la cámara)
+    -- Dibujar HUD (no afectado por la cámara) solo si showHUD es true
     -- Pasar información de estado del inventario al HUD
-    HUD.draw(inventoryOpen)
+    if gameState.showHUD then
+        HUD.draw(inventoryOpen)
+    end
     
     -- Dibujar InventoryUI (no afectado por la cámara) - se dibuja después del HUD para estar encima
     if InventoryUI and InventoryUI.draw then
@@ -1127,6 +1130,10 @@ function love.keypressed(key)
             end
             if gameState.inventoryDebug then print("[INV] Open via Tab -> mode=" .. gameState.inventoryMode) end
         end
+    elseif key == "l" then
+        -- Toggle visibilidad del HUD
+        gameState.showHUD = not gameState.showHUD
+        print("HUD: " .. (gameState.showHUD and "VISIBLE" or "OCULTO"))
     end
     
     -- Manejar teclas específicas del inventario EVA cuando está abierto
