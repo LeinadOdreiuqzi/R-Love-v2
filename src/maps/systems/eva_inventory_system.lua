@@ -105,10 +105,18 @@ function EVAInventorySystem:addItem(itemData, quantity)
     end
     for i = 1, self.maxSlots do
         if not self.items[i] then
-            self.items[i] = {
-                data = itemData,
-                quantity = quantity
-            }
+            -- Robustez contra doble anidación
+            if type(itemData) == "table" and itemData.data then
+                self.items[i] = itemData
+                if quantity and quantity > 1 then
+                    self.items[i].quantity = quantity
+                end
+            else
+                self.items[i] = {
+                    data = itemData,
+                    quantity = quantity
+                }
+            end
             return true
         end
     end

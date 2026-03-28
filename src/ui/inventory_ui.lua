@@ -997,11 +997,11 @@ function InventoryUI:mousereleased(x, y, button, player)
             self:dropItemToWorld(uiState.draggedItem, player, uiState.mouseX, uiState.mouseY)
             dropped = true
         else
-            -- Devolver item a su lugar original usando el sistema centralizado
-            local fromCompartment = self:getCompartmentName(uiState.draggedFromType)
-            if fromCompartment then
-                -- Usar el sistema centralizado para devolver el item
-                player.inventory:addItemToCompartment(fromCompartment, uiState.draggedItem, uiState.draggedFromSlot)
+            -- Devolver item a su lugar original directamente para evitar doble anidación
+            local fromCompartmentName = self:getCompartmentName(uiState.draggedFromType)
+            local comp = player.inventory:getCompartment(fromCompartmentName)
+            if comp and uiState.draggedFromSlot then
+                comp.items[uiState.draggedFromSlot] = uiState.draggedItem
             end
         end
     end

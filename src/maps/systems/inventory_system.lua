@@ -215,10 +215,18 @@ function InventorySystem:addItem(itemData, quantity)
     -- Buscar slot vacío
     for i = 1, self.maxSlots do
         if not self.items[i] then
-            self.items[i] = {
-                data = itemData,
-                quantity = quantity
-            }
+            -- contra doble anidación
+            if type(itemData) == "table" and itemData.data then
+                self.items[i] = itemData
+                if quantity and quantity > 1 then
+                    self.items[i].quantity = quantity
+                end
+            else
+                self.items[i] = {
+                    data = itemData,
+                    quantity = quantity
+                }
+            end
             return true
         end
     end
@@ -328,7 +336,18 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
     quantity = quantity or 1
     for i = 1, c.maxSlots do
         if not c.items[i] then
-            local newItem = { data = itemData, quantity = quantity }
+            local newItem
+            -- Si itemData ya es una instancia (tiene campo 'data'), usarla directamente o extraer sus datos
+            if type(itemData) == "table" and itemData.data then
+                newItem = itemData
+                -- Asegurar que la cantidad esté sincronizada si se pasó una diferente
+                if quantity and quantity > 1 then
+                    newItem.quantity = quantity
+                end
+            else
+                newItem = { data = itemData, quantity = quantity }
+            end
+            
             c.items[i] = newItem
             
             -- Aplicar efectos pasivos si se está agregando al compartimento de pasivos
