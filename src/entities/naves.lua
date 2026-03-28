@@ -96,6 +96,10 @@ function Naves:new(x, y, shipType)
      player.boostDuration = 0        -- Duración actual del boost
      player.maxBoostDuration = 1.2   -- Duración máxima del boost (reducida)
      
+     -- ESTADO PARA INTERPOLACIÓN (Fixed Timestep)
+     player.prevX = player.x
+     player.prevY = player.y
+     player.prevRotation = player.rotation or 0
 
     
     -- Toggle de viaje rápido (100k)
@@ -650,6 +654,17 @@ function Naves:addFuel(amount)
     self.stats:addFuel(amount)
 end
 
+function Naves:savePreviousState()
+    self.prevX = self.x
+    self.prevY = self.y
+    self.prevRotation = self.rotation or 0
+    
+    -- Si estamos en EVA, guardar también el estado del astronauta
+    if self.isInEVA and self.evaPlayer and self.evaPlayer.savePreviousState then
+        self.evaPlayer:savePreviousState()
+    end
+end
+
 function Naves:draw()
     -- If in EVA mode, draw both the abandoned ship and the EVA player
     if self.isInEVA then
@@ -658,16 +673,23 @@ function Naves:draw()
         return
     end
     
-    -- Thruster particles have been removed as requested
+    local World = getWorld()
+    local alpha = World and World.get('interpolationAlpha') or 1.0
+    local MathUtil = require 'src.utils.math_util'
     
+    -- Calcular posición y rotación interpolada
+    local renderX = MathUtil.lerp(self.prevX or self.x, self.x, alpha)
+    local renderY = MathUtil.lerp(self.prevY or self.y, self.y, alpha)
+    local renderRot = MathUtil.lerpAngle(self.prevRotation or self.rotation, self.rotation, alpha)
+
     -- Save the current graphics state
     love.graphics.push()
     
-    -- Move to player position
-    love.graphics.translate(self.x, self.y)
+    -- Move to player position (interpolated)
+    love.graphics.translate(renderX, renderY)
     
-    -- Rotate around the center
-    love.graphics.rotate(self.rotation)
+    -- Rotate around the center (interpolated)
+    love.graphics.rotate(renderRot)
     
     -- Save the current color
     local r, g, b, a = love.graphics.getColor()

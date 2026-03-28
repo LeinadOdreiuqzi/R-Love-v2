@@ -27,6 +27,11 @@ function EVAPlayer:new(x, y, shipRef)
     evaPlayer.rotation = 0             -- Current rotation in radians
     evaPlayer.targetRotation = 0       -- Target rotation for smooth turning
     
+    -- Estado para interpolación
+    evaPlayer.prevX = x or 0
+    evaPlayer.prevY = y or 0
+    evaPlayer.prevRotation = 0
+    
     -- Mouse direction tracking
     evaPlayer.mouseDirection = {x = 1, y = 0}  -- Default direction (right)
     evaPlayer.minMouseDistance = 20    -- Minimum distance to avoid erratic behavior
@@ -232,10 +237,26 @@ function EVAPlayer:canEnterShip()
     return distance <= self.interactionRange
 end
 
+-- Guardar estado para interpolación (llamado por Naves:savePreviousState)
+function EVAPlayer:savePreviousState()
+    self.prevX = self.x
+    self.prevY = self.y
+    self.prevRotation = self.rotation or 0
+end
+
 function EVAPlayer:draw()
+    local World = require('src.core.world')
+    local MathUtil = require('src.utils.math_util')
+    local alpha = World and World.get('interpolationAlpha') or 1.0
+    
+    -- Interpolar para renderizado suave
+    local renderX = MathUtil.lerp(self.prevX or self.x, self.x, alpha)
+    local renderY = MathUtil.lerp(self.prevY or self.y, self.y, alpha)
+    local renderRot = MathUtil.lerpAngle(self.prevRotation or self.rotation, self.rotation, alpha)
+
     love.graphics.push()
-    love.graphics.translate(self.x, self.y)
-    love.graphics.rotate(self.rotation)
+    love.graphics.translate(renderX, renderY)
+    love.graphics.rotate(renderRot)
     
     if self.sprite then
         -- Draw sprite

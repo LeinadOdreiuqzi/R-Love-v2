@@ -20,6 +20,7 @@ local SubLevelScene = require 'src.sublevels.sublevel_scene'
 local SubLevelManager = require 'src.maps.systems.sublevel_manager'
 local InputManager = require 'src.core.input_manager'
 local stateManager = StateManager:new()
+local MathUtil = require 'src.utils.math_util'
 
 -- Sistema de items
 local ItemSystem = require 'src.item_systems.items.init'
@@ -54,6 +55,10 @@ _G.physicsManager = nil
 local player
 local runState, gameDirector
 local prevIsInEVA = false
+
+-- FÍSICA CONSTANTE (Fixed Timestep)
+local fixed_dt = 1/60
+local accumulator = 0
 
 -- Sistema de debug para biomas y sistemas avanzados
 local biomeDebug = {
@@ -355,161 +360,153 @@ function love.load(args)
     end)
 end
 
+-- Función auxiliar para limpieza del update (Gestión de inventarios)
+local function processInventoryExclusivity()
+    if not player then return end
+
+    -- Detectar transición de EVA
+    if prevIsInEVA ~= player.isInEVA then
+        if InventoryUI and InventoryUI.close then InventoryUI:close() end
+        if EVAInventoryUI and EVAInventoryUI.close then EVAInventoryUI:close() end
+        gameState.inventoryMode = "none"
+        prevIsInEVA = player.isInEVA
+    end
+
+    -- Exclusividad forzada
+    if player.isInEVA then
+        if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then InventoryUI:close() end
+    else
+        if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then EVAInventoryUI:close() end
+    end
+
+    -- Sincronizar modo
+    local computed = "none"
+    if not (player and player.isInEVA) and InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then computed = "ship" end
+    if (player and player.isInEVA) and EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then computed = "eva" end
+    gameState.inventoryMode = computed
+end
+
 function love.update(dt)
-    -- Si está cargando, actualizar pantalla de carga
+    -- 1. Pantalla de carga (usar dt variable para fluidez)
     if gameState.isLoading then
         LoadingScreen.update(dt)
         return
     end
     
-    -- Si no está cargado, no actualizar nada más
-    if not gameState.loaded then
-        return
-    end
-    
-    -- Pausar el juego si es necesario
+    if not gameState.loaded then return end
     if gameState.paused then return end
-    
-    -- Limitar delta time para evitar saltos grandes
-    dt = math.min(dt or 1/60, 1/30)
 
-    -- Actualizar gestor de estados; si hay estado bloqueante, detener gameplay
-    if stateManager then
-        stateManager:update(dt)
-        if stateManager:blocksUnderlying() then
-            return
-        end
-    end
+    -- 2. Acumular tiempo (Fixed Timestep)
+    accumulator = accumulator + math.min(dt, 0.25)
 
-    -- Actualizar RunState pasando velocidad del jugador (evita que RunState acceda a _G.player)
-    if runState then
-        local playerSpeedForRunState = nil
-        if player and player.dx and player.dy then
-            playerSpeedForRunState = math.sqrt(player.dx * player.dx + player.dy * player.dy)
-        end
-        runState:update(dt, playerSpeedForRunState)
-    end
-    if gameDirector then gameDirector:update(dt) end
-
-    -- Actualizar sistema de física Box2D
-    if _G.physicsManager then
-        _G.physicsManager:update(dt)
-    end
-
-    -- Actualizar estadísticas avanzadas
-    updateAdvancedStats(dt)
-    
-    -- Actualizar cámara (necesario para zoom y optimizaciones)
-    if _G.camera and _G.camera.update then
-        _G.camera:update(dt)
-    end
-    
-    -- Actualizar HUD (incluye tracking de biomas)
-    if HUD and HUD.update then
-        HUD.update(dt)
-    end
-    
-    -- Actualizar InventoryUI
-    if InventoryUI and InventoryUI.update then
-        InventoryUI:update(dt, player)
-    end
-    
-    -- Actualizar EVAInventoryUI
-    if EVAInventoryUI and EVAInventoryUI.update and player and player.isInEVA and player.evaPlayer then
-        EVAInventoryUI:update(dt, player.evaPlayer)
-    end
-
-    -- Forzar exclusividad de inventarios según modo EVA (cierre automático)
-    if player then
-        -- Detectar transición de EVA y cerrar inventarios + resetear modo
-        if prevIsInEVA ~= player.isInEVA then
-            if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-                if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
-            end
-            if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-                if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
-            end
-            gameState.inventoryMode = "none"
-            if gameState.inventoryDebug then print("[INV] EVA transition -> mode=none, inventories closed") end
-            prevIsInEVA = player.isInEVA
-        end
-
-        -- Exclusividad según estado EVA
-        if player.isInEVA then
-            if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-                if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
-            end
-        else
-            if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-                if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
+    -- 3. CICLO DE LÓGICA FIJA (60 Hz)
+    while accumulator >= fixed_dt do
+        -- 3.1. Estado de la aplicación / Transiciones
+        if stateManager then
+            stateManager:update(fixed_dt)
+            if stateManager:blocksUnderlying() then
+                accumulator = 0 -- Resetear para no acumular lógica si el juego está pausado por UI
+                return
             end
         end
 
-        -- Sincronizar modo en base a estado real de las UIs
-        local computed = "none"
-        if not player.isInEVA and InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-            computed = "ship"
+        -- 3.2. Gameplay (RunState / Director)
+        if runState then
+            local pSpeed = 0
+            if player and player.dx and player.dy then
+                pSpeed = math.sqrt(player.dx * player.dx + player.dy * player.dy)
+            end
+            runState:update(fixed_dt, pSpeed)
         end
-        if player.isInEVA and EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-            computed = "eva"
-        end
-        if computed ~= gameState.inventoryMode then
-            gameState.inventoryMode = computed
-            if gameState.inventoryDebug then print("[INV] Sync mode -> mode=" .. gameState.inventoryMode) end
-        end
-    end
+        if gameDirector then gameDirector:update(fixed_dt) end
 
-    -- Actualizar jugador
+        -- 3.3. FÍSICA (Box2D) - Crucial que sea fijo
+        if _G.physicsManager then
+            _G.physicsManager:update(fixed_dt)
+        end
+
+        -- 3.4. JUGADOR (Input y Movimiento)
         if player and type(player.update) == "function" then
-            local success, err = pcall(function() player:update(dt) end)
-            if not success then
-                print("Error updating player:", err)
+            -- Guardar estado previo antes de actualizar para interpolación
+            if player.savePreviousState then
+                player:savePreviousState()
             end
             
-            -- Conectar estado de boost del jugador con GameDirector
+            pcall(function() player:update(fixed_dt) end)
+            
+            -- Sincronización con Director
             if gameDirector and player.isBoostActive ~= nil then
                 gameDirector:setPlayerBoosting(player.isBoostActive)
             end
         end
-    
-    -- Obtener velocidad del jugador para precarga direccional
-    local playerVelX, playerVelY = 0, 0
-    if player then
-        playerVelX = player.dx or 0
-        playerVelY = player.dy or 0
-    end
-    
-    -- Actualizar sistema de mapas mejorado con velocidad
-    if player and player.x and player.y then
-        Map.update(dt, player.x, player.y, playerVelX, playerVelY)
-    end
-    
-    -- Actualizar optimizaciones de pantalla completa en ChunkManager
-    if ChunkManager and ChunkManager.updateFullscreenOptimizations then
-        local isFullscreen = false
-        if FullscreenManager and FullscreenManager.isFullscreen then
-            isFullscreen = FullscreenManager.isFullscreen()
+
+        -- 3.5. ITEMS (Física de items en el mundo)
+        if WorldItems and WorldItems.update then
+            -- Note: WorldItems.update handles multiple items internally. 
+            WorldItems.update(fixed_dt)
         end
+
+        accumulator = accumulator - fixed_dt
+    end
+
+    -- 4. ACTUALIZACIONES VISUALES (Tasa Variable / Render-rate)
+    -- Calcular alpha de interpolación para el renderizado suave
+    local interpolationAlpha = accumulator / fixed_dt
+    World.set('interpolationAlpha', interpolationAlpha)
+
+    updateAdvancedStats(dt)
+    
+    if _G.camera and _G.camera.update then
+        _G.camera:update(dt)
+    end
+    
+    if HUD and HUD.update then
+        HUD.update(dt)
+    end
+    
+    -- Inventarios (UI)
+    if InventoryUI and InventoryUI.update then
+        InventoryUI:update(dt, player)
+    end
+    if EVAInventoryUI and EVAInventoryUI.update and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:update(dt, player.evaPlayer)
+    end
+    
+    -- Gestión de inventarios (Lógica de UI)
+    processInventoryExclusivity()
+
+    -- Mapas y Culling (Optimización)
+    if player and player.x and player.y then
+        local px, py = player.x, player.y
+        local vx, vy = player.dx or 0, player.dy or 0
+        
+        Map.update(dt, px, py, vx, vy)
+        
+        if type(OptimizedRenderer) == "table" and OptimizedRenderer.update then
+            OptimizedRenderer.update(dt, px, py, _G.camera)
+        end
+    end
+    
+    -- Optimizaciones de Fullscreen
+    if ChunkManager and ChunkManager.updateFullscreenOptimizations then
+        local isFullscreen = (FullscreenManager and FullscreenManager.isFullscreen and FullscreenManager:isFullscreen()) or false
         ChunkManager.updateFullscreenOptimizations(isFullscreen, _G.camera)
     end
-    
-    -- Actualizar OptimizedRenderer con precarga incremental
-    if type(OptimizedRenderer) == "table" and OptimizedRenderer.update then
-        OptimizedRenderer.update(dt, player and player.x or 0, player and player.y or 0, _G.camera)
-    end
+
+    -- 5. SEGUIMIENTO Y DEBUG (Variable rate)
     
     -- Actualizar cámara para seguir la entidad activa (nave o EVA player)
     if _G.camera and type(_G.camera.follow) == "function" then
         local success, err = pcall(function()
-            local activeEntity = player:getActiveEntity()
-            _G.camera:follow(activeEntity, dt)
+            local activeEntity = (player and player.getActiveEntity) and player:getActiveEntity() or player
+            if activeEntity then
+                _G.camera:follow(activeEntity, dt)
+            end
         end)
         if not success then
             print("Error updating camera:", err)
         end
     end
-    
-    -- Sistema de luz eliminado
     
     -- Actualizar debug de biomas y sistemas
     if biomeDebug.enabled and player then
@@ -540,6 +537,7 @@ function love.update(dt)
                 end
                 
                 -- Debug específico de semillas
+                local SeedSystem = require 'src.utils.seed_system'
                 print("Seed Debug - Alpha: " .. gameState.currentSeed .. 
                       ", Numeric: " .. SeedSystem.toNumeric(gameState.currentSeed))
             end
@@ -561,9 +559,6 @@ function love.update(dt)
     if _G.camera then
         _G.camera:updateScreenDimensions()
     end
-    
-    -- Actualizar items en el mundo
-    WorldItems.update(dt)
 end
 
 function love.draw()

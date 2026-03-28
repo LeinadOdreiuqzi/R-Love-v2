@@ -44,6 +44,10 @@ function WorldItems.create(itemData, x, y, quantity)
         bounceTime = 0,
         alpha = 0,
         
+        -- Estado para interpolación
+        prevX = x or 0,
+        prevY = y or 0,
+        
         -- Propiedades de tiempo
         spawnTime = love.timer.getTime(),
         fadeInComplete = false,
@@ -89,6 +93,10 @@ function WorldItems.update(dt)
     for i = #worldItems, 1, -1 do
         local item = worldItems[i]
         
+        -- Guardar estado previo para interpolación
+        item.prevX = item.x
+        item.prevY = item.y
+        
         -- Actualizar física
         item.x = item.x + item.velocityX * dt
         item.y = item.y + item.velocityY * dt
@@ -128,10 +136,18 @@ function WorldItems.draw(camera, playerX, playerY)
     
     for _, item in ipairs(worldItems) do
         if item.alpha > 0 then
+            local World = require('src.core.world')
+            local MathUtil = require('src.utils.math_util')
+            local alpha = World and World.get('interpolationAlpha') or 1.0
+            
+            -- Interpolar posición para renderizado suave
+            local renderX = MathUtil.lerp(item.prevX or item.x, item.x, alpha)
+            local renderY = MathUtil.lerp(item.prevY or item.y, item.y, alpha)
+            
             -- Convertir coordenadas del mundo a pantalla
-            local screenX, screenY = camera:worldToScreen(item.x, item.y) -- solo para culling
+            local screenX, screenY = camera:worldToScreen(renderX, renderY) -- solo para culling
             screenY = screenY + item.bounceOffset
-            local worldX, worldY = item.x, item.y + item.bounceOffset
+            local worldX, worldY = renderX, renderY + item.bounceOffset
             
             if screenX > -CONFIG.ITEM_SIZE and screenX < love.graphics.getWidth() + CONFIG.ITEM_SIZE and
                screenY > -CONFIG.ITEM_SIZE and screenY < love.graphics.getHeight() + CONFIG.ITEM_SIZE then

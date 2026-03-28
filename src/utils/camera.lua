@@ -35,6 +35,9 @@ function Camera:new()
     camera.shake = 0
     camera.shakeIntensity = 0
     
+    -- Cache para utilidades
+    camera.MathUtil = require 'src.utils.math_util'
+    
     return camera
 end
 
@@ -114,19 +117,26 @@ end
 
 -- Follow a target with smooth movement and return target position
 function Camera:follow(target, dt)
-    if not target or not target.x or not target.y then 
-        return self.x, self.y
+    local alpha = 1.0
+    local ok, World = pcall(require, 'src.core.world')
+    if ok and World and World.get then
+        alpha = World.get('interpolationAlpha') or 1.0
     end
     
-    dt = dt or 1/60
-    
+    -- Si el objetivo tiene estado previo, usar posición interpolada
+    local tx, ty = target.x, target.y
+    if target.prevX and target.prevY then
+        tx = self.MathUtil.lerp(target.prevX, target.x, alpha)
+        ty = self.MathUtil.lerp(target.prevY, target.y, alpha)
+    end
+
     -- Calculate target position with some lookahead based on velocity
     local lookAheadX = (target.dx or 0) * 0.3
     local lookAheadY = (target.dy or 0) * 0.3
     
     -- Calculate target position
-    local targetX = target.x + lookAheadX
-    local targetY = target.y + lookAheadY
+    local targetX = tx + lookAheadX
+    local targetY = ty + lookAheadY
     
     -- Calculate distance to target
     local dx = targetX - self.x
