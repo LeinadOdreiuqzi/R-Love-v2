@@ -2,6 +2,8 @@ local HUD = require('src.ui.hud.core')
 
 -- HUD del jugador (barras de vida, escudo, combustible) - CON SOPORTE EVA
 function HUD.drawPlayerHUD()
+    if not HUD.player then return end
+
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
@@ -11,41 +13,41 @@ function HUD.drawPlayerHUD()
     local barHeight = 12
     
     local r, g, b, a = love.graphics.getColor()
-    local isInEVA = player.isInEVA or false
+    local isInEVA = HUD.player.isInEVA or false
     
     HUD.drawHearts(heartStartX, hudY - 30)
     
     if isInEVA then
         love.graphics.setColor(1, 0.5, 0, 1)
-        love.graphics.setFont(hudState.font)
+        love.graphics.setFont(HUD.hudState.font)
         love.graphics.print("EVA MODE", heartStartX, hudY - 50)
         love.graphics.setColor(0.8, 0.8, 0.8, 1)
-        love.graphics.setFont(hudState.tinyFont)
+        love.graphics.setFont(HUD.hudState.tinyFont)
         love.graphics.print("Press E near ship to enter", heartStartX, hudY - 35)
     else
         love.graphics.setColor(0.8, 0.8, 0.8, 1)
-        love.graphics.setFont(hudState.tinyFont)
+        love.graphics.setFont(HUD.hudState.tinyFont)
         love.graphics.print("Hold S+E to exit ship", heartStartX, hudY - 35)
     end
     
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(hudState.smallFont)
+    love.graphics.setFont(HUD.hudState.smallFont)
     love.graphics.print("SHIELD", heartStartX, hudY)
     HUD.drawBar(heartStartX + 60, hudY + 2, barWidth, barHeight, 
-                 player.stats:getShieldPercentage(), {0.2, 0.6, 1, 1}, {0.1, 0.3, 0.5, 0.8})
+                 HUD.player.stats:getShieldPercentage(), {0.2, 0.6, 1, 1}, {0.1, 0.3, 0.5, 0.8})
     
     if not isInEVA then
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("FUEL", heartStartX, hudY + 20)
         HUD.drawBar(heartStartX + 60, hudY + 22, barWidth, barHeight, 
-                     player.stats:getFuelPercentage(), {1, 0.8, 0.2, 1}, {0.5, 0.4, 0.1, 0.8})
+                     HUD.player.stats:getFuelPercentage(), {1, 0.8, 0.2, 1}, {0.5, 0.4, 0.1, 0.8})
     else
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("DISTANCE TO SHIP", heartStartX, hudY + 20)
         local distance = 0
-        if player.evaPlayer and player.shipX and player.shipY then
-            local dx = player.evaPlayer.x - player.shipX
-            local dy = player.evaPlayer.y - player.shipY
+        if HUD.player.evaPlayer and HUD.player.x and HUD.player.y then
+            local dx = HUD.player.evaPlayer.x - HUD.player.x
+            local dy = HUD.player.evaPlayer.y - HUD.player.y
             distance = math.sqrt(dx * dx + dy * dy)
         end
         love.graphics.setColor(0.8, 0.8, 0.8, 1)
@@ -57,16 +59,18 @@ end
 
 -- Dibujar corazones de vida - SIN CAMBIOS
 function HUD.drawHearts(x, y)
+    if not HUD.player or not HUD.player.stats or not HUD.player.stats.health then return end
+
     local heartSize = 16
     local heartSpacing = 20
     
-    for i = 1, player.stats.health.maxHearts do
+    for i = 1, HUD.player.stats.health.maxHearts do
         local heartX = x + (i - 1) * heartSpacing
         
-        if i <= player.stats.health.currentHearts then
+        if i <= HUD.player.stats.health.currentHearts then
             love.graphics.setColor(1, 0.2, 0.2, 1)
             HUD.drawHeart(heartX, y, heartSize, true)
-        elseif i == player.stats.health.currentHearts + 1 and player.stats.health.heartHalves > 0 then
+        elseif i == HUD.player.stats.health.currentHearts + 1 and HUD.player.stats.health.heartHalves > 0 then
             love.graphics.setColor(1, 0.2, 0.2, 1)
             HUD.drawHeart(heartX, y, heartSize, false)
         else
@@ -116,19 +120,19 @@ function HUD.drawHeartOutline(x, y, size)
 end
 
 function HUD.drawBar(x, y, width, height, percentage, color, backgroundColor)
-    love.graphics.setColor(backgroundColor)
+    love.graphics.setColor(backgroundColor[1], backgroundColor[2], backgroundColor[3], backgroundColor[4])
     love.graphics.rectangle("fill", x, y, width, height)
     love.graphics.setColor(1, 1, 1, 0.5)
     love.graphics.rectangle("line", x, y, width, height)
-    if percentage > 0 then
-        love.graphics.setColor(color)
+    if (percentage or 0) > 0 then
+        love.graphics.setColor(color[1], color[2], color[3], color[4])
         local fillWidth = (width - 2) * (percentage / 100)
         love.graphics.rectangle("fill", x + 1, y + 1, fillWidth, height - 2)
     end
     love.graphics.setColor(1, 1, 1, 1)
-    local text = string.format("%.0f%%", percentage)
-    local textWidth = hudState.smallFont:getWidth(text)
-    love.graphics.setFont(hudState.smallFont)
+    local text = string.format("%.0f%%", percentage or 0)
+    local textWidth = HUD.hudState.smallFont:getWidth(text)
+    love.graphics.setFont(HUD.hudState.smallFont)
     love.graphics.print(text, x + width/2 - textWidth/2, y - 1)
 end
 

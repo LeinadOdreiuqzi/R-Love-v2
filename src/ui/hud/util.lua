@@ -4,35 +4,35 @@ function HUD.updateReferences(worldOrGameState, playerRef, mapRef, gameDirectorR
     -- Acepta el World context (nueva API) o refs sueltas (API legada)
     if worldOrGameState and type(worldOrGameState.get) == 'function' then
         local w = worldOrGameState
-        gameState    = w.get('state')
-        player       = w.getPlayer()
-        Map          = w.getMap()
-        gameDirector = w.getDirector()
-        runState     = w.getRunState()
+        HUD.gameState    = w.get('state')
+        HUD.player       = w.getPlayer()
+        HUD.Map          = w.getMap()
+        HUD.gameDirector = w.getDirector()
+        HUD.runState     = w.getRunState()
     else
-        gameState    = worldOrGameState or gameState
-        player       = playerRef       or player
-        Map          = mapRef          or Map
-        gameDirector = gameDirectorRef or gameDirector
-        runState     = runStateRef     or runState
+        HUD.gameState    = worldOrGameState or HUD.gameState
+        HUD.player       = playerRef       or HUD.player
+        HUD.Map          = mapRef          or HUD.Map
+        HUD.gameDirector = gameDirectorRef or HUD.gameDirector
+        HUD.runState     = runStateRef     or HUD.runState
     end
 
     print("[HUD DEBUG] updateReferences llamado:")
-    print("  gameState:", gameState and "OK" or "NIL")
-    print("  player:", player and "OK" or "NIL")
-    print("  Map:", Map and "OK" or "NIL")
-    print("  gameDirector:", gameDirector and "OK" or "NIL")
-    print("  runState:", runState and "OK" or "NIL")
+    print("  gameState:", HUD.gameState and "OK" or "NIL")
+    print("  player:", HUD.player and "OK" or "NIL")
+    print("  Map:", HUD.Map and "OK" or "NIL")
+    print("  gameDirector:", HUD.gameDirector and "OK" or "NIL")
+    print("  runState:", HUD.runState and "OK" or "NIL")
 
     local success, biomeSystemModule = pcall(function()
         return require 'src.maps.biome_system'
     end)
 
     if success then
-        BiomeSystem = biomeSystemModule
+        HUD.BiomeSystem = biomeSystemModule
     end
 
-    biomeCache = {
+    HUD.biomeCache = {
         lastUpdate = 0,
         updateInterval = 0.5,
         currentBiome = nil,
@@ -42,11 +42,11 @@ function HUD.updateReferences(worldOrGameState, playerRef, mapRef, gameDirectorR
 end
 
 function HUD.getBiomeHistory()
-    return biomeCache.biomeHistory
+    return HUD.biomeCache.biomeHistory
 end
 
 function HUD.getSeedSystem()
-    return SeedSystem
+    return HUD.SeedSystem
 end
 
 return HUD

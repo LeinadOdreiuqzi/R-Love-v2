@@ -4,6 +4,7 @@
 
 local GameDirector = {}
 GameDirector.__index = GameDirector
+local World = require 'src.core.world'
 GameDirector.__version = 1
 
 function GameDirector:new(runState, opts)
@@ -45,8 +46,9 @@ function GameDirector:update(dt)
     self.time = self.time + dt
     
     -- Sincronizar con el estado del jugador
-    if _G.player then
-        self.playerActions.isBoosting = _G.player.isBoostActive or false
+    local player = World.get('player')
+    if player then
+        self.playerActions.isBoosting = player.isBoostActive or false
         -- Actualizar otras acciones según sea necesario
     end
     

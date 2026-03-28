@@ -3,6 +3,7 @@
 
 local WeaponSystem = {}
 local ItemSystem = require 'src.item_systems.item_system'
+local World = require 'src.core.world'
 
 -- Configuración del sistema de armas
 local WEAPON_CONFIG = {
@@ -300,15 +301,17 @@ function WeaponSystem:shoot(mouseX, mouseY)
     end
     
     -- Verificar que tenemos acceso al mundo de física
-    if not _G.physicsManager or not _G.physicsManager:getWorld() then
+    local physMgr = World.get('physics')
+    if not physMgr or not physMgr:getWorld() then
         -- Error: Physics world not available
         return false
     end
     
     -- Convertir coordenadas del mouse a coordenadas del mundo
     local worldMouseX, worldMouseY
-    if _G.camera then
-        worldMouseX, worldMouseY = _G.camera:screenToWorld(mouseX, mouseY)
+    local camera = World.get('camera')
+    if camera then
+        worldMouseX, worldMouseY = camera:screenToWorld(mouseX, mouseY)
     else
         -- Fallback si no hay cámara
         worldMouseX, worldMouseY = mouseX, mouseY
@@ -373,11 +376,11 @@ function WeaponSystem:shoot(mouseX, mouseY)
             pelletAngle = pelletAngle + (math.random() - 0.5) * 0.1
             
             -- Crear proyectil individual
-            local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, pelletAngle, nil, custom_config)
+            local projectile = ProjectileClass.new(physMgr:getWorld(), spawnX, spawnY, pelletAngle, nil, custom_config)
             
             -- Agregar el proyectil al sistema de física
-            if projectile and _G.physicsManager.addProjectile then
-                _G.physicsManager:addProjectile(projectile)
+            if projectile and physMgr.addProjectile then
+                physMgr:addProjectile(projectile)
                 
                 -- Almacenar el proyectil para actualizaciones y renderizado
                 if not self.player.projectiles then
@@ -389,11 +392,11 @@ function WeaponSystem:shoot(mouseX, mouseY)
         end
     else
         -- Disparo normal para otras armas
-        local projectile = ProjectileClass.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle, nil, custom_config)
+        local projectile = ProjectileClass.new(physMgr:getWorld(), spawnX, spawnY, angle, nil, custom_config)
         
         -- Agregar el proyectil al sistema de física
-        if projectile and _G.physicsManager.addProjectile then
-            _G.physicsManager:addProjectile(projectile)
+        if projectile and physMgr.addProjectile then
+            physMgr:addProjectile(projectile)
             
             -- Almacenar el proyectil para actualizaciones y renderizado
             if not self.player.projectiles then

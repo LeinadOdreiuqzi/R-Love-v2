@@ -559,7 +559,8 @@ function Projectile:draw()
         return
     end
     
-    -- TODO: Implementar renderizado completo
+    -- Guardar todo el estado gráfico (colores, fuentes, blend modes, etc.)
+    love.graphics.push("all")
     
     -- Obtener posición y rotación
     local x, y = self.body:getPosition()
@@ -575,6 +576,9 @@ function Projectile:draw()
     if PhysicsConfig.DEBUG_DRAW_ENABLED then
         self:drawDebug(x, y, angle)
     end
+    
+    -- Restaurar todo el estado gráfico
+    love.graphics.pop()
 end
 
 --[[

@@ -223,8 +223,10 @@ function FullscreenManager.onModeChanged(newMode)
     -- Hook para que otros sistemas se adapten al cambio
     -- Por ejemplo, notificar a la cámara, UI, etc.
     
-    if _G.camera and _G.camera.updateScreenDimensions then
-        _G.camera:updateScreenDimensions()
+    local World = package.loaded['src.core.world']
+    local camera = World and World.get('camera')
+    if camera and camera.updateScreenDimensions then
+        camera:updateScreenDimensions()
     end
     
     -- Notificar al Map si tiene función de actualización de dimensiones

@@ -4,135 +4,134 @@ local HUD = require('src.ui.hud.core')
 local _world = nil
 
 -- Inicialización del HUD
--- Acepta el World context (nuevo) O los argumentos sueltos antiguos (compat)
 function HUD.init(worldOrGameState, playerRef, mapRef, gameDirectorRef, runStateRef)
-    hudState.font = love.graphics.newFont(13)
-    hudState.smallFont = love.graphics.newFont(11)
-    hudState.tinyFont = love.graphics.newFont(9)
+    HUD.hudState.font = love.graphics.newFont(13)
+    HUD.hudState.smallFont = love.graphics.newFont(11)
+    HUD.hudState.tinyFont = love.graphics.newFont(9)
 
     -- Detectar si se llama con World o con refs sueltas (compatibilidad)
     if worldOrGameState and type(worldOrGameState.get) == 'function' then
         -- Nueva API: HUD.init(World)
         _world = worldOrGameState
-        gameState    = _world.get('state')
-        player       = _world.getPlayer()
-        Map          = _world.getMap()
-        gameDirector = _world.getDirector()
-        runState     = _world.getRunState()
+        HUD.gameState    = _world.get('state')
+        HUD.player       = _world.getPlayer()
+        HUD.Map          = _world.getMap()
+        HUD.gameDirector = _world.getDirector()
+        HUD.runState     = _world.getRunState()
     else
         -- API legada: HUD.init(gameState, player, Map, gameDirector, runState)
-        gameState    = worldOrGameState
-        player       = playerRef
-        Map          = mapRef
-        gameDirector = gameDirectorRef
-        runState     = runStateRef
+        HUD.gameState    = worldOrGameState
+        HUD.player       = playerRef
+        HUD.Map          = mapRef
+        HUD.gameDirector = gameDirectorRef
+        HUD.runState     = runStateRef
     end
 
     print("[HUD DEBUG] Referencias recibidas:")
-    print("  gameState:", gameState and "OK" or "NIL")
-    print("  player:", player and "OK" or "NIL")
-    print("  Map:", Map and "OK" or "NIL")
-    print("  gameDirector:", gameDirector and "OK" or "NIL")
-    print("  runState:", runState and "OK" or "NIL")
+    print("  gameState:", HUD.gameState and "OK" or "NIL")
+    print("  player:", HUD.player and "OK" or "NIL")
+    print("  Map:", HUD.Map and "OK" or "NIL")
+    print("  gameDirector:", HUD.gameDirector and "OK" or "NIL")
+    print("  runState:", HUD.runState and "OK" or "NIL")
 
     local success, biomeSystemModule = pcall(function()
         return require 'src.maps.biome_system'
     end)
 
     if success then
-        BiomeSystem = biomeSystemModule
+        HUD.BiomeSystem = biomeSystemModule
         print("HUD: BiomeSystem loaded successfully")
     else
         print("HUD: BiomeSystem not available")
     end
 
-    for i, preset in ipairs(presetSeeds) do
+    for i, preset in ipairs(HUD.presetSeeds) do
         if preset.name == "Random" then
-            preset.seed = SeedSystem.generate()
+            preset.seed = HUD.SeedSystem.generate()
         end
     end
 
+    local WeaponHUD = require 'src.ui.weapon_hud'
     WeaponHUD:init()
 
     print("Enhanced HUD system initialized with alphanumeric seed support")
 end
 
--- Nota: HUD.updateReferences está definido en util.lua (cargado después, toma precedencia)
-
--- Actualización principal del HUD (idéntico al original)
+-- Actualización principal del HUD
 function HUD.update(dt)
     local currentTime = love.timer.getTime()
 
-    if hudState.performance.enableCaching then
-        if currentTime - hudState.renderCache.lastUpdate >= hudState.renderCache.updateInterval then
+    if HUD.hudState.performance.enableCaching then
+        if currentTime - HUD.hudState.renderCache.lastUpdate >= HUD.hudState.renderCache.updateInterval then
             HUD.updateCachedData()
-            hudState.renderCache.lastUpdate = currentTime
+            HUD.hudState.renderCache.lastUpdate = currentTime
         end
     end
 
     HUD.updateBiomeInfo(dt)
 
+    local WeaponHUD = require 'src.ui.weapon_hud'
     WeaponHUD:update(dt)
 
-    if hudState.stationHint and hudState.stationHint.enabled then
+    if HUD.hudState.stationHint and HUD.hudState.stationHint.enabled then
         HUD.updateStationHint(dt)
     end
 end
 
--- Actualizar datos en cache (idéntico al original)
+-- Actualizar datos en cache
 function HUD.updateCachedData()
-    hudState.renderCache.dirtyFlags.stats = true
-    hudState.renderCache.dirtyFlags.biome = true
-    hudState.renderCache.dirtyFlags.player = true
+    HUD.hudState.renderCache.dirtyFlags.stats = true
+    HUD.hudState.renderCache.dirtyFlags.biome = true
+    HUD.hudState.renderCache.dirtyFlags.player = true
 end
 
--- Actualizar información de bioma del jugador (idéntico al original)
+-- Actualizar información de bioma del jugador
 function HUD.updateBiomeInfo(dt)
     local currentTime = love.timer.getTime()
 
-    if currentTime - biomeCache.lastUpdate >= biomeCache.updateInterval then
-        biomeCache.debugInfo = {
-            playerExists = player ~= nil,
-            playerHasCoords = player and player.x and player.y,
-            biomeSystemExists = BiomeSystem ~= nil,
-            updatePlayerBiomeExists = BiomeSystem and BiomeSystem.updatePlayerBiome ~= nil,
-            getPlayerBiomeInfoExists = BiomeSystem and BiomeSystem.getPlayerBiomeInfo ~= nil,
-            playerCoords = player and {x = player.x, y = player.y} or nil
+    if currentTime - HUD.biomeCache.lastUpdate >= HUD.biomeCache.updateInterval then
+        HUD.biomeCache.debugInfo = {
+            playerExists = HUD.player ~= nil,
+            playerHasCoords = HUD.player and HUD.player.x and HUD.player.y,
+            biomeSystemExists = HUD.BiomeSystem ~= nil,
+            updatePlayerBiomeExists = HUD.BiomeSystem and HUD.BiomeSystem.updatePlayerBiome ~= nil,
+            getPlayerBiomeInfoExists = HUD.BiomeSystem and HUD.BiomeSystem.getPlayerBiomeInfo ~= nil,
+            playerCoords = HUD.player and {x = HUD.player.x, y = HUD.player.y} or nil
         }
 
-        if player and player.x and player.y and BiomeSystem then
+        if HUD.player and HUD.player.x and HUD.player.y and HUD.BiomeSystem then
             local success, biomeInfo = pcall(function()
-                if BiomeSystem.getPlayerBiomeInfo then
-                    return BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
+                if HUD.BiomeSystem.getPlayerBiomeInfo then
+                    return HUD.BiomeSystem.getPlayerBiomeInfo(HUD.player.x, HUD.player.y)
                 end
                 return nil
             end)
 
             if success and biomeInfo then
-                biomeCache.currentBiomeInfo = biomeInfo
-                biomeCache.currentBiome = biomeInfo.type
-                biomeCache.lastSuccessfulUpdate = currentTime
+                HUD.biomeCache.currentBiomeInfo = biomeInfo
+                HUD.biomeCache.currentBiome = biomeInfo.type
+                HUD.biomeCache.lastSuccessfulUpdate = currentTime
 
-                if #biomeCache.biomeHistory == 0 or biomeCache.biomeHistory[1].biome ~= biomeInfo.type then
-                    table.insert(biomeCache.biomeHistory, 1, {
+                if #HUD.biomeCache.biomeHistory == 0 or HUD.biomeCache.biomeHistory[1].biome ~= biomeInfo.type then
+                    table.insert(HUD.biomeCache.biomeHistory, 1, {
                         biome = biomeInfo.type,
                         name = biomeInfo.name,
                         time = currentTime,
                         config = biomeInfo.config
                     })
 
-                    if #biomeCache.biomeHistory > biomeCache.maxHistory then
-                        table.remove(biomeCache.biomeHistory)
+                    if #HUD.biomeCache.biomeHistory > HUD.biomeCache.maxHistory then
+                        table.remove(HUD.biomeCache.biomeHistory)
                     end
                 end
             else
-                biomeCache.lastError = "Failed to get biome info"
+                HUD.biomeCache.lastError = "Failed to get biome info"
             end
         else
-            biomeCache.lastError = "Missing dependencies"
+            HUD.biomeCache.lastError = "Missing dependencies"
         end
 
-        biomeCache.lastUpdate = currentTime
+        HUD.biomeCache.lastUpdate = currentTime
     end
 end
 

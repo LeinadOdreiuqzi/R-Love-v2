@@ -32,7 +32,7 @@ function HUD.drawPhaseVisualFeedback()
         love.graphics.rectangle("fill", w - borderWidth, 0, borderWidth, h)
         
         local warningText = phaseInfo.status == "At boundary" and "PHASE BOUNDARY REACHED!" or "APPROACHING PHASE BOUNDARY"
-        local font = hudState.font or love.graphics.getFont()
+        local font = HUD.hudState.font or love.graphics.getFont()
         local textWidth = font:getWidth(warningText)
         local textHeight = font:getHeight()
         
@@ -63,8 +63,8 @@ function HUD.drawPhaseVisualFeedback()
         
         local unlockText = "PRESS E TO UNLOCK FULL MAP!"
         local subText = "Final phase boundary reached"
-        local font = hudState.font or love.graphics.getFont()
-        local smallFont = hudState.smallFont or font
+        local font = HUD.hudState.font or love.graphics.getFont()
+        local smallFont = HUD.hudState.smallFont or font
         
         local mainWidth = font:getWidth(unlockText)
         local subWidth = smallFont:getWidth(subText)
@@ -109,8 +109,8 @@ function HUD.drawPhaseVisualFeedback()
         if alpha > 0 then
             local celebrationText = "MAP FULLY UNLOCKED!"
             local subText = "Infinite exploration enabled"
-            local font = hudState.font or love.graphics.getFont()
-            local smallFont = hudState.smallFont or font
+            local font = HUD.hudState.font or love.graphics.getFont()
+            local smallFont = HUD.hudState.smallFont or font
             
             local mainWidth = font:getWidth(celebrationText)
             local subWidth = smallFont:getWidth(subText)
@@ -132,8 +132,8 @@ function HUD.drawPhaseVisualFeedback()
         
         local expansionText = "PHASE " .. phaseInfo.lastExpandedPhase .. " UNLOCKED!"
         local subText = "New area available for exploration"
-        local font = hudState.font or love.graphics.getFont()
-        local smallFont = hudState.smallFont or font
+        local font = HUD.hudState.font or love.graphics.getFont()
+        local smallFont = HUD.hudState.smallFont or font
         
         local mainWidth = font:getWidth(expansionText)
         local subWidth = smallFont:getWidth(subText)

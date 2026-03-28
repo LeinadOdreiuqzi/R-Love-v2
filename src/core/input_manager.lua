@@ -7,6 +7,7 @@ local InputManager = {}
 
 -- Referencias locales para optimización
 local World = nil
+local GameState = require 'src.core.game_state'
 
 -- Estados internos
 local _isInitialized = false
@@ -49,8 +50,8 @@ function InputManager.keypressed(key)
         local newSeed = HUD.handleSeedInput(key)
         if newSeed then
             HUD.hideSeedInput()
-            -- Llamar a la función global changeSeed que está en main.lua
-            if _G.changeSeed then _G.changeSeed(newSeed) end
+            local GameLoader = require 'src.core.game_loader'
+            GameLoader.changeSeed(newSeed)
         end
         return
     end
@@ -92,8 +93,8 @@ function InputManager.keypressed(key)
             print("Debug mode: " .. (enabled and "ON" or "OFF"))
         end
     elseif key == "f4" then
-        _G.showGrid = not _G.showGrid
-        print("Enhanced grid display: " .. (_G.showGrid and "ON" or "OFF"))
+        GameState.state.showGrid = not GameState.state.showGrid
+        print("Enhanced grid display: " .. (GameState.state.showGrid and "ON" or "OFF"))
     elseif key == "f5" then HUD.toggleDebugMenu()
     elseif key == "f6" then
         local biomeDebug = World.get('biomeDebug')
@@ -163,8 +164,9 @@ function InputManager.keypressed(key)
             collectgarbage("collect")
             print("Garbage collected manually")
         else
-            if SeedSystem and _G.changeSeedWithLoading then
-                _G.changeSeedWithLoading(SeedSystem.generate())
+            if SeedSystem then
+                local GameLoader = require 'src.core.game_loader'
+                GameLoader.changeSeedWithLoading(SeedSystem.generate())
             end
         end
     end
@@ -231,18 +233,9 @@ function InputManager.handleInteraction(World, HUD, Map)
             return
         end
 
-        -- Llamar a la función de interacción compleja expuesta por main.lua
-        if _G.tryEnterStationOrSublevel then
-            _G.tryEnterStationOrSublevel()
-        else
-            -- Buscar directamente por si acaso no está en _G explícitamente pero es global
-            local success, func = pcall(function() return tryEnterStationOrSublevel end)
-            if success and type(func) == "function" then
-                func()
-            else
-                print("[InputManager] Error: tryEnterStationOrSublevel not found (global)")
-            end
-        end
+        -- Llamar a la función de interacción compleja en InteractionSystem
+        local InteractionSystem = require 'src.core.interaction_system'
+        InteractionSystem.tryEnterStationOrSublevel()
     end
 end
 

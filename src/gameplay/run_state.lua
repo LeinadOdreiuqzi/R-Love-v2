@@ -66,7 +66,7 @@ function RunState:update(dt, playerSpeed)
     local speed = playerSpeed
     if not speed then
         local w = getWorld()
-        local p = (w and w.getPlayer()) or _G.player
+        local p = w and w.get('player')
         if p and p.dx and p.dy then
             speed = math.sqrt(p.dx * p.dx + p.dy * p.dy)
         end

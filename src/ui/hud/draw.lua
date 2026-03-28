@@ -4,21 +4,24 @@ local HUD = require('src.ui.hud.core')
 function HUD.draw(inventoryOpen)
     local r, g, b, a = love.graphics.getColor()
     
-    if hudState.showInfo then
+    -- Asegurar estado de color neutro para el HUD (evita heredar fugas de proyectiles o efectos)
+    love.graphics.setColor(1, 1, 1, 1)
+    
+    if HUD.hudState.showInfo then
         HUD.drawUnifiedInfoPanel()
     end
     
-    if hudState.showBiomeInfo then
+    if HUD.hudState.showBiomeInfo then
         HUD.drawBiomeInfoPanel()
     end
     
-    if hudState.showSeedInput then
+    if HUD.hudState.showSeedInput then
         HUD.drawSeedInput()
     end
     
     HUD.drawCurrentSeedInfo()
     
-    if player and player.stats then
+    if HUD.player and HUD.player.stats then
         if inventoryOpen then
             love.graphics.setColor(1, 1, 1, 0.7)
         end
@@ -28,25 +31,26 @@ function HUD.draw(inventoryOpen)
         end
     end
     
-    if player and player.weaponSystem then
+    if HUD.player and HUD.player.weaponSystem then
         if inventoryOpen then
             love.graphics.setColor(1, 1, 1, 0.7)
         end
-        WeaponHUD:draw(player)
+        local WeaponHUD = require 'src.ui.weapon_hud'
+        WeaponHUD:draw(HUD.player)
         if inventoryOpen then
             love.graphics.setColor(1, 1, 1, 1)
         end
     end
 
-    if hudState.stationHint and hudState.stationHint.enabled then
+    if HUD.hudState.stationHint and HUD.hudState.stationHint.enabled then
         HUD.drawStationHint()
     end
     
-    if hudState.phaseVisualsEnabled then
+    if HUD.hudState.phaseVisualsEnabled then
         HUD.drawPhaseVisualFeedback()
     end
     
-    if hudState.showDebugMenu then
+    if HUD.hudState.showDebugMenu then
         HUD.drawDebugMenu()
     end
     

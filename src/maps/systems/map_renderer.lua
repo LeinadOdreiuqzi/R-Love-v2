@@ -10,6 +10,8 @@ local StarShader = require 'src.shaders.star_shader'
 local ShaderManager = require 'src.shaders.shader_manager'
 local NebulaRenderer = require 'src.maps.systems.nebula_renderer'
 local StarfieldInstanced = require 'src.shaders.starfield_instanced'
+local World = require 'src.core.world'
+local HUD = require 'src.ui.hud'
 
 -- Variables de estado para optimización
 MapRenderer.sinTable = {}
@@ -1541,7 +1543,8 @@ function MapRenderer.drawSublevelEntrance(entrance, worldX, worldY, camera)
 
     -- Feedback visual por proximidad al jugador
     local px, py = 0, 0
-    if _G.player and _G.player.x and _G.player.y then px, py = _G.player.x, _G.player.y end
+    local p = World.get('player')
+    if p and p.x and p.y then px, py = p.x, p.y end
     local dx, dy = worldX - px, worldY - py
     local dist = math.sqrt(dx * dx + dy * dy)
     local enterFactor = (HUD and HUD.getEnterRadiusFactor and HUD.getEnterRadiusFactor()) or 1.0

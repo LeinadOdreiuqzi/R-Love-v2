@@ -12,6 +12,7 @@ local OptimizedRenderer = require 'src.maps.optimized_renderer'
 -- Importar módulos nuevos
 local SeedConverter = require 'src.maps.systems.seed_converter'
 local MapGenerator = require 'src.maps.systems.map_generator'
+local GameState = require 'src.core.game_state'
 local MapRenderer = require 'src.maps.systems.map_renderer'
 local MapStats = require 'src.maps.systems.map_stats'
 local MapConfig = require 'src.maps.config.map_config'
@@ -176,9 +177,9 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
     -- Actualizar sistema de anomalías gravitacionales
     pcall(function()
         local GravityAnomaly = require 'src.shaders.gravity_anomaly'
-        -- Preferir World sobre _G.camera para evitar dependencia global
+        -- Usar World para evitar dependencia global
         local w = getWorld()
-        local cam = (w and w.getCamera()) or _G.camera or {zoom = 1, x = playerX, y = playerY}
+        local cam = (w and w.get('camera')) or {zoom = 1, x = playerX, y = playerY}
         local chunkInfo = Map.calculateVisibleChunksTraditional(cam)
         GravityAnomaly.update(dt, chunkInfo, Map.getChunkNonBlocking)
         
@@ -189,8 +190,8 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
     -- Asegurar actualización por frame del sistema de shaders (u_time, precarga incremental, etc.)
     pcall(function()
         if OptimizedRenderer and OptimizedRenderer.update then
-            -- Si tienes _G.camera global (según tu main.lua), lo pasamos para precarga cercana
-            OptimizedRenderer.update(dt, playerX, playerY, _G and _G.camera or nil)
+            local w = getWorld()
+            OptimizedRenderer.update(dt, playerX, playerY, (w and w.get('camera')) or nil)
         end
     end)
     
@@ -226,7 +227,7 @@ function Map.draw(camera)
     Map.drawTraditionalImproved(camera, chunkInfo)
     
     -- Grid de debug si está habilitado
-    if _G.showGrid then
+    if GameState.state.showGrid then
         -- Overlay de grid de chunks (límites e índices)
         Map.drawChunkGridOverlay(chunkInfo, camera)
         -- Overlay anterior (grid relativo + estado de coordenadas)
@@ -262,9 +263,9 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     
     -- 4.5. Dibujar items del mundo
     local WorldItems = require 'src.item_systems.world_items'
-    -- Preferir World sobre _G.player
+    -- Usar World sobre globales
     local w = getWorld()
-    local _player = (w and w.getPlayer()) or _G.player
+    local _player = w and w.get('player')
     local playerX, playerY = 0, 0
     if _player then
         playerX, playerY = _player.x or 0, _player.y or 0

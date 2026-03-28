@@ -2,11 +2,11 @@ local HUD = require('src.ui.hud.core')
 
 -- Actualizar aviso de entrada a estación (placeholder cercano en Ancient Ruins)
 function HUD.updateStationHint(dt)
-    local cfg = hudState.stationHint
+    local cfg = HUD.hudState.stationHint
     if not cfg or not cfg.enabled then return end
 
     -- Dependencias mínimas
-    if not (player and player.x and player.y and Map and BiomeSystem) then return end
+    if not (HUD.player and HUD.player.x and HUD.player.y and HUD.Map and HUD.BiomeSystem) then return end
 
     local now = love.timer.getTime()
     if now - cfg.lastScan < cfg.scanInterval then return end
@@ -19,32 +19,34 @@ function HUD.updateStationHint(dt)
 
     -- Verificar bioma actual (usar cache si existe)
     local isAncient = false
-    if biomeCache.currentBiome then
-        isAncient = (biomeCache.currentBiome == (BiomeSystem.BiomeType and BiomeSystem.BiomeType.ANCIENT_RUINS))
+    if HUD.biomeCache.currentBiome then
+        isAncient = (HUD.biomeCache.currentBiome == (HUD.BiomeSystem.BiomeType and HUD.BiomeSystem.BiomeType.ANCIENT_RUINS))
     else
         local ok, info = pcall(function()
-            return BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
+            return HUD.BiomeSystem.getPlayerBiomeInfo(HUD.player.x, HUD.player.y)
         end)
         if ok and info then
-            isAncient = (info.type == (BiomeSystem.BiomeType and BiomeSystem.BiomeType.ANCIENT_RUINS))
+            isAncient = (info.type == (HUD.BiomeSystem.BiomeType and HUD.BiomeSystem.BiomeType.ANCIENT_RUINS))
         end
     end
     if not isAncient then return end
 
     -- Determinar bounds visibles usando la misma API que main.lua
     local bounds
+    local World = require 'src.core.world'
     local okBounds, err = pcall(function()
-        bounds = Map.getVisibleChunkBounds(_G.camera, cfg.scanMargin)
+        local camera = World.get('camera')
+        bounds = HUD.Map.getVisibleChunkBounds(camera, cfg.scanMargin)
     end)
     if not okBounds or not bounds then return end
 
     local closest, minDist
     for cy = bounds.startY, bounds.endY do
         for cx = bounds.startX, bounds.endX do
-            local chunk = Map.getChunkNonBlocking and Map.getChunkNonBlocking(cx, cy) or nil
+            local chunk = HUD.Map.getChunkNonBlocking and HUD.Map.getChunkNonBlocking(cx, cy) or nil
             if chunk and chunk.ancientRuinsPlaceholders then
                 for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
-                    local dx, dy = (ph.x or 0) - player.x, (ph.y or 0) - player.y
+                    local dx, dy = (ph.x or 0) - HUD.player.x, (ph.y or 0) - HUD.player.y
                     local dist = math.sqrt(dx*dx + dy*dy)
                     if not minDist or dist < minDist then
                         closest, minDist = ph, dist
@@ -65,8 +67,9 @@ function HUD.updateStationHint(dt)
             cfg.distance = minDist
 
             -- Posición de pantalla para indicador
-            if _G.camera and _G.camera.worldToScreen then
-                local sx, sy = _G.camera:worldToScreen(closest.x or 0, closest.y or 0)
+            local camera = World.get('camera')
+            if camera and camera.worldToScreen then
+                local sx, sy = camera:worldToScreen(closest.x or 0, closest.y or 0)
                 cfg.screenX, cfg.screenY = sx, sy
             else
                 cfg.screenX, cfg.screenY = love.graphics.getWidth() * 0.5, love.graphics.getHeight() * 0.5
@@ -77,7 +80,7 @@ end
 
 -- Nuevo helper: calcula el radio dinámico de entrada para una estación
 function HUD.computeEnterRadius(placeholder, factorOverride)
-    local cfg = hudState and hudState.stationHint or {}
+    local cfg = HUD.hudState and HUD.hudState.stationHint or {}
     local factor = factorOverride or (cfg and cfg.enterRadiusFactor) or 1.25
     if not placeholder or not placeholder.size or placeholder.size <= 0 then
         return math.huge
@@ -111,15 +114,15 @@ end
 
 -- Getter público del factor de radio de entrada usado por el HUD
 function HUD.getEnterRadiusFactor()
-    if hudState and hudState.stationHint and hudState.stationHint.enterRadiusFactor then
-        return hudState.stationHint.enterRadiusFactor
+    if HUD.hudState and HUD.hudState.stationHint and HUD.hudState.stationHint.enterRadiusFactor then
+        return HUD.hudState.stationHint.enterRadiusFactor
     end
     return 1.25
 end
 
 -- Dibujar aviso/indicador de estación con información de tipo y estado
 function HUD.drawStationHint()
-    local cfg = hudState.stationHint
+    local cfg = HUD.hudState.stationHint
     if not cfg or not cfg.show or not cfg.placeholder then return end
 
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
@@ -160,8 +163,8 @@ function HUD.drawStationHint()
         end
     end
 
-    local mainFont = hudState.font or love.graphics.getFont()
-    local smallFont = hudState.smallFont or mainFont
+    local mainFont = HUD.hudState.font or love.graphics.getFont()
+    local smallFont = HUD.hudState.smallFont or mainFont
     
     local prompt = "Presiona E para entrar"
     local typeText = "Tipo: " .. stationType

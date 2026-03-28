@@ -533,14 +533,14 @@ function GravityAnomaly.drawContinuousAnomalies(camera)
         MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)
     end
 
-    _G.__magnifier = _G.__magnifier or require('src/shaders/MagnifyingGlass').new({
+    GravityAnomaly.__magnifier = GravityAnomaly.__magnifier or require('src/shaders/MagnifyingGlass').new({
         magnification = 1.45,
         distortion_strength = 0.85,
         edge_softness = 0.16,
         chromatic_aberration = 0.0006
     })
 
-    _G.__magnifier:applyMultiple(lenses, drawBackgroundLayers)
+    GravityAnomaly.__magnifier:applyMultiple(lenses, drawBackgroundLayers)
 end
 
 -- Utilidad: comprobar si hay lentes activas actualmente

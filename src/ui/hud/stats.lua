@@ -2,11 +2,11 @@ local HUD = require('src.ui.hud.core')
 
 -- Función de compatibilidad para estadísticas optimizada con cache
 function HUD.getSafeStats()
-    if hudState.performance.enableCaching and 
-       hudState.renderCache.cachedStats and 
-       not hudState.renderCache.dirtyFlags.stats then
-        hudState.renderCache.cachedStats.fps = love.timer.getFPS()
-        return hudState.renderCache.cachedStats
+    if HUD.hudState.performance.enableCaching and 
+       HUD.hudState.renderCache.cachedStats and 
+       not HUD.hudState.renderCache.dirtyFlags.stats then
+        HUD.hudState.renderCache.cachedStats.fps = love.timer.getFPS()
+        return HUD.hudState.renderCache.cachedStats
     end
     
     local stats = {
@@ -24,17 +24,17 @@ function HUD.getSafeStats()
         }
     }
     
-    if gameState and gameState.currentSeed then
-        stats.seed = gameState.currentSeed
+    if HUD.gameState and HUD.gameState.currentSeed then
+        stats.seed = HUD.gameState.currentSeed
     end
     
-    if Map then
-        if Map.seed then stats.seed = Map.seed end
-        if Map.worldScale then stats.worldScale = Map.worldScale end
+    if HUD.Map then
+        if HUD.Map.seed then stats.seed = HUD.Map.seed end
+        if HUD.Map.worldScale then stats.worldScale = HUD.Map.worldScale end
         
         local success, mapStats = pcall(function() 
-            if Map.getStats then
-                return Map.getStats() 
+            if HUD.Map.getStats then
+                return HUD.Map.getStats() 
             end
             return nil
         end)
@@ -44,6 +44,7 @@ function HUD.getSafeStats()
                 stats.chunks = mapStats.chunks
                 
                 local fsSuccess, fsStats = pcall(function()
+                    local ChunkManager = require('src.maps.chunk_manager')
                     if ChunkManager and ChunkManager.getFullscreenStats then
                         return ChunkManager.getFullscreenStats()
                     end
@@ -70,14 +71,14 @@ function HUD.getSafeStats()
             if mapStats.frameTime then stats.frameTime = mapStats.frameTime end
             if mapStats.biomesActive then stats.biomesActive = mapStats.biomesActive end
         else
-            if Map.renderStats then 
-                stats.renderStats = Map.renderStats
-                stats.biomesActive = Map.renderStats.biomesActive or 0
+            if HUD.Map.renderStats then 
+                stats.renderStats = HUD.Map.renderStats
+                stats.biomesActive = HUD.Map.renderStats.biomesActive or 0
             end
             
-            if Map.chunks then
+            if HUD.Map.chunks then
                 pcall(function()
-                    for x, row in pairs(Map.chunks) do
+                    for x, row in pairs(HUD.Map.chunks) do
                         for y, chunk in pairs(row) do
                             if chunk then stats.loadedChunks = stats.loadedChunks + 1 end
                         end
@@ -87,9 +88,9 @@ function HUD.getSafeStats()
         end
     end
     
-    if hudState.performance.enableCaching then
-        hudState.renderCache.cachedStats = stats
-        hudState.renderCache.dirtyFlags.stats = false
+    if HUD.hudState.performance.enableCaching then
+        HUD.hudState.renderCache.cachedStats = stats
+        HUD.hudState.renderCache.dirtyFlags.stats = false
     end
     
     return stats
@@ -99,10 +100,10 @@ end
 function HUD.getSafeChunkCoords(worldX, worldY)
     local chunkX, chunkY = 0, 0
     
-    if Map then
+    if HUD.Map then
         local success, cx, cy = pcall(function()
-            if Map.getChunkInfo then
-                return Map.getChunkInfo(worldX, worldY)
+            if HUD.Map.getChunkInfo then
+                return HUD.Map.getChunkInfo(worldX, worldY)
             end
             return nil, nil
         end)
@@ -111,8 +112,8 @@ function HUD.getSafeChunkCoords(worldX, worldY)
             return cx, cy
         end
         
-        if Map.chunkSize and Map.tileSize then
-            local chunkSize = Map.chunkSize * Map.tileSize
+        if HUD.Map.chunkSize and HUD.Map.tileSize then
+            local chunkSize = HUD.Map.chunkSize * HUD.Map.tileSize
             chunkX = math.floor(worldX / chunkSize)
             chunkY = math.floor(worldY / chunkSize)
         end

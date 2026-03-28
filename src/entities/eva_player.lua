@@ -4,6 +4,7 @@
 local EVAPlayer = {}
 local PlayerStats = require 'src.entities.player_stats'
 local EVAInventorySystem = require 'src.maps.systems.eva_inventory_system'
+local World = require 'src.core.world'
 
 function EVAPlayer:new(x, y, shipRef)
     local evaPlayer = {}
@@ -105,8 +106,12 @@ function EVAPlayer:update(dt)
     local screenX, screenY = love.graphics.getDimensions()
     
     -- Convert mouse position to world coordinates
-    local worldMouseX = (mouseX - screenX/2) / camera.zoom + camera.x
-    local worldMouseY = (mouseY - screenY/2) / camera.zoom + camera.y
+    local cam = World.get('camera')
+    
+    local worldMouseX, worldMouseY = self.x, self.y
+    if cam then
+        worldMouseX, worldMouseY = cam:screenToWorld(mouseX, mouseY)
+    end
     
     -- Calculate target angle to mouse
     local dx = worldMouseX - self.x
@@ -245,7 +250,6 @@ function EVAPlayer:savePreviousState()
 end
 
 function EVAPlayer:draw()
-    local World = require('src.core.world')
     local MathUtil = require('src.utils.math_util')
     local alpha = World and World.get('interpolationAlpha') or 1.0
     

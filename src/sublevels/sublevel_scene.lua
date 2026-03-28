@@ -14,6 +14,7 @@ local DebugGrid = require 'src.sublevels.debug_grid'
 local SublevelSpawns = require 'src.sublevels.spawns'
 local SublevelDecor = require 'src.sublevels.decor'
 local SublevelEntities = require 'src.sublevels.entities'
+local World = require 'src.core.world'
 
 local SubLevelScene = setmetatable({}, { __index = StateBase })
 SubLevelScene.__index = SubLevelScene
@@ -37,8 +38,9 @@ function SubLevelScene:enter(params)
         -- Crear una configuración mínima derivada de la posición del jugador
         local SeedSystem = require 'src.utils.seed_system'
         local currentSeed = (Map and Map.seed) or SeedSystem.generate()
+        local player = World.get('player')
         local px, py = 0, 0
-        if _G.player and _G.player.x and _G.player.y then px, py = _G.player.x, _G.player.y end
+        if player and player.x and player.y then px, py = player.x, player.y end
         cfg = SubLevelManager.createConfig({
             parentSeed = currentSeed,
             type = SubLevelManager.Types.Generic,
@@ -81,33 +83,38 @@ end
 function SubLevelScene:update(dt)
     self.time = self.time + dt
 
+    local camera = World.get('camera')
+    local physicsManager = World.get('physics')
+    local player = World.get('player')
+
     -- Actualizar cámara
-    if _G.camera and _G.camera.update then
-        _G.camera:update(dt)
+    if camera and camera.update then
+        camera:update(dt)
     end
 
-    -- Actualizar mundo de física local (el estado bloquea el bucle global)
-    if _G.physicsManager and _G.physicsManager.update then
-        _G.physicsManager:update(dt)
+    -- Actualizar mundo de física local
+    if physicsManager and physicsManager.update then
+        physicsManager:update(dt)
     end
 
     -- Actualizar jugador
-    if _G.player and _G.player.update then
-        _G.player:update(dt)
+    if player and player.update then
+        if player.savePreviousState then player:savePreviousState() end
+        player:update(dt)
     end
 
-    -- Actualizar items del mundo para soportar drops/colección en subniveles
+    -- Actualizar items del mundo
     if WorldItems and WorldItems.update then
         WorldItems.update(dt)
     end
 
     -- Limitar movimiento del jugador a bounds [-20000, 20000]
-    if _G.player then
+    if player then
         local minB, maxB = -20000, 20000
-        if _G.player.x then _G.player.x = math.max(minB, math.min(maxB, _G.player.x)) end
-        if _G.player.y then _G.player.y = math.max(minB, math.min(maxB, _G.player.y)) end
-        if _G.player.isInEVA and _G.player.evaPlayer then
-            local p = _G.player.evaPlayer
+        if player.x then player.x = math.max(minB, math.min(maxB, player.x)) end
+        if player.y then player.y = math.max(minB, math.min(maxB, player.y)) end
+        if player.isInEVA and player.evaPlayer then
+            local p = player.evaPlayer
             if p.x then p.x = math.max(minB, math.min(maxB, p.x)) end
             if p.y then p.y = math.max(minB, math.min(maxB, p.y)) end
         end
@@ -115,63 +122,66 @@ function SubLevelScene:update(dt)
 
     -- Actualizar instancia de mundo del subnivel
     if self.world and self.world.update then
-        self.world:update(dt, _G.player)
+        self.world:update(dt, player)
     end
 
     -- Actualizar módulos del subnivel
-    if SublevelSpawns and SublevelSpawns.update then SublevelSpawns.update(dt, self.world, _G.player) end
-    if SublevelDecor and SublevelDecor.update then SublevelDecor.update(dt, self.world, _G.player) end
-    if SublevelEntities and SublevelEntities.update then SublevelEntities.update(dt, self.world, _G.player) end
+    if SublevelSpawns and SublevelSpawns.update then SublevelSpawns.update(dt, self.world, player) end
+    if SublevelDecor and SublevelDecor.update then SublevelDecor.update(dt, self.world, player) end
+    if SublevelEntities and SublevelEntities.update then SublevelEntities.update(dt, self.world, player) end
 
     -- Mantener optimizaciones activas
     if type(OptimizedRenderer) == "table" and OptimizedRenderer.update then
-        OptimizedRenderer.update(dt, _G.player and _G.player.x or 0, _G.player and _G.player.y or 0, _G.camera)
+        OptimizedRenderer.update(dt, player and player.x or 0, player and player.y or 0, camera)
     end
 
     -- Seguir a la entidad activa
-    if _G.camera and type(_G.camera.follow) == "function" and _G.player and _G.player.getActiveEntity then
-        local activeEntity = _G.player:getActiveEntity()
-        _G.camera:follow(activeEntity, dt)
+    if camera and type(camera.follow) == "function" and player and player.getActiveEntity then
+        local activeEntity = player:getActiveEntity()
+        camera:follow(activeEntity, dt)
     end
     -- Actualizar HUD para mantener todos los sistemas visibles
     if HUD and HUD.update then HUD.update(dt) end
 
     -- Actualizar UIs vía orquestador unificado
     local UIManager = require 'src.ui.ui_manager'
-    UIManager.updateAll(dt, _G.player)
+    UIManager.updateAll(dt, player)
 end
 
 function SubLevelScene:draw()
+    local camera = World.get('camera')
+    local player = World.get('player')
+
     -- Fondo limpio para la escena limitada
     love.graphics.clear(0, 0, 0, 1)
 
     -- Aplicar transformación de cámara
-    if _G.camera then _G.camera:apply() end
+    if camera then camera:apply() end
 
     -- Dibujar instancia de mundo del subnivel y jugador
     if self.world and self.world.draw then
-        self.world:draw(_G.camera)
+        self.world:draw(camera)
     end
-    if _G.player and _G.player.draw then _G.player:draw() end
+    if player and player.draw then player:draw() end
 
     -- Dibujar decoraciones y entidades propias del subnivel
-    if SublevelDecor and SublevelDecor.draw then SublevelDecor.draw(_G.camera, self.world) end
-    if SublevelEntities and SublevelEntities.draw then SublevelEntities.draw(_G.camera, self.world) end
+    if SublevelDecor and SublevelDecor.draw then SublevelDecor.draw(camera, self.world) end
+    if SublevelEntities and SublevelEntities.draw then SublevelEntities.draw(camera, self.world) end
 
     -- Dibujar items del mundo en el subnivel
     do
         local px, py = 0, 0
-        if _G.player then px, py = _G.player.x or 0, _G.player.y or 0 end
+        if player then px, py = player.x or 0, player.y or 0 end
         if WorldItems and WorldItems.draw then
-            WorldItems.draw(_G.camera, px, py)
+            WorldItems.draw(camera, px, py)
         end
     end
 
     -- Grilla de debug (F4) dentro del subnivel
-    if DebugGrid and DebugGrid.draw then DebugGrid.draw(_G.camera) end
+    if DebugGrid and DebugGrid.draw then DebugGrid.draw(camera) end
 
     -- Restaurar transformación
-    if _G.camera then _G.camera:unapply() end
+    if camera then camera:unapply() end
 
     -- Dibujar HUD y UIs (inventario nave/EVA) para mantener funcionalidad completa
     local InventoryUI = require 'src.ui.inventory_ui'
@@ -179,9 +189,9 @@ function SubLevelScene:draw()
     local inventoryOpen = (InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen()) or 
                          (EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen())
     if HUD and HUD.draw then HUD.draw(inventoryOpen) end
-    if InventoryUI and InventoryUI.draw then InventoryUI:draw(_G.player) end
-    if EVAInventoryUI and EVAInventoryUI.draw and _G.player and _G.player.isInEVA and _G.player.evaPlayer then
-        EVAInventoryUI:draw(_G.player.evaPlayer)
+    if InventoryUI and InventoryUI.draw then InventoryUI:draw(player) end
+    if EVAInventoryUI and EVAInventoryUI.draw and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:draw(player.evaPlayer)
     end
 
     -- Dibujar un indicador de subnivel sencillo
@@ -199,8 +209,10 @@ function SubLevelScene:keypressed(key)
     -- Controles de inventario y sistemas del jugador dentro del subnivel
     local InventoryUI = require 'src.ui.inventory_ui'
     local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
-    if key == 'tab' and _G.player then
-        local inEVA = _G.player.isInEVA
+    local player = World.get('player')
+    
+    if key == 'tab' and player then
+        local inEVA = player.isInEVA
         if inEVA then
             -- Alternar inventario EVA
             if EVAInventoryUI then EVAInventoryUI:toggle() end
@@ -215,10 +227,11 @@ function SubLevelScene:keypressed(key)
     if key == 'e' then
         local WorldItems = require 'src.item_systems.world_items'
         local collected = false
+        local player = World.get('player')
 
-        if _G.player and _G.player.isInEVA and _G.player.evaPlayer and _G.player.evaPlayer.attemptPickup then
+        if player and player.isInEVA and player.evaPlayer and player.evaPlayer.attemptPickup then
             -- En EVA: usar intento específico del EVA player
-            _G.player.evaPlayer:attemptPickup()
+            player.evaPlayer:attemptPickup()
             collected = true
         else
             -- En nave: intentar recolección manual centralizada
@@ -241,34 +254,36 @@ function SubLevelScene:keypressed(key)
 end
 
 function SubLevelScene:mousepressed(x, y, button)
+    local player = World.get('player')
     -- Propagar clicks a inventarios si están abiertos; si no, permitir disparo
     local InventoryUI = require 'src.ui.inventory_ui'
     local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
-    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and _G.player and _G.player.isInEVA and _G.player.evaPlayer then
-        EVAInventoryUI:mousepressed(x, y, button, _G.player.evaPlayer)
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:mousepressed(x, y, button, player.evaPlayer)
         return true
     end
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousepressed(x, y, button, _G.player)
+        InventoryUI:mousepressed(x, y, button, player)
         return true
     end
-    if button == 1 and _G.player and not _G.player.isInEVA and _G.player.shoot then
-        _G.player:shoot(x, y)
+    if button == 1 and player and not player.isInEVA and player.shoot then
+        player:shoot(x, y)
         return true
     end
     return false
 end
 
 function SubLevelScene:mousereleased(x, y, button)
+    local player = World.get('player')
     -- Propagar release para completar drag-and-drop en inventarios
     local InventoryUI = require 'src.ui.inventory_ui'
     local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
-    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and _G.player and _G.player.isInEVA and _G.player.evaPlayer then
-        EVAInventoryUI:mousereleased(x, y, button, _G.player.evaPlayer)
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA and player.evaPlayer then
+        EVAInventoryUI:mousereleased(x, y, button, player.evaPlayer)
         return true
     end
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousereleased(x, y, button, _G.player)
+        InventoryUI:mousereleased(x, y, button, player)
         return true
     end
     return false

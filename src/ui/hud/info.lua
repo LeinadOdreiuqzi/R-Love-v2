@@ -1,4 +1,6 @@
 local HUD = require('src.ui.hud.core')
+local World = require('src.core.world')
+local GameState = require('src.core.game_state')
 
 -- Panel de información principal (ACTUALIZADO PARA SEMILLAS ALFANUMÉRICAS)
 function HUD.drawUnifiedInfoPanel()
@@ -13,18 +15,21 @@ function HUD.drawUnifiedInfoPanel()
     love.graphics.rectangle("line", x, y, panelWidth, panelHeight)
     
     love.graphics.setColor(0.7, 0.9, 1, 1)
-    love.graphics.setFont(hudState.font)
+    love.graphics.setFont(HUD.hudState.font)
     love.graphics.print("ENHANCED SPACE EXPLORER", x + 10, y + 8)
     
     love.graphics.setColor(0.3, 0.5, 0.7, 0.8)
     love.graphics.line(x + 10, y + 28, x + panelWidth - 10, y + 28)
     
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(hudState.smallFont)
+    love.graphics.setFont(HUD.hudState.smallFont)
     
-    local posX = math.floor(player.x or 0)
-    local posY = math.floor(player.y or 0)
-    local speed = math.sqrt((player.dx or 0)^2 + (player.dy or 0)^2)
+    local posX = math.floor(HUD.player and HUD.player.x or 0)
+    local posY = math.floor(HUD.player and HUD.player.y or 0)
+    local speed = 0
+    if HUD.player then
+        speed = math.sqrt((HUD.player.dx or 0)^2 + (HUD.player.dy or 0)^2)
+    end
     
     local chunkX, chunkY = HUD.getSafeChunkCoords(posX, posY)
     local stats = HUD.getSafeStats()
@@ -40,9 +45,9 @@ function HUD.drawUnifiedInfoPanel()
     love.graphics.print("Current: " .. (stats.seed or "UNKNOWN00"), x + 15, infoY)
     infoY = infoY + lineHeight
     
-    local seedStatus = SeedSystem.validate(stats.seed) and "Valid" or "Legacy"
-    local seedColor = SeedSystem.validate(stats.seed) and {0.6, 1, 0.6, 1} or {1, 0.8, 0.4, 1}
-    love.graphics.setColor(seedColor)
+    local seedStatus = HUD.SeedSystem.validate(stats.seed) and "Valid" or "Legacy"
+    local seedColor = HUD.SeedSystem.validate(stats.seed) and {0.6, 1, 0.6, 1} or {1, 0.8, 0.4, 1}
+    love.graphics.setColor(seedColor[1], seedColor[2], seedColor[3], seedColor[4])
     love.graphics.print("Status: " .. seedStatus, x + 15, infoY)
     infoY = infoY + lineHeight + 5
     
@@ -58,14 +63,14 @@ function HUD.drawUnifiedInfoPanel()
     love.graphics.print("Chunk: (" .. chunkX .. ", " .. chunkY .. ")", x + 15, infoY)
     infoY = infoY + lineHeight + 5
     
-    if BiomeSystem then
+    if HUD.BiomeSystem then
         love.graphics.setColor(1, 0.9, 0.6, 1)
         love.graphics.print("BIOME EXPLORATION", x + 10, infoY)
         infoY = infoY + lineHeight + 3
         
         local success, biomeStats = pcall(function()
-            if BiomeSystem.getAdvancedStats then
-                return BiomeSystem.getAdvancedStats()
+            if HUD.BiomeSystem.getAdvancedStats then
+                return HUD.BiomeSystem.getAdvancedStats()
             end
             return nil
         end)
@@ -77,9 +82,9 @@ function HUD.drawUnifiedInfoPanel()
             love.graphics.print("Chunks Generated: " .. (biomeStats.totalChunksGenerated or 0), x + 15, infoY)
             infoY = infoY + lineHeight
             
-            if biomeStats.playerStats.currentBiome and BiomeSystem.getBiomeConfig then
+            if biomeStats.playerStats.currentBiome and HUD.BiomeSystem.getBiomeConfig then
                 local configSuccess, currentConfig = pcall(function()
-                    return BiomeSystem.getBiomeConfig(biomeStats.playerStats.currentBiome)
+                    return HUD.BiomeSystem.getBiomeConfig(biomeStats.playerStats.currentBiome)
                 end)
                 if configSuccess and currentConfig then
                     love.graphics.print("Current: " .. currentConfig.name, x + 15, infoY)
@@ -102,9 +107,10 @@ function HUD.drawUnifiedInfoPanel()
     infoY = infoY + lineHeight + 3
     
     love.graphics.setColor(0.8, 0.8, 0.8, 1)
-    love.graphics.print("FPS: " .. stats.fps, x + 15, infoY)
+    love.graphics.print("FPS: " .. (stats.fps or 0), x + 15, infoY)
     infoY = infoY + lineHeight
-    love.graphics.print("Zoom: " .. string.format("%.1f", _G.camera and _G.camera.zoom or 1), x + 15, infoY)
+    local camera = World.get('camera')
+    love.graphics.print("Zoom: " .. string.format("%.1f", camera and camera.zoom or 1), x + 15, infoY)
     infoY = infoY + lineHeight
     local budgetMs = ((stats.chunks and stats.chunks.generationBudget) or 0) * 1000
     local loadQueueLen = (stats.chunks and stats.chunks.loadQueue) or 0
@@ -120,7 +126,7 @@ function HUD.drawUnifiedInfoPanel()
     love.graphics.print("Chunks: " .. chunkInfo, x + 15, infoY)
     infoY = infoY + lineHeight
     
-    if _G.showGrid then
+    if GameState.state.showGrid then
         love.graphics.setColor(0.8, 1, 0.8, 1)
         love.graphics.print("Grid: ON", x + 15, infoY)
     else
@@ -204,7 +210,7 @@ function HUD.drawUnifiedInfoPanel()
             local fsStats = stats.chunks.fullscreenOptimizations
             local modeText = fsStats.isFullscreen and "Fullscreen" or "Windowed"
             local optimizationColor = fsStats.isFullscreen and {0.8, 1, 0.8, 1} or {0.8, 0.8, 0.8, 1}
-            love.graphics.setColor(optimizationColor)
+            love.graphics.setColor(optimizationColor[1], optimizationColor[2], optimizationColor[3], optimizationColor[4])
             love.graphics.print("Mode: " .. modeText, x + 15, infoY)
             infoY = infoY + lineHeight
             if fsStats.isFullscreen then
@@ -223,19 +229,19 @@ function HUD.drawUnifiedInfoPanel()
         infoY = infoY + 5
     end
     
-    if player and player.stats and player.stats.debug and player.stats.debug.enabled then
+    if HUD.player and HUD.player.stats and HUD.player.stats.debug and HUD.player.stats.debug.enabled then
         infoY = infoY + 5
         love.graphics.setColor(1, 1, 0.4, 1)
         love.graphics.print("DEBUG MODE", x + 10, infoY)
         infoY = infoY + lineHeight + 3
         love.graphics.setColor(0.8, 0.8, 0.8, 1)
-        local invulnStatus = player.stats.debug.invulnerable and "ON" or "OFF"
+        local invulnStatus = HUD.player.stats.debug.invulnerable and "ON" or "OFF"
         love.graphics.print("Invulnerability: " .. invulnStatus, x + 15, infoY)
         infoY = infoY + lineHeight
-        local fuelStatus = player.stats.debug.infiniteFuel and "ON" or "OFF"
+        local fuelStatus = HUD.player.stats.debug.infiniteFuel and "ON" or "OFF"
         love.graphics.print("Infinite Fuel: " .. fuelStatus, x + 15, infoY)
         infoY = infoY + lineHeight
-        local regenStatus = player.stats.debug.fastRegen and "ON" or "OFF"
+        local regenStatus = HUD.player.stats.debug.fastRegen and "ON" or "OFF"
         love.graphics.print("Fast Regen: " .. regenStatus, x + 15, infoY)
         infoY = infoY + lineHeight + 10
     end

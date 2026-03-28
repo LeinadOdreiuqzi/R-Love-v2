@@ -315,9 +315,15 @@ function Naves:update(dt)
     local mouseX, mouseY = love.mouse.getPosition()
     local screenX, screenY = love.graphics.getDimensions()
     
+    -- Access the global camera instance, preferring World over _G
+    local w = getWorld()
+    local cam = (w and w.getCamera()) or _G.camera
+    
     -- Convert mouse position to world coordinates
-    local worldMouseX = (mouseX - screenX/2) / camera.zoom + camera.x
-    local worldMouseY = (mouseY - screenY/2) / camera.zoom + camera.y
+    local worldMouseX, worldMouseY = self.x, self.y
+    if cam then
+        worldMouseX, worldMouseY = cam:screenToWorld(mouseX, mouseY)
+    end
     
     -- Calculate target angle to mouse
     local dx = worldMouseX - self.x
@@ -887,8 +893,10 @@ function Naves:draw()
     -- Restore the graphics state
     love.graphics.pop()
     
-    -- Dibujar proyectiles
+    -- Dibujar proyectiles (fuera de la transformación de la nave, pero encapsulado)
+    love.graphics.push("all")
     self:drawProjectiles()
+    love.graphics.pop()
 end
 function Naves:toggleHyperTravel(targetMaxSpeed)
     self.hyperTravelEnabled = not self.hyperTravelEnabled
@@ -1366,15 +1374,18 @@ function Naves:shoot(mouseX, mouseY)
     end
     
     -- Verificar que tenemos acceso al mundo de física
-    if not _G.physicsManager or not _G.physicsManager:getWorld() then
+    local w = getWorld()
+    local physMgr = w and w.get('physics')
+    if not physMgr or not physMgr:getWorld() then
         print("[SHOOT] Error: Physics world not available")
         return false
     end
     
     -- Convertir coordenadas del mouse a coordenadas del mundo
     local worldMouseX, worldMouseY
-    if _G.camera then
-        worldMouseX, worldMouseY = _G.camera:screenToWorld(mouseX, mouseY)
+    local cam = w and w.getCamera()
+    if cam then
+        worldMouseX, worldMouseY = cam:screenToWorld(mouseX, mouseY)
     else
         -- Fallback si no hay cámara
         worldMouseX, worldMouseY = mouseX, mouseY
@@ -1412,11 +1423,11 @@ function Naves:shoot(mouseX, mouseY)
     end
 
     local BasicRedProjectile = require('src.physics.projectiles.types.basic_red_projectile')
-    local projectile = BasicRedProjectile.new(_G.physicsManager:getWorld(), spawnX, spawnY, angle, nil, custom_config)
+    local projectile = BasicRedProjectile.new(physMgr:getWorld(), spawnX, spawnY, angle, nil, custom_config)
     
     -- Agregar el proyectil al sistema de física
-    if projectile and _G.physicsManager.addProjectile then
-        _G.physicsManager:addProjectile(projectile)
+    if projectile and physMgr.addProjectile then
+        physMgr:addProjectile(projectile)
         
         -- Almacenar el proyectil para actualizaciones y renderizado
         if not self.projectiles then

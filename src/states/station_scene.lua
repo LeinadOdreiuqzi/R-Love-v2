@@ -6,6 +6,7 @@ local Generator = require 'src.states.station.generator'
 local Player = require 'src.states.station.platformer_player'
 local Decor = require 'src.states.station.decor'
 local BackgroundManager = require 'src.shaders.background_manager'
+local World = require 'src.core.world'
 
 local StationScene = setmetatable({}, { __index = StateBase })
 StationScene.__index = StationScene
@@ -95,7 +96,8 @@ function StationScene:update(dt)
 
     -- Actualizar UIs de inventario si están abiertas
     local UIManager = require 'src.ui.ui_manager'
-    UIManager.updateAll(dt, _G.player)
+    local playerSys = World.get('player')
+    UIManager.updateAll(dt, playerSys)
 end
 
 function StationScene:getCurrentRoom()

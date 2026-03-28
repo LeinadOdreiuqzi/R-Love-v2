@@ -1,12 +1,12 @@
 -- Core del HUD: estado compartido, presets y utilidades
-HUD = HUD or {}
+local HUD = {}
 
--- Referencias de sistemas usados por el HUD (globales para módulos)
-ChunkManager = require('src.maps.chunk_manager')
-WeaponHUD = require('src.ui.weapon_hud')
+-- Referencias de sistemas usados por el HUD (locales al módulo HUD)
+local ChunkManager = require('src.maps.chunk_manager')
+local WeaponHUD = require('src.ui.weapon_hud')
 
 -- Estado del HUD unificado con optimizaciones
-hudState = {
+HUD.hudState = {
   showInfo = true,
   showSeedInput = false,
   showBiomeInfo = true,
@@ -49,18 +49,18 @@ hudState = {
 
 -- Permitir activar/desactivar visuales de fases (para subniveles)
 function HUD.setPhaseVisualsEnabled(enabled)
-  hudState.phaseVisualsEnabled = not not enabled
+  HUD.hudState.phaseVisualsEnabled = not not enabled
 end
 
--- Sistema de semillas alfanuméricas integrado (idéntico al original)
-SeedSystem = {
+-- Sistema de semillas alfanuméricas integrado
+HUD.SeedSystem = {
   letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
   digits = "0123456789",
 
   generate = function()
     local chars = {}
-    local letters = SeedSystem.letters
-    local digits = SeedSystem.digits
+    local letters = HUD.SeedSystem.letters
+    local digits = HUD.SeedSystem.digits
     for i = 1, 5 do
       local randomIndex = math.random(1, #letters)
       table.insert(chars, letters:sub(randomIndex, randomIndex))
@@ -94,16 +94,16 @@ SeedSystem = {
   end,
 
   normalize = function(input)
-    if not input or input == "" then return SeedSystem.generate() end
+    if not input or input == "" then return HUD.SeedSystem.generate() end
     local normalized = tostring(input):upper()
-    if SeedSystem.validate(normalized) then return normalized end
+    if HUD.SeedSystem.validate(normalized) then return normalized end
     if #normalized < 10 then
       local remaining = 10 - #normalized
       for i = 1, remaining do
         if math.random() < 0.5 then
-          normalized = normalized .. SeedSystem.letters:sub(math.random(1, 26), math.random(1, 26))
+          normalized = normalized .. HUD.SeedSystem.letters:sub(math.random(1, 26), math.random(1, 26))
         else
-          normalized = normalized .. SeedSystem.digits:sub(math.random(1, 10), math.random(1, 10))
+          normalized = normalized .. HUD.SeedSystem.digits:sub(math.random(1, 10), math.random(1, 10))
         end
       end
     elseif #normalized > 10 then
@@ -116,9 +116,9 @@ SeedSystem = {
         cleanSeed = cleanSeed .. char
       else
         if math.random() < 0.5 then
-          cleanSeed = cleanSeed .. SeedSystem.letters:sub(math.random(1, 26), math.random(1, 26))
+          cleanSeed = cleanSeed .. HUD.SeedSystem.letters:sub(math.random(1, 26), math.random(1, 26))
         else
-          cleanSeed = cleanSeed .. SeedSystem.digits:sub(math.random(1, 10), math.random(1, 10))
+          cleanSeed = cleanSeed .. HUD.SeedSystem.digits:sub(math.random(1, 10), math.random(1, 10))
         end
       end
     end
@@ -128,14 +128,14 @@ SeedSystem = {
       if char:match("[A-Z]") then letterCount = letterCount + 1 else digitCount = digitCount + 1 end
     end
     if math.abs(letterCount - digitCount) > 2 then
-      return SeedSystem.generate()
+      return HUD.SeedSystem.generate()
     end
     return cleanSeed
   end
 }
 
-presetSeeds = {
-  {name = "Random", seed = SeedSystem.generate()},
+HUD.presetSeeds = {
+  {name = "Random", seed = HUD.SeedSystem.generate()},
   {name = "Dense Nebula", seed = "A5N9E3B7U1"},
   {name = "Open Void", seed = "S2P4A6C8E0"},
   {name = "Asteroid Fields", seed = "R3O7C9K2S6"},
@@ -147,18 +147,18 @@ presetSeeds = {
   {name = "Deep Explorer", seed = "E2X8P5L7O9"}
 }
 
-currentPresetIndex = 1
+HUD.currentPresetIndex = 1
 
--- Referencias a estado de juego (se actualizan dinámicamente)
-gameState = nil
-player = nil
-Map = nil
-gameDirector = nil
-runState = nil
-BiomeSystem = nil
+-- Referencias a estado de juego (locales al módulo para evitar globales)
+HUD.gameState = nil
+HUD.player = nil
+HUD.Map = nil
+HUD.gameDirector = nil
+HUD.runState = nil
+HUD.BiomeSystem = nil
 
 -- Cache de información de bioma del jugador
-biomeCache = {
+HUD.biomeCache = {
   lastUpdate = 0,
   updateInterval = 0.5,
   currentBiome = nil,

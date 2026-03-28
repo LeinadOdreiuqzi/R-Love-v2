@@ -2,6 +2,7 @@
 -- UI del inventario con drag and drop y modificación de naves
 
 local InventoryUI = {}
+local World = require 'src.core.world'
 
 -- Estado de la UI
 local uiState = {
@@ -1568,7 +1569,8 @@ end
 
 -- Lanzar item al mundo
 function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
-    if not item or not item.data or not player or not _G.camera then return end
+    local cam = World.get('camera')
+    if not item or not item.data or not player or not cam then return end
     
     -- Validación adicional: No permitir lanzar arma por defecto del slot 1
     if uiState.draggedFromType == "weapons" and uiState.draggedFromSlot == 1 then
@@ -1597,7 +1599,7 @@ function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
     local playerWorldY = activeEntity.y
     
     -- Convertir posición del mouse a coordenadas del mundo usando la función de la cámara
-    local targetWorldX, targetWorldY = _G.camera:screenToWorld(mouseX, mouseY)
+    local targetWorldX, targetWorldY = cam:screenToWorld(mouseX, mouseY)
     
     -- Limitar la distancia máxima de drop para mantener items cerca del jugador
     local maxDropDistance = 100
