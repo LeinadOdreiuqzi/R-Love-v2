@@ -1,11 +1,21 @@
 local HUD = require('src.ui.hud.core')
 
-function HUD.updateReferences(gameStateRef, playerRef, mapRef, gameDirectorRef, runStateRef)
-    gameState = gameStateRef
-    player = playerRef
-    Map = mapRef
-    gameDirector = gameDirectorRef
-    runState = runStateRef
+function HUD.updateReferences(worldOrGameState, playerRef, mapRef, gameDirectorRef, runStateRef)
+    -- Acepta el World context (nueva API) o refs sueltas (API legada)
+    if worldOrGameState and type(worldOrGameState.get) == 'function' then
+        local w = worldOrGameState
+        gameState    = w.get('state')
+        player       = w.getPlayer()
+        Map          = w.getMap()
+        gameDirector = w.getDirector()
+        runState     = w.getRunState()
+    else
+        gameState    = worldOrGameState or gameState
+        player       = playerRef       or player
+        Map          = mapRef          or Map
+        gameDirector = gameDirectorRef or gameDirector
+        runState     = runStateRef     or runState
+    end
 
     print("[HUD DEBUG] updateReferences llamado:")
     print("  gameState:", gameState and "OK" or "NIL")

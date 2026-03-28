@@ -115,9 +115,12 @@ ChunkManager.config = {
 -- Estado del gestor
 ChunkManager.state = {
     -- Chunks activos (completamente cargados)
-    activeChunks = {},
+    activeChunks = {}, -- Map: id -> chunk
+    activeChunksList = {}, -- List: {chunk...}
+    
     -- Chunks en cache (parcialmente cargados)
-    cachedChunks = {},
+    cachedChunks = {}, -- Map: id -> chunk
+    cachedChunksList = {}, -- List: {chunk...}
     -- Pool de chunks reutilizables
     chunkPool = {},
     
@@ -153,6 +156,57 @@ ChunkManager.state = {
         fullscreenOptimizations = 0  -- NUEVO: contador de optimizaciones aplicadas
     }
 }
+
+-- Helpers para gestión eficiente de listas (O(1) add/remove)
+function ChunkManager.addToActive(id, chunk)
+    if ChunkManager.state.activeChunks[id] then return end
+    ChunkManager.state.activeChunks[id] = chunk
+    table.insert(ChunkManager.state.activeChunksList, chunk)
+    chunk._activeIndex = #ChunkManager.state.activeChunksList
+end
+
+function ChunkManager.removeFromActive(id)
+    local chunk = ChunkManager.state.activeChunks[id]
+    if not chunk then return end
+    ChunkManager.state.activeChunks[id] = nil
+    
+    -- Swap remove optimizado
+    local list = ChunkManager.state.activeChunksList
+    local index = chunk._activeIndex
+    local last = list[#list]
+    
+    if index ~= #list then
+        list[index] = last
+        last._activeIndex = index
+    end
+    list[#list] = nil
+    chunk._activeIndex = nil
+end
+
+function ChunkManager.addToCache(id, chunk)
+    if ChunkManager.state.cachedChunks[id] then return end
+    ChunkManager.state.cachedChunks[id] = chunk
+    table.insert(ChunkManager.state.cachedChunksList, chunk)
+    chunk._cacheIndex = #ChunkManager.state.cachedChunksList
+end
+
+function ChunkManager.removeFromCache(id)
+    local chunk = ChunkManager.state.cachedChunks[id]
+    if not chunk then return end
+    ChunkManager.state.cachedChunks[id] = nil
+    
+    -- Swap remove optimizado
+    local list = ChunkManager.state.cachedChunksList
+    local index = chunk._cacheIndex
+    local last = list[#list]
+    
+    if index ~= #list then
+        list[index] = last
+        last._cacheIndex = index
+    end
+    list[#list] = nil
+    chunk._cacheIndex = nil
+end
 
 -- Estructura de chunk
 local ChunkStructure = {
@@ -220,40 +274,52 @@ function ChunkManager.updateMemoryManagement()
     configCache.lastUpdate = currentTime
 end
 
--- Limpiar memoria de forma inteligente
-function ChunkManager.performMemoryCleanup()
+-- Limpiar memoria de forma inteligente (INCREMENTAL)
+function ChunkManager.performMemoryCleanup(limit)
     local memoryBefore = collectgarbage("count")
     local cleaned = 0
+    limit = limit or 5 -- Limpiar máximo 5 chunks por frame para evitar stutter
     
     -- Limpiar chunks menos utilizados del cache
-    local cacheEntries = {}
-    for id, chunk in pairs(ChunkManager.state.cachedChunks) do
-        table.insert(cacheEntries, {id = id, chunk = chunk, lastAccess = chunk.lastAccess})
+    local cacheList = ChunkManager.state.cachedChunksList
+    if #cacheList > 0 then
+        -- Buscar candidatos (solo revisar los primeros N para no iterar todo)
+        -- O mejor: como es incremental, borramos los más antiguos si la lista está ordenada por acceso
+        -- Si no está ordenada, borramos aleatorios o iteramos un poco.
+        -- Para mantenerlo simple y rápido: iterar buscando candidatos pero con límite de recorrido
+        
+        local candidates = {}
+        local checkLimit = math.min(#cacheList, 50) -- Revisar máx 50 chunks
+        for i = 1, checkLimit do
+            local chunk = cacheList[i]
+            table.insert(candidates, {id = chunk.id, lastAccess = chunk.lastAccess})
+        end
+        table.sort(candidates, function(a, b) return a.lastAccess < b.lastAccess end)
+        
+        for i = 1, math.min(limit, #candidates) do
+            ChunkManager.removeFromCache(candidates[i].id)
+            cleaned = cleaned + 1
+        end
     end
     
-    table.sort(cacheEntries, function(a, b) return a.lastAccess < b.lastAccess end)
+    -- Garbage Collection INCREMENTAL
+    -- "step" realiza una porción de trabajo de GC. El argumento es roughly Kbytes.
+    -- Un paso pequeño (e.g. 500-1000KB) distribuye la carga entre frames.
+    collectgarbage("step", 2000) 
     
-    local targetReduction = math.floor(#cacheEntries * 0.3) -- Reducir 30%
-    for i = 1, math.min(targetReduction, #cacheEntries) do
-        local entry = cacheEntries[i]
-        ChunkManager.state.cachedChunks[entry.id] = nil
-        cleaned = cleaned + 1
+    -- Solo log si hubo limpieza real de chunks para no spammear
+    if cleaned > 0 then
+        -- Log silencioso o debug
+        -- print(string.format("Inc. cleanup: %d chunks", cleaned))
     end
-    
-    -- Forzar garbage collection
-    collectgarbage("collect")
-    
-    local memoryAfter = collectgarbage("count")
-    local memoryFreed = memoryBefore - memoryAfter
-    
-    print(string.format("Memory cleanup: %d chunks removed, %.1fMB freed", 
-          cleaned, memoryFreed / 1024))
 end
 
 -- Inicializar el gestor de chunks
 function ChunkManager.init(seed)
     ChunkManager.state.activeChunks = {}
+    ChunkManager.state.activeChunksList = {}
     ChunkManager.state.cachedChunks = {}
+    ChunkManager.state.cachedChunksList = {}
     ChunkManager.state.chunkPool = {}
     ChunkManager.state.loadQueue = {}
     ChunkManager.state.unloadQueue = {}
@@ -521,14 +587,18 @@ function ChunkManager.update(dt, playerX, playerY, playerVelX, playerVelY)
     end
     
     -- Limpiar memoria si es necesario (optimizado para reducir stuttering)
+    -- Limpiar memoria si es necesario (optimizado para reducir stuttering)
     if ChunkManager.config.memoryManagement.enabled then
-        local currentTime = love.timer.getTime()
-        if currentTime - configCache.lastMemoryCheck >= configCache.memoryCheckInterval then
-            local memoryUsage = collectgarbage("count") * 1024
-            if memoryUsage > ChunkManager.config.memoryManagement.memoryThresholds.high then
-                ChunkManager.performMemoryCleanup()
+        -- Chequeo más frecuente pero acción suave
+        -- Si la memoria está crítica, actuamos en cada frame
+        local memoryUsage = collectgarbage("count") * 1024
+        if memoryUsage > ChunkManager.config.memoryManagement.memoryThresholds.high then
+            ChunkManager.performMemoryCleanup(3) -- Limpiar 3 chunks por frame si estamos altos
+        elseif memoryUsage > ChunkManager.config.memoryManagement.memoryThresholds.low then
+             -- Mantenimiento preventivo ocasional
+            if love.timer.getTime() % 1.0 < dt then -- aprox 1 vez por seg
+                 collectgarbage("step", 100) -- Paso muy pequeño preventivo
             end
-            configCache.lastMemoryCheck = currentTime
         end
     end
     
@@ -574,8 +644,8 @@ function ChunkManager.processLoadQueue(dt, timeBudgetSec)
             chunk.visible = false
             chunk.lodLevel = 0
 
-            -- Activar directamente (rápido y simple)
-            ChunkManager.state.activeChunks[id] = chunk
+            -- Activar usando helper (rápido y mantiene lista)
+            ChunkManager.addToActive(id, chunk)
         end
     end
 end
@@ -583,35 +653,39 @@ end
 -- Descargar a caché los chunks demasiado lejanos
 function ChunkManager.processUnloadQueue(playerChunkX, playerChunkY)
     local toCache = {}
-    for id, chunk in pairs(ChunkManager.state.activeChunks) do
+    -- OPTIMIZACION: Usar lista para iterar (ipairs) en buscar candidatos
+    for _, chunk in ipairs(ChunkManager.state.activeChunksList) do
         local dx = math.abs(chunk.x - playerChunkX)
         local dy = math.abs(chunk.y - playerChunkY)
-        local distance = math.max(dx, dy)
+        -- Pequeña optimización: evitar math.max si dx es muy grande
+        local distance = (dx > dy) and dx or dy
         if distance > ChunkManager.config.unloadDistance then
-            table.insert(toCache, id)
+            table.insert(toCache, chunk.id)
         end
     end
 
     for _, id in ipairs(toCache) do
         local chunk = ChunkManager.state.activeChunks[id]
-        ChunkManager.state.activeChunks[id] = nil
-        -- Mantener como complete en caché; se promoverá si se vuelve a solicitar
-        chunk.visible = false
-        ChunkManager.state.cachedChunks[id] = chunk
-        ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + 1
+        if chunk then
+            ChunkManager.removeFromActive(id)
+            -- Mantener como complete en caché; se promoverá si se vuelve a solicitar
+            chunk.visible = false
+            ChunkManager.addToCache(id, chunk)
+            ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + 1
+        end
     end
 end
 
 -- Limpiar caché por LRU
 function ChunkManager.cleanupCache()
-    local cachedCount = 0
-    for _ in pairs(ChunkManager.state.cachedChunks) do cachedCount = cachedCount + 1 end
+    local cachedCount = #ChunkManager.state.cachedChunksList
     if cachedCount <= ChunkManager.config.maxCachedChunks then return end
 
     -- Construir lista para ordenar por lastAccess asc (menos usados primero)
     local items = {}
-    for id, chunk in pairs(ChunkManager.state.cachedChunks) do
-        table.insert(items, { id = id, lastAccess = chunk.lastAccess or 0 })
+    -- OPTIMIZACION: Usar lista lineal
+    for _, chunk in ipairs(ChunkManager.state.cachedChunksList) do
+        table.insert(items, { id = chunk.id, lastAccess = chunk.lastAccess or 0 })
     end
     table.sort(items, function(a, b) return a.lastAccess < b.lastAccess end)
 
@@ -621,7 +695,7 @@ function ChunkManager.cleanupCache()
         local id = items[i] and items[i].id
         if id and ChunkManager.state.cachedChunks[id] then
             local chunk = ChunkManager.state.cachedChunks[id]
-            ChunkManager.state.cachedChunks[id] = nil
+            ChunkManager.removeFromCache(id)
             -- Devolver al pool si cabe, si no simplemente permitir GC
             ChunkManager.returnChunkToPool(chunk)
         end
@@ -648,8 +722,8 @@ function ChunkManager.getChunk(chunkX, chunkY, playerX, playerY)
         
         -- Promover a activo si está completo
         if chunk.status == "complete" then
-            ChunkManager.state.cachedChunks[chunkId] = nil
-            ChunkManager.state.activeChunks[chunkId] = chunk
+            ChunkManager.removeFromCache(chunkId)
+            ChunkManager.addToActive(chunkId, chunk)
             ChunkManager.state.stats.cacheHits = ChunkManager.state.stats.cacheHits + 1
             return chunk
         end
@@ -806,20 +880,12 @@ end
     
     -- Contar chunks activos eficientemente
     function ChunkManager.countActiveChunks()
-        local count = 0
-        for _ in pairs(ChunkManager.state.activeChunks) do
-            count = count + 1
-        end
-        return count
+        return #ChunkManager.state.activeChunksList
     end
     
     -- Contar chunks en cache eficientemente
     function ChunkManager.countCachedChunks()
-        local count = 0
-        for _ in pairs(ChunkManager.state.cachedChunks) do
-            count = count + 1
-        end
-        return count
+        return #ChunkManager.state.cachedChunksList
     end
     
     -- Obtener chunks visibles con margen ampliado
@@ -970,10 +1036,13 @@ function ChunkManager.aggressiveUnloadForFullscreen(targetLimit)
     local playerChunkY = ChunkManager.state.lastPlayerChunkY or 0
     
     -- Recopilar chunks activos con prioridad
-    for id, chunk in pairs(ChunkManager.state.activeChunks) do
+    -- Recopilar chunks activos con prioridad
+    -- OPTIMIZACION: Iterar lista
+    for _, chunk in ipairs(ChunkManager.state.activeChunksList) do
+        local id = chunk.id
         local dx = math.abs(chunk.x - playerChunkX)
         local dy = math.abs(chunk.y - playerChunkY)
-        local distance = math.max(dx, dy)
+        local distance = (dx > dy) and dx or dy
         
         table.insert(activeChunks, {
             id = id,
@@ -1000,9 +1069,9 @@ function ChunkManager.aggressiveUnloadForFullscreen(targetLimit)
         local chunk = item.chunk
         
         -- Mover a caché
-        ChunkManager.state.activeChunks[item.id] = nil
+        ChunkManager.removeFromActive(item.id)
         chunk.visible = false
-        ChunkManager.state.cachedChunks[item.id] = chunk
+        ChunkManager.addToCache(item.id, chunk)
         
         ChunkManager.state.stats.unloadRequests = ChunkManager.state.stats.unloadRequests + 1
     end
@@ -1033,7 +1102,9 @@ function ChunkManager.optimizeForViewport(camera)
     -- Marcar chunks fuera del viewport expandido para descarga
     local currentTime = love.timer.getTime()
     
-    for id, chunk in pairs(ChunkManager.state.activeChunks) do
+    -- OPTIMIZACION: Iterar lista
+    for _, chunk in ipairs(ChunkManager.state.activeChunksList) do
+        local id = chunk.id
         local isOutsideViewport = (
             chunk.x < fsState.viewportBounds.startX or
             chunk.x > fsState.viewportBounds.endX or
@@ -1048,9 +1119,9 @@ function ChunkManager.optimizeForViewport(camera)
                 fsState.unloadTimer[id] = currentTime
             elseif currentTime >= fsState.chunksMarkedForUnload[id] then
                 -- Tiempo cumplido, descargar
-                ChunkManager.state.activeChunks[id] = nil
+                ChunkManager.removeFromActive(id)
                 chunk.visible = false
-                ChunkManager.state.cachedChunks[id] = chunk
+                ChunkManager.addToCache(id, chunk)
                 
                 fsState.chunksMarkedForUnload[id] = nil
                 fsState.unloadTimer[id] = nil
@@ -1124,13 +1195,8 @@ end
     ChunkManager.state.stats.activeCount = 0
     ChunkManager.state.stats.cachedCount = 0
     
-    for _ in pairs(ChunkManager.state.activeChunks) do
-        ChunkManager.state.stats.activeCount = ChunkManager.state.stats.activeCount + 1
-    end
-    
-    for _ in pairs(ChunkManager.state.cachedChunks) do
-        ChunkManager.state.stats.cachedCount = ChunkManager.state.stats.cachedCount + 1
-    end
+    ChunkManager.state.stats.activeCount = #ChunkManager.state.activeChunksList
+    ChunkManager.state.stats.cachedCount = #ChunkManager.state.cachedChunksList
     
     ChunkManager.state.stats.poolCount = #ChunkManager.state.chunkPool
     
@@ -1166,17 +1232,21 @@ end
     -- Función de limpieza completa
     function ChunkManager.cleanup()
         -- Devolver todos los chunks al pool
-        for chunkId, chunk in pairs(ChunkManager.state.activeChunks) do
+        -- Devolver todos los chunks al pool
+        -- OPTIMIZACION: Iterar lista
+        for _, chunk in ipairs(ChunkManager.state.activeChunksList) do
             ChunkManager.returnChunkToPool(chunk)
         end
         
-        for chunkId, chunk in pairs(ChunkManager.state.cachedChunks) do
+        for _, chunk in ipairs(ChunkManager.state.cachedChunksList) do
             ChunkManager.returnChunkToPool(chunk)
         end
         
         -- Limpiar estructuras
         ChunkManager.state.activeChunks = {}
+        ChunkManager.state.activeChunksList = {}
         ChunkManager.state.cachedChunks = {}
+        ChunkManager.state.cachedChunksList = {}
         ChunkManager.state.loadQueue = {}
         ChunkManager.state.unloadQueue = {}
         ChunkManager.state.generationQueue = {}

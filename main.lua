@@ -1,5 +1,6 @@
 -- main.lua (SISTEMA COMPLETO CON PANTALLA DE CARGA)
 
+local World = require 'src.core.world'       -- ← World Context central
 local Camera = require 'src.utils.camera'
 local Map = require 'src.maps.map'
 local Naves = require 'src.entities.naves'
@@ -17,6 +18,7 @@ local StateManager = require 'src.states.state_manager'
 local StationScene = require 'src.states.station_scene'
 local SubLevelScene = require 'src.sublevels.sublevel_scene'
 local SubLevelManager = require 'src.maps.systems.sublevel_manager'
+local InputManager = require 'src.core.input_manager'
 local stateManager = StateManager:new()
 
 -- Sistema de items
@@ -44,7 +46,8 @@ local gameState = {
 
 -- Sistema de luz eliminado (no se usaba)
 
--- Variables globales
+-- Variables globales (se mantienen como aliases del World para compatibilidad
+-- mientras los módulos individuales se migran en fases posteriores)
 _G.camera = nil
 _G.showGrid = false
 _G.physicsManager = nil
@@ -140,6 +143,8 @@ local function loadWorld(updateProgress)
         if not success or not cam then
             error("Failed to initialize camera: " .. tostring(cam))
         end
+        -- Registrar la cámara en el World y mantener alias _G para compat
+        World.set('camera', cam)
         _G.camera = cam
         _G.camera:updateScreenDimensions()
         return true
@@ -203,12 +208,18 @@ local function loadWorld(updateProgress)
         local playerX, playerY = 0, 0
         player = Naves:new(playerX, playerY, "EXPLORER")
         
+        -- Registrar jugador en el World (con entidad y referencia directa)
+        World.set('player', player)
+        World.addEntity(player)
+        
         -- Crear naves adicionales de diferentes tipos para testing de persistencia
         -- Fighter a 500 unidades al este
         local fighterShip = Naves:new(playerX + 500, playerY, "FIGHTER")
+        World.addEntity(fighterShip)
         
         -- Cargo a 500 unidades al oeste
         local cargoShip = Naves:new(playerX - 500, playerY, "CARGO")
+        World.addEntity(cargoShip)
         
         -- Las naves se crean con inventarios vacíos para testing de persistencia
         -- Los items se pueden agregar manualmente durante el juego para probar la persistencia
@@ -235,12 +246,24 @@ local function loadWorld(updateProgress)
         gameDirector = GameDirector:new(runState)
         
         -- Inicializar sistema de física Box2D
-        _G.physicsManager = PhysicsManager:new()
+        local physMgr = PhysicsManager:new()
+        _G.physicsManager = physMgr   -- alias compat
+        
+        -- Registrar todos los sistemas en el World
+        World.set('state',    gameState)
+        World.set('runState', runState)
+        World.set('director', gameDirector)
+        World.set('physics',  physMgr)
+        World.set('map',      Map)
+        World.set('seed',     gameState.currentSeed)
+        World.set('stateManager', stateManager)
+        World.set('biomeDebug',   biomeDebug)
         
         print("[MAIN DEBUG] Sistemas inicializados:")
         print("  runState:", runState and "CREADO" or "NIL")
         print("  gameDirector:", gameDirector and "CREADO" or "NIL")
         print("  physicsManager:", _G.physicsManager and "CREADO" or "NIL")
+        World.dump()
         
         return true
     end)
@@ -249,8 +272,8 @@ local function loadWorld(updateProgress)
         -- Paso 11: Cargar interfaz
         updateProgress("hud", "Loading user interface...")
         
-        -- Inicializar HUD
-        HUD.init(gameState, player, Map, gameDirector, runState)
+        -- Inicializar HUD pasando el World context
+        HUD.init(World)
         return true
     end)
     
@@ -274,6 +297,8 @@ local function loadWorld(updateProgress)
         -- Marcar como cargado
         gameState.loaded = true
         gameState.isLoading = false
+        -- Actualizar seed en el World por si cambió durante la carga
+        World.set('seed', gameState.currentSeed)
         return true
     end)
     
@@ -356,8 +381,14 @@ function love.update(dt)
         end
     end
 
-    -- Actualizar RunState y GameDirector (no-op por ahora)
-    if runState then runState:update(dt) end
+    -- Actualizar RunState pasando velocidad del jugador (evita que RunState acceda a _G.player)
+    if runState then
+        local playerSpeedForRunState = nil
+        if player and player.dx and player.dy then
+            playerSpeedForRunState = math.sqrt(player.dx * player.dx + player.dy * player.dy)
+        end
+        runState:update(dt, playerSpeedForRunState)
+    end
     if gameDirector then gameDirector:update(dt) end
 
     -- Actualizar sistema de física Box2D
@@ -932,365 +963,141 @@ function drawBiomeRegionDebug()
     love.graphics.setColor(r, g, b, a)
 end
 
--- Función de efectos de iluminación eliminada
-
 function love.keypressed(key)
-    -- No procesar teclas durante la carga
-    if gameState.isLoading or not gameState.loaded then
-        -- Solo permitir salir durante la carga
-        if key == "escape" then
-            love.event.quit()
-        end
-        -- Permitir también toggle de pantalla completa durante la carga
-        if key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
-            if FullscreenManager and FullscreenManager.toggle then
-                FullscreenManager.toggle()
-            end
-        elseif key == "f11" then
-            if FullscreenManager and FullscreenManager.toggle then
-                FullscreenManager.toggle()
-            end
-        end
-        return
-    end
-
-    -- Delegar primero al gestor de estados
-    if stateManager and stateManager:keypressed(key) then
-        return
-    end
-
-    -- Atajos globales para pantalla completa
-    if key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
-        if FullscreenManager and FullscreenManager.toggle then
-            FullscreenManager.toggle()
-            return
-        end
-    elseif key == "f11" then
-        -- Reasignamos F11 al toggle de pantalla completa; movemos la función previa a F10+Shift
-        if FullscreenManager and FullscreenManager.toggle then
-            FullscreenManager.toggle()
-            return
-        end
-    end
-
-    -- Manejar input de semilla si el HUD lo está mostrando
-    if HUD.isSeedInputVisible() then
-        local newSeed, seedType = HUD.handleSeedInput(key)
-        if newSeed then
-            -- Asegurar cierre del panel antes de regenerar
-            HUD.hideSeedInput()
-            changeSeed(newSeed)
-        end
-        return
-    end
-    
-    -- Controles generales
-    if key == "escape" then
-        love.event.quit()
-    elseif key == "f1" then
-        HUD.toggleInfo()
-    elseif key == "f2" then
-        HUD.showSeedInput()
-    elseif key == "f3" then
-        if player and player.stats then
-            local enabled = player.stats:toggleDebugMode()
-            print("Debug mode: " .. (enabled and "ON" or "OFF"))
-        end
-    elseif key == "f4" then
-        _G.showGrid = not _G.showGrid
-        print("Enhanced grid display: " .. (_G.showGrid and "ON" or "OFF"))
-    elseif key == "f5" then
-        HUD.toggleDebugMenu()
-    elseif key == "1" then
-        -- Crear inventario de prueba con items del sistema
-        if player and InventoryUI then
-            InventoryUI:createTestInventory(player)
-            -- Inventario de prueba creado
-        end
-    elseif key == "f6" then
-        -- Toggle del overlay de performance (antes: daño de prueba)
-        biomeDebug.showPerformanceOverlay = not biomeDebug.showPerformanceOverlay
-        print("Performance overlay: " .. (biomeDebug.showPerformanceOverlay and "ON" or "OFF"))
-    elseif key == "f7" then
-        if Map.starConfig then
-            Map.starConfig.enhancedEffects = not Map.starConfig.enhancedEffects
-            local status = Map.starConfig.enhancedEffects and "ON" or "OFF"
-            print("Enhanced star effects: " .. status)
-        end
-    elseif key == "f8" then
-        if Map.starConfig then
-            local currentMax = Map.starConfig.maxStarsPerFrame
-            if currentMax <= 1500 then
-                Map.starConfig.maxStarsPerFrame = 3000
-                print("Star quality: MEDIUM (3000 stars/frame)")
-            elseif currentMax <= 3000 then
-                Map.starConfig.maxStarsPerFrame = 5000
-                print("Star quality: HIGH (5000 stars/frame)")
-            else
-                Map.starConfig.maxStarsPerFrame = 1500
-                print("Star quality: LOW (1500 stars/frame)")
-            end
-        end
-    elseif key == "f9" then
-        if player and player.stats then
-            local enabled = player.stats:toggleInvulnerability()
-            print("Invulnerability: " .. (enabled and "ON" or "OFF"))
-        end
-    elseif key == "f10" then
-        if player and player.stats then
-            local enabled = player.stats:toggleInfiniteFuel()
-            print("Infinite fuel: " .. (enabled and "ON" or "OFF"))
-        end
-    -- NOTE: F11 ahora se usa para alternar pantalla completa. Si se requiere el antiguo 'Fast shield regen', reasignarlo a otra tecla.
-    -- elseif key == "f11" then
-    --     if player and player.stats then
-    --         local enabled = player.stats:toggleFastRegen()
-    --         print("Fast shield regen: " .. (enabled and "ON" or "OFF"))
-    --     end
-    elseif key == "m" then
-        -- Debug del PassiveManager
-        local PassiveManager = require 'src.item_systems.passive_manager'
-        PassiveManager.printDebugInfo()
-    elseif key == "f12" then
-        HUD.toggleBiomeInfo()
-    elseif key == "f" then
-        -- Regenerar con semilla completamente nueva
-        if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-            -- Ctrl+F: Force garbage collection
-            if biomeDebug.enabled then
-                print("=== MANUAL MEMORY CLEANUP ===")
-                local beforeMB = collectgarbage("count") / 1024
-                collectgarbage("collect")
-                local afterMB = collectgarbage("count") / 1024
-                print("Memory before: " .. string.format("%.1f", beforeMB) .. "MB")
-                print("Memory after: " .. string.format("%.1f", afterMB) .. "MB")
-                print("Freed: " .. string.format("%.1f", beforeMB - afterMB) .. "MB")
-            end
-        else
-            -- Regenerar mundo con nueva semilla
-            local newSeed = SeedSystem.generate()
-            changeSeedWithLoading(newSeed)
-        end
-    elseif key == "r" then
-        -- Reload weapon
-        if player and player.weaponSystem then
-            player.weaponSystem:reload()
-        end
-    elseif key == "p" then
-        gameState.paused = not gameState.paused
-        print("Game " .. (gameState.paused and "PAUSED" or "RESUMED"))
-    elseif key == "h" then
-        if player and player.stats then
-            player:heal(2)
-            print("Player healed")
-        end
-    elseif key == "u" then
-        if player and player.stats then
-            player:addFuel(25)
-            print("Fuel added")
-        end
-    elseif key == "e" then
-        -- Manejo de expansión de fases
-        pcall(function()
-            if PhaseSystem and PhaseSystem.handleInput then
-                PhaseSystem.handleInput(key)
-            end
-        end)
-    elseif key == "tab" then
-        -- Control centralizado de inventarios basado en inventoryMode y estado EVA
-        if not player then return end
-        local desired = player.isInEVA and "eva" or "ship"
-        if gameState.inventoryMode == desired then
-            -- Cerrar el inventario actual
-            if desired == "ship" then
-                if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-                    if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
-                end
-            else
-                if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-                    if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
-                end
-            end
-            gameState.inventoryMode = "none"
-            if gameState.inventoryDebug then print("[INV] Close via Tab -> mode=none") end
-        else
-            -- Cerrar el contrario y abrir el deseado
-            if desired == "ship" then
-                if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
-                    if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
-                end
-                if InventoryUI then InventoryUI:toggle() end
-                gameState.inventoryMode = "ship"
-            else
-                if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-                    if InventoryUI.close then InventoryUI:close() else InventoryUI:toggle() end
-                end
-                if EVAInventoryUI then EVAInventoryUI:toggle() end
-                gameState.inventoryMode = "eva"
-            end
-            if gameState.inventoryDebug then print("[INV] Open via Tab -> mode=" .. gameState.inventoryMode) end
-        end
-    elseif key == "l" then
-        -- Toggle visibilidad del HUD
-        gameState.showHUD = not gameState.showHUD
-        print("HUD: " .. (gameState.showHUD and "VISIBLE" or "OCULTO"))
-    end
-    
-    -- Manejar teclas específicas del inventario EVA cuando está abierto
-    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA and player.evaPlayer then
-        EVAInventoryUI:keypressed(key, player.evaPlayer)
-    end
-    
-    -- Manejar teclas específicas del inventario de la nave cuando está abierto
-    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() and player and not player.isInEVA then
-        InventoryUI:keypressed(key, player)
-    end
-    -- Para testear en grandes distancias
-    if key == "0" then
-        if player and player.toggleHyperTravel then
-            local enabled = player:toggleHyperTravel(100000)
-            print("Hyper travel (100k): " .. (enabled and "ON" or "OFF"))
-        end
-    elseif key == "k" then
-        -- Toggle entre shaders de estrellas: Legacy (StarShader) vs Instanced (StarfieldInstanced)
-        if Map and Map.starConfig then
-            Map.starConfig.useInstancedShader = not Map.starConfig.useInstancedShader
-            local modeName = Map.starConfig.useInstancedShader and "INSTANCED" or "LEGACY"
-            print("Star rendering mode: " .. modeName)
-            if Map.starConfig.useInstancedShader then
-                -- Asegurar que el shader instanced esté inicializado
-                local StarfieldInstanced = require 'src.shaders.starfield_instanced'
-                if StarfieldInstanced and StarfieldInstanced.init then
-                    StarfieldInstanced.init()
-                end
-            end
-        end
-    elseif key == "e" and (not stateManager or not stateManager:blocksUnderlying()) then
-        -- Intentar recolectar item manualmente
-        local WorldItems = require 'src.item_systems.world_items'
-        local collected = WorldItems.tryManualCollection()
-        
-        -- Si no se recolectó ningún item, intentar entrar a Subnivel o estación
-        if not collected then
-            -- Primero: Entrar a Subnivel si existe una entrada cercana
-            do
-                local MapConfig = require 'src.maps.config.map_config'
-                local bounds = Map.getVisibleChunkBounds(_G.camera, 800)
-                local closest, minDist
-                local closestWorldX, closestWorldY
-                local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
-                local spacing = MapConfig.chunk.spacing or 0
-                local ws = MapConfig.chunk.worldScale or 1
-                local strideScaled = (sizePixels + spacing) * ws
-
-                for cy = bounds.startY, bounds.endY do
-                    for cx = bounds.startX, bounds.endX do
-                        local chunk = Map.getChunkNonBlocking(cx, cy)
-                        if chunk and chunk.specialObjects then
-                            for _, obj in ipairs(chunk.specialObjects) do
-                                if obj and (obj.type == MapConfig.ObjectType.SUBLEVEL_ENTRANCE or obj.type == "SUBLEVEL_ENTRANCE") then
-                                    local worldX = cx * strideScaled + (obj.x or 0) * ws
-                                    local worldY = cy * strideScaled + (obj.y or 0) * ws
-                                    local dx, dy = worldX - player.x, worldY - player.y
-                                    local dist = math.sqrt(dx*dx + dy*dy)
-                                    if not minDist or dist < minDist then
-                                        closest, minDist = obj, dist
-                                        closestWorldX, closestWorldY = worldX, worldY
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-
-                local factor = HUD.getEnterRadiusFactor and HUD.getEnterRadiusFactor() or 1.0
-                local allowed = HUD.computeEnterRadius and HUD.computeEnterRadius(closest, factor) or 48
-                if closest and (not minDist or minDist <= allowed) then
-                    local SubLevelScene = require 'src.sublevels.sublevel_scene'
-                    local SubLevelManager = require 'src.maps.systems.sublevel_manager'
-                    local scx, scy = Map.getChunkInfo(closestWorldX or player.x, closestWorldY or player.y)
-                    local cfg = SubLevelManager.createConfig({
-                        parentSeed = gameState.currentSeed,
-                        type = SubLevelManager.Types.Generic,
-                        cx = closest.cx or scx,
-                        cy = closest.cy or scy,
-                        width = 8,
-                        height = 8,
-                        entryX = 0,
-                        entryY = 0,
-                        context = "entrance|" .. tostring(closest.entranceKey or ((closest.cx or scx) .. ":" .. (closest.cy or scy)))
-                    })
-                    local scene = SubLevelScene:new(cfg)
-                    stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
-                    return
-                end
-            end
-
-            -- Segundo: Entrar a estación si existe una cercana en Ancient Ruins
-            if player and player.x and player.y then
-                local biomeInfo = BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
-                if biomeInfo and biomeInfo.type == BiomeSystem.BiomeType.ANCIENT_RUINS then
-                    -- Buscar estación cercana en los chunks visibles
-                    local bounds = Map.getVisibleChunkBounds(_G.camera, 800)
-                    local closest, minDist
-                    for cy = bounds.startY, bounds.endY do
-                        for cx = bounds.startX, bounds.endX do
-                            local chunk = Map.getChunkNonBlocking(cx, cy)
-                            if chunk and chunk.ancientRuinsPlaceholders then
-                                for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
-                                    local dx, dy = ph.x - player.x, ph.y - player.y
-                                    local dist = math.sqrt(dx*dx + dy*dy)
-                                    if not minDist or dist < minDist then
-                                        closest, minDist = ph, dist
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    local factor = HUD.getEnterRadiusFactor()
-                    local allowed = HUD.computeEnterRadius(closest, factor)
-                    if closest and (not minDist or minDist <= allowed) then
-                        local scene = StationScene:new(closest)
-                        stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
-                    else
-                        print("No hay estación cercana para entrar.")
-                    end
-                end
-            end
-        end -- Cerrar el bloque if not collected
-
-    elseif key == "u" then
-        -- Entrar a escena de subnivel (mapa limitado) de prueba
-        local SeedSystem = require 'src.utils.seed_system'
-        local currentSeed = gameState.currentSeed
-        local px, py = 0, 0
-        if player and player.x and player.y then px, py = player.x, player.y end
-        local cfg = SubLevelManager.createConfig({
-            parentSeed = currentSeed,
-            type = SubLevelManager.Types.Generic,
-            cx = math.floor(px / (Map.stride or 1)),
-            cy = math.floor(py / (Map.stride or 1)),
-            width = 8, height = 8,
-            entryX = 0, entryY = 0,
-        })
-        local scene = SubLevelScene:new(cfg)
-        stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
-    end
+    InputManager.keypressed(key)
 end
 
 function love.textinput(text)
-    if not gameState.loaded then return end
-    if stateManager and stateManager:textinput(text) then return end
-    HUD.textinput(text)
+    InputManager.textinput(text)
 end
 
 function love.wheelmoved(x, y)
-    if not gameState.loaded then return end
-    if stateManager and stateManager:wheelmoved(x, y) then return end
-    if _G.camera and _G.camera.wheelmoved then
-        _G.camera:wheelmoved(x, y)
+    InputManager.wheelmoved(x, y)
+end
+
+-- Función auxiliar para manejar interacciones complejas (llamada por InputManager)
+function tryEnterStationOrSublevel()
+    if not player then return end
+    
+    -- Intentar entrar a Subnivel si existe una entrada cercana
+    do
+        local MapConfig = require 'src.maps.config.map_config'
+        local bounds = Map.getVisibleChunkBounds(_G.camera, 800)
+        local closest, minDist
+        local closestWorldX, closestWorldY
+        local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+        local spacing = MapConfig.chunk.spacing or 0
+        local ws = MapConfig.chunk.worldScale or 1
+        local strideScaled = (sizePixels + spacing) * ws
+
+        for cy = bounds.startY, bounds.endY do
+            for cx = bounds.startX, bounds.endX do
+                local chunk = Map.getChunkNonBlocking(cx, cy)
+                if chunk and chunk.specialObjects then
+                    for _, obj in ipairs(chunk.specialObjects) do
+                        if obj and (obj.type == MapConfig.ObjectType.SUBLEVEL_ENTRANCE or obj.type == "SUBLEVEL_ENTRANCE") then
+                            local worldX = cx * strideScaled + (obj.x or 0) * ws
+                            local worldY = cy * strideScaled + (obj.y or 0) * ws
+                            local dx, dy = worldX - player.x, worldY - player.y
+                            local dist = math.sqrt(dx*dx + dy*dy)
+                            if not minDist or dist < minDist then
+                                closest, minDist = obj, dist
+                                closestWorldX, closestWorldY = worldX, worldY
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        local factor = HUD.getEnterRadiusFactor and HUD.getEnterRadiusFactor() or 1.0
+        local allowed = HUD.computeEnterRadius and HUD.computeEnterRadius(closest, factor) or 48
+        if closest and (not minDist or minDist <= allowed) then
+            local scx, scy = Map.getChunkInfo(closestWorldX or player.x, closestWorldY or player.y)
+            local cfg = SubLevelManager.createConfig({
+                parentSeed = gameState.currentSeed,
+                type = SubLevelManager.Types.Generic,
+                cx = closest.cx or scx,
+                cy = closest.cy or scy,
+                width = 8,
+                height = 8,
+                entryX = 0,
+                entryY = 0,
+                context = "entrance|" .. tostring(closest.entranceKey or ((closest.cx or scx) .. ":" .. (closest.cy or scy)))
+            })
+            local scene = SubLevelScene:new(cfg)
+            stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
+            return
+        end
+    end
+
+    -- Segundo: Entrar a estación si existe una cercana en Ancient Ruins
+    if player.x and player.y then
+        local biomeInfo = BiomeSystem.getPlayerBiomeInfo(player.x, player.y)
+        if biomeInfo and biomeInfo.type == BiomeSystem.BiomeType.ANCIENT_RUINS then
+            local bounds = Map.getVisibleChunkBounds(_G.camera, 800)
+            local closest, minDist
+            for cy = bounds.startY, bounds.endY do
+                for cx = bounds.startX, bounds.endX do
+                    local chunk = Map.getChunkNonBlocking(cx, cy)
+                    if chunk and chunk.ancientRuinsPlaceholders then
+                        for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
+                            local dx, dy = ph.x - player.x, ph.y - player.y
+                            local dist = math.sqrt(dx*dx + dy*dy)
+                            if not minDist or dist < minDist then
+                                closest, minDist = ph, dist
+                            end
+                        end
+                    end
+                end
+            end
+            local factor = HUD.getEnterRadiusFactor()
+            local allowed = HUD.computeEnterRadius(closest, factor)
+            if closest and (not minDist or minDist <= allowed) then
+                local scene = StationScene:new(closest)
+                stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
+            else
+                print("No hay estación cercana para entrar.")
+            end
+        end
     end
 end
+
+function love.mousepressed(x, y, button)
+    InputManager.mousepressed(x, y, button)
+end
+
+function love.mousereleased(x, y, button)
+    InputManager.mousereleased(x, y, button)
+end
+
+function love.resize(w, h)
+    -- Delegar primero al gestor de estados
+    if stateManager then stateManager:resize(w, h) end
+
+    -- Notificar al FullscreenManager sobre el redimensionamiento
+    if FullscreenManager and FullscreenManager.handleResize then
+        FullscreenManager.handleResize(w, h)
+    end
+    
+    if _G.camera then
+        _G.camera:updateScreenDimensions()
+    end
+
+    -- Actualizar dimensiones de pantalla para el culling optimizado
+    if Map and Map.updateScreenDimensions then
+        Map.updateScreenDimensions()
+    end
+
+    -- Actualizar pantalla de carga si está activa
+    if LoadingScreen and LoadingScreen.resize then
+        LoadingScreen.resize(w, h)
+    end
+end
+
+-- Registro de sistemas globales en World
+World.set('stateManager', stateManager)
+World.set('biomeDebug', biomeDebug)
 
 -- NUEVA FUNCIÓN: Cambiar semilla con pantalla de carga
 function changeSeedWithLoading(newSeed)
@@ -1312,6 +1119,9 @@ function changeSeedWithLoading(newSeed)
         if EVAInventoryUI.close then EVAInventoryUI:close() else EVAInventoryUI:toggle() end
     end
     gameState.inventoryMode = "none"
+    
+    -- Resetear el World context (limpia entidades y refs del mundo anterior)
+    World.reset()
     
     -- Limpiar todos los estados (salir de estaciones, etc.)
     if stateManager and stateManager.clear then
@@ -1446,8 +1256,11 @@ function regenerateMap(seed)
     -- Reinicializar sistema de coordenadas desde el origen
     CoordinateSystem.init(0, 0)
     
-    -- Actualizar referencias del HUD
-    HUD.updateReferences(gameState, player, Map, gameDirector, runState)
+    -- Actualizar referencias del HUD via World
+    -- Re-registrar jugador y seed en el World antes de actualizar el HUD
+    World.set('player', player)
+    World.set('seed', seed)
+    HUD.updateReferences(World)
     
     print("=== NEW ENHANCED GALAXY GENERATED ===")
     print("Alphanumeric Seed: " .. seed)
@@ -1455,43 +1268,11 @@ function regenerateMap(seed)
 end
 
 function love.mousepressed(x, y, button)
-    if not gameState.loaded then return end
-    
-    -- Delegar primero al gestor de estados
-    if stateManager and stateManager.mousepressed and stateManager:mousepressed(x, y, button) then
-        return
-    end
-    
-    -- Manejar input del inventario EVA
-    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA and player.evaPlayer then
-        EVAInventoryUI:mousepressed(x, y, button, player.evaPlayer)
-        return
-    end
-    
-    -- Manejar input del inventario de la nave
-    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousepressed(x, y, button, player)
-        return
-    end
-    
-    -- Manejar disparo con clic izquierdo (solo si no hay inventarios abiertos)
-    if button == 1 and player and not player.isInEVA then -- Clic izquierdo y no en EVA
-        player:shoot(x, y)
-    end
+    InputManager.mousepressed(x, y, button)
 end
 
 function love.mousereleased(x, y, button)
-    if not gameState.loaded then return end
-    
-    -- Delegar primero al gestor de estados
-    if stateManager and stateManager.mousereleased and stateManager:mousereleased(x, y, button) then
-        return
-    end
-    
-    -- Manejar input del inventario
-    if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousereleased(x, y, button, player)
-    end
+    InputManager.mousereleased(x, y, button)
 end
 
 function love.resize(w, h)

@@ -693,40 +693,31 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             return (a.star.depth or 0.5) > (b.star.depth or 0.5)
         end)
 
-        -- A: pooling de agrupación por tipo
-        local starsByType = MapRenderer._tmpStarsByType or {}
+        -- A: Pooling de agrupación por tipo con ARRAY FIJO
+        local starsByType = MapRenderer._tmpStarsByType or { {}, {}, {}, {} }
         MapRenderer._tmpStarsByType = starsByType
-        -- limpiar listas previas reusables
-        for t, lst in pairs(starsByType) do
-            if type(lst) == "table" then
-                for i = 1, #lst do lst[i] = nil end
-            end
-            -- mantener la clave para reutilizar capacidad
+        
+        -- Limpiar listas, NO las claves (usamos 1-4 fijos)
+        for i=1, 4 do
+             local list = starsByType[i]
+             if not list then list = {}; starsByType[i] = list end
+             -- Limpieza rápida
+             for j=1, #list do list[j] = nil end
         end
 
-        -- Agrupar por tipo evitando table.insert
+        -- Agrupar por tipo (1-4)
         for i = 1, #layerStars do
             local info = layerStars[i]
             local t = info.star.type or 1
+            if t < 1 or t > 4 then t = 1 end
             local list = starsByType[t]
-            if not list then
-                list = {}
-                starsByType[t] = list
-            end
-            local idx = #list + 1
-            list[idx] = info
+            list[#list + 1] = info
         end
 
-        -- Iterar tipos en orden determinista
-        local typeKeys = {}
-        for t, _ in pairs(starsByType) do
-            typeKeys[#typeKeys + 1] = t
-        end
-        table.sort(typeKeys)
-
-        for _, t in ipairs(typeKeys) do
+        -- Iterar tipos en orden numérico (1 a 4) - SIN PAIRS
+        for t = 1, 4 do
             local list = starsByType[t]
-            if list and #list > 0 then
+            if #list > 0 then
                 if usingStarShader and StarShader.setType then
                     StarShader.setType(t)
                 end

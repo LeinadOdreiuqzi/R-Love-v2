@@ -9,6 +9,12 @@ local InventoryUI = require 'src.ui.inventory_ui'
 local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local WeaponSystem = require 'src.entities.weapon_system'
 
+-- Getter perezoso del World context para evitar require circular en el 
+-- momento del módulo (main.lua carga Naves antes de crear el World).
+local function getWorld()
+    return package.loaded['src.core.world']
+end
+
 -- Configuración de tipos de naves
 local SHIP_TYPES = {
     EXPLORER = {
@@ -337,8 +343,13 @@ function Naves:update(dt)
         self.isBoostActive = true
         
         -- Incrementar contador de boosts en RunState cuando se activa por primera vez
-        if not wasBoostActive and _G.runState and _G.runState.incrementBoosts then
-            _G.runState:incrementBoosts()
+        if not wasBoostActive then
+            -- Preferir World sobre _G para mayor desacoplamiento
+            local w = getWorld()
+            local rs = (w and w.getRunState()) or _G.runState
+            if rs and rs.incrementBoosts then
+                rs:incrementBoosts()
+            end
         end
     else
         self.boostDuration = math.max(0, self.boostDuration - dt * 2)  -- Se agota más rápido
@@ -562,8 +573,9 @@ function Naves:handleInput()
     -- Get mouse position in screen coordinates
     local mx, my = love.mouse.getPosition()
     
-    -- Access the global camera instance
-    local cam = _G.camera 
+    -- Access the global camera instance, preferring World over _G
+    local w = getWorld()
+    local cam = (w and w.getCamera()) or _G.camera
 
     if cam then
         -- Convert mouse position to world coordinates using the camera

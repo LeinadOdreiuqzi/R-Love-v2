@@ -9,6 +9,11 @@ RunState.__index = RunState
 local SeedSystem = require 'src.utils.seed_system'
 RunState.__version = 1
 
+-- Getter perezoso del World (evita require circular)
+local function getWorld()
+    return package.loaded['src.core.world']
+end
+
 function RunState:new(opts)
     local o = {
         seed = opts and opts.seed or 0,
@@ -51,14 +56,23 @@ function RunState:new(opts)
 end
 
 -- Ciclo principal
-function RunState:update(dt)
+-- playerSpeed: velocidad escalar opcional pasada por el caller (evita acceso a _G)
+function RunState:update(dt, playerSpeed)
     if self.paused then return end
     self.time = self.time + (dt or 0)
     
-    -- Actualizar distancia basada en velocidad del jugador
-    if _G.player and _G.player.velocity then
-        local speed = math.sqrt(_G.player.velocity.x^2 + _G.player.velocity.y^2)
-        self.meta.distanceTravelled = self.meta.distanceTravelled + (speed * dt * 0.01) -- Escalar para valores razonables
+    -- Actualizar distancia recorrida
+    -- Prioridad: argumento del caller > World > _G.player (compatibilidad legada)
+    local speed = playerSpeed
+    if not speed then
+        local w = getWorld()
+        local p = (w and w.getPlayer()) or _G.player
+        if p and p.dx and p.dy then
+            speed = math.sqrt(p.dx * p.dx + p.dy * p.dy)
+        end
+    end
+    if speed then
+        self.meta.distanceTravelled = self.meta.distanceTravelled + (speed * (dt or 0) * 0.01)
     end
 end
 

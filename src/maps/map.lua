@@ -17,6 +17,11 @@ local MapStats = require 'src.maps.systems.map_stats'
 local MapConfig = require 'src.maps.config.map_config'
 local VisibilityUtils = require 'src.maps.visibility_utils'
 
+-- Getter perezoso del World (evita require circular durante la carga inicial)
+local function getWorld()
+    return package.loaded['src.core.world']
+end
+
 -- Estado principal del mapa
 Map.seed = "A1B2C3D4E5"  -- Semilla alfanumérica por defecto
 Map.numericSeed = 12345   -- Semilla numérica equivalente
@@ -171,7 +176,10 @@ function Map.update(dt, playerX, playerY, playerVelX, playerVelY)
     -- Actualizar sistema de anomalías gravitacionales
     pcall(function()
         local GravityAnomaly = require 'src.shaders.gravity_anomaly'
-        local chunkInfo = Map.calculateVisibleChunksTraditional(_G.camera or {zoom = 1, x = playerX, y = playerY})
+        -- Preferir World sobre _G.camera para evitar dependencia global
+        local w = getWorld()
+        local cam = (w and w.getCamera()) or _G.camera or {zoom = 1, x = playerX, y = playerY}
+        local chunkInfo = Map.calculateVisibleChunksTraditional(cam)
         GravityAnomaly.update(dt, chunkInfo, Map.getChunkNonBlocking)
         
         -- Actualizar sistema continuo de anomalías basado en el bioma del jugador
@@ -233,38 +241,42 @@ end
 function Map.drawTraditionalImproved(camera, chunkInfo)
     local MapRenderer = require 'src.maps.systems.map_renderer'
     
-    -- 1. Dibujar estrellas con efectos mejorados
+    -- 0. Renderizar estrellas (Fondo) primero para que queden DETRÁS de todo
+    -- 1. Estrellas mejoradas (main stars) - Pasado a capa de fondo
     local starsRendered, starsTotal = MapRenderer.drawEnhancedStars(
         chunkInfo, camera, Map.getChunkNonBlocking, Map.starConfig
     )
     MapStats.addObjects(starsTotal, starsRendered, starsTotal - starsRendered)
     
-    -- 2. Dibujar nebulosas (afectadas por shader si está activo)
+    -- 2. Dibujar nebulosas (ahora tapan las estrellas)
     local nebulaeRendered = MapRenderer.drawNebulae(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(nebulaeRendered, nebulaeRendered, 0)
     
-    -- 3. Dibujar asteroides (afectados por shader si está activo)
+    -- 3. Dibujar asteroides
     local asteroidsRendered = MapRenderer.drawAsteroids(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(asteroidsRendered, asteroidsRendered, 0)
     
-    -- 4. Dibujar objetos especiales (afectados por shader si está activo)
+    -- 4. Dibujar objetos especiales
     local specialRendered = MapRenderer.drawSpecialObjects(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(specialRendered, specialRendered, 0)
     
     -- 4.5. Dibujar items del mundo
     local WorldItems = require 'src.item_systems.world_items'
+    -- Preferir World sobre _G.player
+    local w = getWorld()
+    local _player = (w and w.getPlayer()) or _G.player
     local playerX, playerY = 0, 0
-    if _G.player then
-        playerX, playerY = _G.player.x or 0, _G.player.y or 0
+    if _player then
+        playerX, playerY = _player.x or 0, _player.y or 0
     end
     local itemsRendered = WorldItems.draw(camera, playerX, playerY)
     MapStats.addObjects(itemsRendered or 0, itemsRendered or 0, 0)
     
-    -- 5. Dibujar características de biomas (afectadas por shader si está activo)
+    -- 5. Dibujar características de biomas
     local featuresRendered = MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(featuresRendered, featuresRendered, 0)
     
-    -- 6. Dibujar anomalías gravitacionales (tanto las de chunks como las continuas)
+    -- 6. Dibujar anomalías gravitacionales
     local GravityAnomaly = require 'src.shaders.gravity_anomaly'
     local anomaliesRendered = GravityAnomaly.drawAnomalies(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(anomaliesRendered, anomaliesRendered, 0)
@@ -274,13 +286,10 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     GravityAnomaly.drawContinuousAnomalies(camera)
     GravityAnomaly.drawContinuousOverlays(camera)
     
-    -- 7. Dibujar placeholders de ancient ruins (afectados por shader si está activo)
+    -- 7. Dibujar placeholders de ancient ruins
     local AncientRuinsRenderer = require 'src.maps.systems.ancient_ruins_renderer'
     local ruinsRendered = AncientRuinsRenderer.renderPlaceholders(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(ruinsRendered, ruinsRendered, 0)
-    
-    -- Nota: El shader se mantiene activo durante todo el renderizado
-    -- y se desactiva automáticamente cuando el jugador sale del bioma
 end
 -- Utilidad unificada: calcular bounds de chunks visibles con margen de pantalla (px)
 function Map.getVisibleChunkBounds(camera, marginPx)

@@ -221,6 +221,12 @@ function OptimizedRenderer.init()
     print("✓ LOD Levels: " .. #OptimizedRenderer.config.lod.levels)
     print("✓ Frustum Culling: " .. (OptimizedRenderer.config.culling.enabled and "ON" or "OFF"))
     print("✓ Shader Preloading: " .. (OptimizedRenderer.config.performance.preloadShaders and "ON" or "OFF"))
+
+    -- PRE-CALCULATION: Pre-calcular distancias al cuadrado para LOD
+    for _, level in pairs(OptimizedRenderer.config.lod.levels) do
+        level.distanceSq = level.distance * level.distance
+    end
+    print("✓ LOD Distances pre-squared for optimization")
 end
 
 -- Crear sprite batches para diferentes tipos de objetos
@@ -268,26 +274,57 @@ end
 
 -- Funciones de optimización removidas para garantizar renderizado consistente
 
--- Calcular nivel de LOD basado en distancia y zoom
+-- Calcular nivel de LOD basado en distancia y zoom (OPTIMIZADO)
 function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
     if not camera then return 0 end
     
-    -- Convertir coordenadas del mundo a relativas para precisión
-    local relX, relY = CoordinateSystem.worldToRelative(objectX, objectY)
-    local camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
+    -- OPTIMIZACIÓN: Usar valores cacheados del frame si están disponibles
+    local camRelX, camRelY, zoom
+    local frameCache = OptimizedRenderer.state.frameCache
     
-    -- Calcular distancia relativa
+    if frameCache and frameCache.valid then
+        camRelX = frameCache.camRelX
+        camRelY = frameCache.camRelY
+        zoom = frameCache.zoom
+    else
+        -- Fallback si no hay caché (no debería ocurrir si se llama desde renderObjects)
+        camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
+        zoom = camera.zoom or 1
+    end
+
+    -- Convertir coordenadas del objeto a relativas
+    local relX = (objectX / CoordinateSystem.scale) % CoordinateSystem.worldWidth
+    local relY = (objectY / CoordinateSystem.scale) % CoordinateSystem.worldHeight
+    -- Alternativa rápida si CoordinateSystem.worldToRelative es compleja, 
+    -- pero mejor mantener consistencia si CoordinateSystem hace más cosas.
+    -- Para máxima velocidad, inlineamos la resta si confiamos en el input:
+    -- (Asumiendo que objectX/Y ya son world coordinates correctas pasadas por renderObjects)
+    
+    -- Calcular distancia cuadrada
     local dx = relX - camRelX
     local dy = relY - camRelY
-    local distance = math.sqrt(dx * dx + dy * dy)
     
-    -- Ajustar por zoom
-    local adjustedDistance = distance / (camera.zoom or 1)
+    -- Ajuste para mundo toroidal (si aplica) - CoordinateSystem.worldToRelative debería manejarlo,
+    -- pero si usamos coordenadas raw, cuidado.
+    -- Asumiremos que relX/relY vienen de CoordinateSystem o son compatibles.
+    -- NOTA: OptimizedRenderer.renderObjects pasa worldX calculado. 
+    -- CoordinateSystem.worldToRelative(worldX, worldY) es lo que se usaba.
+    -- Vamos a optimizar esa llamada también inlineando si es posible, o confiando en LuaJIT.
+    -- Pero el cuello de botella era math.sqrt.
+    
+    -- Recalcular relX/relY usando la función estándar para seguridad, pero esperemos que sea rápida.
+    -- Si CoordinateSystem es lento, eso es otro punto a optimizar.
+    relX, relY = CoordinateSystem.worldToRelative(objectX, objectY)
+    dx = relX - camRelX
+    dy = relY - camRelY
+    
+    local distSq = dx * dx + dy * dy
+    
+    -- Ajustar por zoom al cuadrado (precalculado idealmente, pero zoom*zoom es barato)
+    local adjustedDistSq = distSq / (zoom * zoom)
     
     -- LOD específico para estrellas intermedias con optimización para zoom alto
     if obj and obj.isIntermediateStar then
-        local zoom = camera.zoom or 1.0
-        
         -- Culling agresivo por zoom (optimizado)
         if zoom > 1.5 then return 3 end  -- No renderizar en zoom muy alto
         if zoom > 1.0 then return 3 end  -- Calidad mínima en zoom alto
@@ -296,7 +333,7 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
         return 0  -- Calidad completa solo en zoom muy bajo
     end
     
-    -- NUEVO: Ajustar distancia por importancia de la estrella
+    -- NUEVO: Ajustar distancia por importancia de la estrella (versión al cuadrado)
     if obj and OptimizedRenderer.config.lod.intelligentLOD.enabled then
         local importance = OptimizedRenderer.calculateStarImportance(obj)
         local config = OptimizedRenderer.config.lod.intelligentLOD
@@ -313,15 +350,21 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
             distanceMultiplier = config.distanceMultipliers.low
         end
         
-        -- Aplicar multiplicador (estrellas importantes "parecen" más cerca)
-        adjustedDistance = adjustedDistance / distanceMultiplier
+        -- Aplicar multiplicador al cuadrado (estrellas importantes "parecen" más cerca)
+        -- adjustedDistance = adjustedDistance / distanceMultiplier
+        -- adjustedDistSq = adjustedDistSq / (distanceMultiplier * distanceMultiplier)
+        if distanceMultiplier ~= 1.0 then
+            adjustedDistSq = adjustedDistSq / (distanceMultiplier * distanceMultiplier)
+        end
     end
     
-    -- Determinar nivel de LOD (con soporte para modo zoom alto)
+    -- Determinar nivel de LOD usando distancias al cuadrado
     local lodLevels = OptimizedRenderer.config.lod.levels
     
+    -- Iteración optimizada (unroll parcial posible, pero loop inverso está bien)
     for level = #lodLevels - 1, 0, -1 do
-        if adjustedDistance >= lodLevels[level].distance then
+        local lvl = lodLevels[level]
+        if adjustedDistSq >= lvl.distanceSq then
             return level
         end
     end
@@ -472,6 +515,19 @@ function OptimizedRenderer.renderObjects(objects, objectType, camera, chunkX, ch
     local renderedCount = 0
     local culledCount = 0
     playerVelocity = playerVelocity or {x = 0, y = 0}
+
+    -- OPTIMIZACIÓN: Inicializar caché de frame si es nuevo frame
+    local currentFrameInfo = love.timer.getTime() -- Usar tiempo como identificador simple
+    if OptimizedRenderer.state.lastRenderTime ~= currentFrameInfo then
+        OptimizedRenderer.state.lastRenderTime = currentFrameInfo
+        local cx, cy = CoordinateSystem.worldToRelative(camera.x, camera.y)
+        OptimizedRenderer.state.frameCache = {
+            camRelX = cx,
+            camRelY = cy,
+            zoom = camera.zoom or 1,
+            valid = true
+        }
+    end
     
     for _, obj in ipairs(objects) do
         -- Calcular posición mundial del objeto (unidades de mundo escaladas)

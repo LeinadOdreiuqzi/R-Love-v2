@@ -1,16 +1,32 @@
 local HUD = require('src.ui.hud.core')
 
--- Inicialización del HUD (idéntico al original)
-function HUD.init(gameStateRef, playerRef, mapRef, gameDirectorRef, runStateRef)
+-- Referencia privada al World context
+local _world = nil
+
+-- Inicialización del HUD
+-- Acepta el World context (nuevo) O los argumentos sueltos antiguos (compat)
+function HUD.init(worldOrGameState, playerRef, mapRef, gameDirectorRef, runStateRef)
     hudState.font = love.graphics.newFont(13)
     hudState.smallFont = love.graphics.newFont(11)
     hudState.tinyFont = love.graphics.newFont(9)
 
-    gameState = gameStateRef
-    player = playerRef
-    Map = mapRef
-    gameDirector = gameDirectorRef
-    runState = runStateRef
+    -- Detectar si se llama con World o con refs sueltas (compatibilidad)
+    if worldOrGameState and type(worldOrGameState.get) == 'function' then
+        -- Nueva API: HUD.init(World)
+        _world = worldOrGameState
+        gameState    = _world.get('state')
+        player       = _world.getPlayer()
+        Map          = _world.getMap()
+        gameDirector = _world.getDirector()
+        runState     = _world.getRunState()
+    else
+        -- API legada: HUD.init(gameState, player, Map, gameDirector, runState)
+        gameState    = worldOrGameState
+        player       = playerRef
+        Map          = mapRef
+        gameDirector = gameDirectorRef
+        runState     = runStateRef
+    end
 
     print("[HUD DEBUG] Referencias recibidas:")
     print("  gameState:", gameState and "OK" or "NIL")
@@ -40,6 +56,8 @@ function HUD.init(gameStateRef, playerRef, mapRef, gameDirectorRef, runStateRef)
 
     print("Enhanced HUD system initialized with alphanumeric seed support")
 end
+
+-- Nota: HUD.updateReferences está definido en util.lua (cargado después, toma precedencia)
 
 -- Actualización principal del HUD (idéntico al original)
 function HUD.update(dt)
