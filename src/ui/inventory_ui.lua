@@ -1121,12 +1121,16 @@ function InventoryUI:useItem(slotIndex, slotType, player)
             if itemData.category == "consumable" then
                 local success = ItemSystem.useItem(item.data.id, player)
                 if success then
-                    if slotType == "inventory" then
-                        shipComp.items[slotIndex] = nil
-                    elseif slotType == "eva" then
-                        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
-                        if evaComp then
-                            evaComp.items[slotIndex] = nil
+                    -- Usar el método del sistema para remover el item (maneja efectos pasivos, etc.)
+                    local compName = self:getCompartmentName(slotType)
+                    if compName and player.inventory and player.inventory.removeItemFromCompartment then
+                        player.inventory:removeItemFromCompartment(compName, slotIndex)
+                    else
+                        -- Fallback si no hay sistema (no debería ocurrir)
+                        if slotType == "inventory" then shipComp.items[slotIndex] = nil
+                        elseif slotType == "eva" then
+                            local evaComp = player.inventory:getCompartment('eva')
+                            if evaComp then evaComp.items[slotIndex] = nil end
                         end
                     end
                     print("Usado: " .. itemData.name)
@@ -1196,46 +1200,38 @@ end
 
 -- Eliminar item
 function InventoryUI:deleteItem(slotIndex, slotType, player)
-    local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
+    if not player or not player.inventory then return end
     
-    if slotType == "inventory" then
-        shipComp.items[slotIndex] = nil
-        print("Item eliminado del inventario")
-    elseif slotType == "eva" then
-        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
-        if evaComp then
-            evaComp.items[slotIndex] = nil
-            print("Item eliminado del inventario EVA")
-        end
-    elseif slotType == "weapons" then
-        -- No permitir eliminar arma del slot 1 (arma por defecto)
-        if slotIndex == 1 then
-            print("[DELETE] Error: No se puede eliminar el arma por defecto")
-            return
+    -- Validaciones especiales para armas
+    if slotType == "weapons" and slotIndex == 1 then
+        print("[DELETE] Error: No se puede eliminar el arma por defecto")
+        return
+    end
+
+    -- Usar el método centralizado del sistema de inventario
+    local compName = self:getCompartmentName(slotType)
+    if compName and player.inventory.removeItemFromCompartment then
+        -- Si es arma, cambiar a la siguiente disponible antes de borrar si era la actual
+        if slotType == "weapons" and player.weaponSystem and player.weaponSystem.currentSlot == slotIndex then
+            player.weaponSystem:switchToNextAvailableWeapon()
         end
         
-        local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
-        if weaponComp then
-            -- Si era el arma actual, cambiar a la siguiente disponible
-            if player.weaponSystem and player.weaponSystem.currentSlot == slotIndex then
-                player.weaponSystem:switchToNextAvailableWeapon()
-            end
-            
-            weaponComp.items[slotIndex] = nil
-            print("Arma eliminada del slot " .. slotIndex)
+        local removedItem = player.inventory:removeItemFromCompartment(compName, slotIndex)
+        if removedItem then
+            print("Item eliminado de " .. slotType .. ": " .. (removedItem.data and removedItem.data.name or "Unknown"))
         end
-    elseif slotType == "passives" then
-        local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
-        if passiveComp and passiveComp.items[slotIndex] then
-            -- Usar el método del inventario que maneja automáticamente los efectos pasivos
-            if player.inventory and player.inventory.removeItemFromCompartment then
-                player.inventory:removeItemFromCompartment('passives', slotIndex)
-                print("Item pasivo eliminado del slot " .. slotIndex)
-            else
-                print("[DELETE] Error: No se pudo acceder al sistema de inventario")
-            end
-        else
-            print("[DELETE] Error: No hay item pasivo en el slot " .. slotIndex)
+    else
+        -- Fallback manual (menos seguro para efectos pasivos)
+        print("[DELETE] Advertencia: Usando fallback manual para eliminación")
+        if slotType == "inventory" then
+            local shipComp = player.inventory:getCompartment('ship') or player.inventory
+            shipComp.items[slotIndex] = nil
+        elseif slotType == "eva" then
+            local evaComp = player.inventory:getCompartment('eva')
+            if evaComp then evaComp.items[slotIndex] = nil end
+        elseif slotType == "weapons" then
+            local weaponComp = player.inventory:getCompartment('weapons')
+            if weaponComp then weaponComp.items[slotIndex] = nil end
         end
     end
 end
@@ -1302,35 +1298,15 @@ function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
     local worldItem = WorldItems.drop(itemData, activeEntity.x, activeEntity.y, targetX, targetY, quantity)
     
     if worldItem then
-        -- Eliminar item del inventario
-        if slotType == "inventory" then
-            shipComp.items[slotIndex] = nil
-        elseif slotType == "eva" then
-            local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
-            if evaComp then
-                evaComp.items[slotIndex] = nil
+        -- Remover el item del inventario original usando el método centralizado
+        local compName = self:getCompartmentName(slotType)
+        if compName and player.inventory and player.inventory.removeItemFromCompartment then
+            -- Si era un arma equipada y activa, cambiar antes de borrar
+            if slotType == "weapons" and player.weaponSystem and player.weaponSystem.currentSlot == slotIndex then
+                player.weaponSystem:switchToNextAvailableWeapon()
             end
-        elseif slotType == "weapons" then
-            local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
-            if weaponComp then
-                -- Si era el arma actual, cambiar a la siguiente disponible
-                if player.weaponSystem and player.weaponSystem.currentSlot == slotIndex then
-                    player.weaponSystem:switchToNextAvailableWeapon()
-                end
-                
-                weaponComp.items[slotIndex] = nil
-            end
-        elseif slotType == "passives" then
-            -- Usar el método del inventario del jugador para remover correctamente el item pasivo y sus efectos
-            if player.inventory and player.inventory.removeItemFromCompartment then
-                player.inventory:removeItemFromCompartment('passives', slotIndex)
-            else
-                -- Fallback: remover manualmente del compartimento
-                local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
-                if passiveComp then
-                    passiveComp.items[slotIndex] = nil
-                end
-            end
+            
+            player.inventory:removeItemFromCompartment(compName, slotIndex)
         end
         
         print("[DROP MODAL] Item lanzado:", itemData.name, "x" .. quantity)

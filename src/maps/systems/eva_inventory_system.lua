@@ -87,8 +87,19 @@ end
 
 -- Agregar items iniciales para EVA
 function EVAInventorySystem:addInitialItems()
-    -- Agregar kit de reparación EVA por defecto
-    self:addItem(EVA_ITEMS[1]) -- Kit de reparación EVA
+    -- Solo agregar el kit primario si el inventario está vacío
+    local isInventoryEmpty = true
+    for i = 1, self.maxSlots do
+        if self.items[i] then
+            isInventoryEmpty = false
+            break
+        end
+    end
+    
+    if isInventoryEmpty then
+        -- Agregar kit de reparación EVA por defecto
+        self:addItem(EVA_ITEMS[1]) -- Kit de reparación EVA
+    end
 end
 
 -- Agregar item al inventario EVA (delegado al compartimento si existe)
@@ -103,6 +114,27 @@ function EVAInventorySystem:addItem(itemData, quantity)
     if not self:isValidEVAItem(itemData) then
         return false
     end
+    
+    -- 1. Intentar apilar (fallback local)
+    if itemData.stackable then
+        local maxStack = itemData.maxStack or 99
+        for i = 1, self.maxSlots do
+            local existing = self.items[i]
+            if existing and existing.data and existing.data.id == itemData.id then
+                local currentQty = existing.quantity or 1
+                if currentQty < maxStack then
+                    local canAdd = math.min(quantity, maxStack - currentQty)
+                    existing.quantity = currentQty + canAdd
+                    quantity = quantity - canAdd
+                    if quantity <= 0 then return true end
+                end
+            end
+        end
+    end
+    
+    -- 2. Buscar slot vacío para el resto (fallback local)
+    if quantity <= 0 then return true end
+
     for i = 1, self.maxSlots do
         if not self.items[i] then
             -- Robustez contra doble anidación
@@ -125,6 +157,15 @@ end
 
 -- Verificar si un item es válido para EVA (solo para fallback local)
 function EVAInventorySystem:isValidEVAItem(itemData)
+    -- Si el item ya tiene un tipo definido (ej. items nativos de EVA), usar ese
+    if itemData.type then
+        for _, validType in pairs(EVA_ITEM_TYPES) do
+            if itemData.type == validType then
+                return true
+            end
+        end
+    end
+    
     -- Mapear categorías del sistema de items a tipos permitidos en EVA
     local categoryToEVAType = {
         ["consumable"] = "consumable",

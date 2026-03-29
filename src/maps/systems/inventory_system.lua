@@ -14,6 +14,31 @@ local CATEGORIES = ItemSystem.CATEGORIES
 local EQUIPABLE_TYPES = ItemSystem.EQUIPABLE_TYPES
 local ITEM_TYPES = ItemSystem.CATEGORIES
 
+-- Función para mapear categorías del sistema de items a tipos de inventario
+local function _mapCategoryToType(itemData)
+    if not itemData or not itemData.category then return nil end
+    
+    -- Mapeo de categorías extendido
+    local mapping = {
+        ["consumable"] = "consumable",
+        ["equipable"] = "tool",      -- Por defecto los equipables son herramientas en EVA
+        ["material"] = "resource",
+        ["passive"] = "passive",
+        ["quest"] = "quest",
+        ["currency"] = "currency"
+    }
+    
+    -- Si es equipable, podemos ser más específicos basándonos en equipType
+    if itemData.category == CATEGORIES.EQUIPABLE then
+        if itemData.equipType == EQUIPABLE_TYPES.WEAPON then return "weapon" end
+        if itemData.equipType == EQUIPABLE_TYPES.SHIELD then return "shield" end
+        if itemData.equipType == EQUIPABLE_TYPES.ARMOR then return "armor" end
+        if itemData.equipType == EQUIPABLE_TYPES.UTILITY then return "utility" end
+    end
+    
+    return mapping[itemData.category] or itemData.category
+end
+
 -- Función centralizada para manejar efectos pasivos usando PassiveManager
 local function handlePassiveEffects(item, player, action)
     if not item or not item.data or item.data.category ~= CATEGORIES.PASSIVE then
@@ -212,7 +237,26 @@ end
 function InventorySystem:addItem(itemData, quantity)
     quantity = quantity or 1
     
-    -- Buscar slot vacío
+    -- 1. Intentar apilar si es posible
+    if itemData.stackable then
+        local maxStack = itemData.maxStack or 99
+        for i = 1, self.maxSlots do
+            local existing = self.items[i]
+            if existing and existing.data and existing.data.id == itemData.id then
+                local currentQty = existing.quantity or 1
+                if currentQty < maxStack then
+                    local canAdd = math.min(quantity, maxStack - currentQty)
+                    existing.quantity = currentQty + canAdd
+                    quantity = quantity - canAdd
+                    if quantity <= 0 then return true end
+                end
+            end
+        end
+    end
+    
+    -- 2. Buscar slot vacío para el resto
+    if quantity <= 0 then return true end
+    
     for i = 1, self.maxSlots do
         if not self.items[i] then
             -- contra doble anidación
@@ -319,21 +363,35 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
     end
 
     -- Validación opcional de tipos permitidos en el compartimento
-    if c.allowedTypes and itemData and itemData.category then
-        -- Mapear categoría a tipo EVA si es necesario
-        local categoryToEVAType = {
-            ["consumable"] = "consumable",
-            ["equipable"] = "tool",
-            ["material"] = "resource",
-            ["passive"] = "passive"
-        }
-        local itemType = categoryToEVAType[itemData.category] or itemData.category
+    if c.allowedTypes and itemData then
+        local itemType = _mapCategoryToType(itemData)
         if not c.allowedTypes[itemType] then
             return false
         end
     end
 
     quantity = quantity or 1
+    
+    -- 1. Intentar apilar en este compartimento si el item lo permite
+    if itemData.stackable then
+        local maxStack = itemData.maxStack or 99
+        for i = 1, c.maxSlots do
+            local existing = c.items[i]
+            if existing and existing.data and existing.data.id == itemData.id then
+                local currentQty = existing.quantity or 1
+                if currentQty < maxStack then
+                    local canAdd = math.min(quantity, maxStack - currentQty)
+                    existing.quantity = currentQty + canAdd
+                    quantity = quantity - canAdd
+                    if quantity <= 0 then return true end
+                end
+            end
+        end
+    end
+    
+    -- 2. Buscar slot vacío para el resto
+    if quantity <= 0 then return true end
+
     for i = 1, c.maxSlots do
         if not c.items[i] then
             local newItem
@@ -435,12 +493,18 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
         end
     end
 
-    -- Validar tipos permitidos en destino (validación general)
-    if toC.allowedTypes and itemFrom and itemFrom.data and itemFrom.data.type and not toC.allowedTypes[itemFrom.data.type] then
-        return false
+    -- Validar tipos permitidos en destino (validación general) usando el mapeo centralizado
+    if toC.allowedTypes and itemFrom and itemFrom.data then
+        local typeFrom = _mapCategoryToType(itemFrom.data)
+        if not toC.allowedTypes[typeFrom] then
+            return false
+        end
     end
-    if fromC.allowedTypes and itemTo and itemTo.data and itemTo.data.type and not fromC.allowedTypes[itemTo.data.type] then
-        return false
+    if fromC.allowedTypes and itemTo and itemTo.data then
+        local typeTo = _mapCategoryToType(itemTo.data)
+        if not fromC.allowedTypes[typeTo] then
+            return false
+        end
     end
 
     -- Manejar efectos pasivos antes de la transferencia
@@ -501,11 +565,18 @@ function InventorySystem:addWeaponToSlot(weaponData, slot, quantity)
         end
     end
     
-    -- Equipar arma
-    weaponsComp.items[slot] = {
-        data = weaponData,
-        quantity = quantity
-    }
+    -- Equipar arma (con robustez contra doble anidación)
+    if type(weaponData) == "table" and weaponData.data then
+        weaponsComp.items[slot] = weaponData
+        if quantity and quantity > 1 then
+            weaponsComp.items[slot].quantity = quantity
+        end
+    else
+        weaponsComp.items[slot] = {
+            data = weaponData,
+            quantity = quantity
+        }
+    end
     
     return true
 end
