@@ -104,12 +104,16 @@ function HeavyPlasmaProjectile:initializeHeavyPlasmaEffects()
     -- Configurar partículas de ionización
     self.ionization_particles = {}
     for i = 1, 8 do
+        local intensity = math.random() * 0.5 + 0.5
         table.insert(self.ionization_particles, {
             angle = (i / 8) * math.pi * 2,
             distance = self.config.size * 2,
             speed = math.random() * 50 + 25,
             phase = math.random() * math.pi * 2,
-            intensity = math.random() * 0.5 + 0.5
+            intensity = intensity,
+            current_intensity = intensity, -- Inicializar current_intensity para evitar errores de dibujo
+            current_x = 0,
+            current_y = 0
         })
     end
     
@@ -499,18 +503,21 @@ end
 --]]
 function HeavyPlasmaProjectile:drawIonizationParticles()
     for _, particle in ipairs(self.ionization_particles) do
-        local alpha = particle.current_intensity * 0.8
-        
-        love.graphics.setColor(0.7, 0.3, 1, alpha)
-        love.graphics.circle("fill", particle.current_x, particle.current_y, 2)
-        
-        -- Efecto de resplandor
-        love.graphics.setColor(1, 0.6, 1, alpha * 0.5)
-        love.graphics.circle("fill", particle.current_x, particle.current_y, 4)
-        
-        -- Estela de la partícula
-        love.graphics.setColor(0.5, 0.2, 0.8, alpha * 0.3)
-        love.graphics.circle("fill", particle.current_x, particle.current_y, 6)
+        -- Validar que existan las propiedades necesarias antes de dibujar
+        if particle.current_intensity and particle.current_x and particle.current_y then
+            local alpha = particle.current_intensity * 0.8
+            
+            love.graphics.setColor(0.7, 0.3, 1, alpha)
+            love.graphics.circle("fill", particle.current_x, particle.current_y, 2)
+            
+            -- Efecto de resplandor
+            love.graphics.setColor(1, 0.6, 1, alpha * 0.5)
+            love.graphics.circle("fill", particle.current_x, particle.current_y, 4)
+            
+            -- Estela de la partícula
+            love.graphics.setColor(0.5, 0.2, 0.8, alpha * 0.3)
+            love.graphics.circle("fill", particle.current_x, particle.current_y, 6)
+        end
     end
 end
 

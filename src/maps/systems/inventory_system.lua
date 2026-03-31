@@ -421,7 +421,7 @@ end
 
 function InventorySystem:removeItemFromCompartment(name, slotIndex)
     local c = self:getCompartment(name)
-    if not c or not c.items then return nil end
+    if not c or not c.items or not slotIndex then return nil end
     if slotIndex >= 1 and slotIndex <= c.maxSlots then
         local item = c.items[slotIndex]
         
@@ -438,7 +438,7 @@ end
 
 function InventorySystem:moveItemWithinCompartment(name, fromSlot, toSlot)
     local c = self:getCompartment(name)
-    if not c or not c.items then return false end
+    if not c or not c.items or not fromSlot or not toSlot then return false end
     if fromSlot >= 1 and fromSlot <= c.maxSlots and toSlot >= 1 and toSlot <= c.maxSlots then
         local item = c.items[fromSlot]
         c.items[fromSlot] = c.items[toSlot]
@@ -452,6 +452,9 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     local fromC = self:getCompartment(fromName)
     local toC = self:getCompartment(toName)
     if not fromC or not toC or not fromC.items or not toC.items then return false end
+    
+    -- Validar que los slots sean válidos (no nil y dentro de rango)
+    if not fromSlot or not toSlot then return false end
     if fromSlot < 1 or fromSlot > fromC.maxSlots or toSlot < 1 or toSlot > toC.maxSlots then return false end
 
     local itemFrom = fromC.items[fromSlot]

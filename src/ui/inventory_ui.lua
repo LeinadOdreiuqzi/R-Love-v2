@@ -9,64 +9,66 @@ local uiState = {
     isOpen = false,
     draggedItem = nil,
     draggedFromSlot = nil,
-    draggedFromType = nil, -- "inventory" o "eva"
+    draggedFromType = nil, -- "inventory", "eva", "weapons", "passives"
     mouseX = 0,
     mouseY = 0,
+    
+    -- Tooltip y Hover
+    hoveredItem = nil,
+    hoveredSlotPos = {x = 0, y = 0},
+    hoveredSlotType = nil,
+    tooltipWidth = 220,
     
     -- Selección de slots
     selectedPassiveSlot = nil,
     passiveSlotHighlightTimer = 0,
     selectedPassiveItemFromInventory = nil, -- Item pasivo seleccionado del inventario común
     
-    -- Modal de opciones
+    -- Modal de opciones (estilo mejorado)
     modal = {
         isOpen = false,
         slotIndex = nil,
-        slotType = nil, -- "inventory" o "eva"
+        slotType = nil,
         x = 0,
         y = 0,
-        width = 120,
-        height = 60
+        width = 160,
+        height = 90
     },
     
-    -- Configuración visual
-    slotSize = 50,
-    slotPadding = 5,
-    panelPadding = 20,
+    -- Configuración visual (Smarter & Smaller)
+    slotSize = 40,
+    slotPadding = 4,
+    panelPadding = 15,
+    borderRadius = 6,
     
-    -- Colores
+    -- Colores Premium
     colors = {
-        background = {0.1, 0.1, 0.15, 0.95},
-        panelBackground = {0.15, 0.15, 0.2, 0.9},
-        slotEmpty = {0.2, 0.2, 0.25, 1},
-        slotFilled = {0.3, 0.3, 0.35, 1},
-        slotHover = {0.4, 0.4, 0.45, 1},
-        slotSelected = {0.3, 0.5, 0.7, 1},
-        slotDragTarget = {0.2, 0.6, 0.2, 1},
-        border = {0.5, 0.5, 0.5, 1},
-        text = {1, 1, 1, 1},
-        textSecondary = {0.8, 0.8, 0.8, 1},
+        background = {0.05, 0.05, 0.08, 0.96}, -- Deep Space Blue-Black
+        panelBackground = {0.1, 0.1, 0.14, 0.92},
+        slotEmpty = {0.15, 0.15, 0.2, 0.6},
+        slotFilled = {0.2, 0.2, 0.28, 0.8},
+        slotHover = {0.3, 0.35, 0.5, 0.9},
+        slotSelected = {0.4, 0.6, 0.9, 1},
+        slotDragTarget = {0.1, 0.5, 0.2, 0.8},
+        border = {0.3, 0.35, 0.45, 1},
+        text = {0.95, 0.95, 1, 1},
+        textSecondary = {0.6, 0.65, 0.75, 1},
+        accent = {0.4, 0.7, 1, 1},
         
-        -- Colores por rareza
+        -- Colores por rareza (HSL balanceados)
         rarity = {
-            common = {0.6, 0.6, 0.6, 1},
-            uncommon = {0.2, 0.8, 0.2, 1},
-            rare = {0.2, 0.4, 1, 1},
-            epic = {0.6, 0.2, 1, 1},
-            legendary = {1, 0.6, 0.2, 1}
-        },
-        
-        -- Colores por tipo de item
-        itemType = {
-            tool = {0.4, 0.6, 0.8, 1},
-            consumable = {0.6, 0.8, 0.4, 1},
-            resource = {0.8, 0.6, 0.4, 1}
+            common = {0.7, 0.7, 0.75, 1},
+            uncommon = {0.3, 0.85, 0.4, 1},
+            rare = {0.3, 0.6, 1, 1},
+            epic = {0.8, 0.3, 0.9, 1},
+            legendary = {1, 0.65, 0.15, 1}
         }
     },
     
     -- Fuentes
     font = nil,
     smallFont = nil,
+    titleFont = nil,
     
     -- Layout
     layout = {
@@ -75,15 +77,20 @@ local uiState = {
         inventoryWidth = 0,
         inventoryHeight = 0,
         
-
-        
         evaX = 0,
         evaY = 0,
         evaWidth = 0,
         evaHeight = 0,
         
-        totalWidth = 0,
-        totalHeight = 0
+        weaponX = 0,
+        weaponY = 0,
+        weaponWidth = 0,
+        weaponHeight = 0,
+        
+        passiveX = 0,
+        passiveY = 0,
+        passiveWidth = 0,
+        passiveHeight = 0
     }
 }
 
@@ -92,13 +99,14 @@ function InventoryUI:init()
     -- Cargar fuentes
     uiState.font = love.graphics.getFont()
     uiState.smallFont = love.graphics.newFont(12)
+    uiState.titleFont = love.graphics.newFont(18)
     
     -- Calcular layout
     self:calculateLayout()
 end
 
 -- Calcular layout de la UI
-function InventoryUI:calculateLayout()
+function InventoryUI:calculateLayout(player)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
@@ -106,64 +114,65 @@ function InventoryUI:calculateLayout()
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
-    -- Configuración del inventario (grid 5x8 para 40 slots máximo)
-    local inventoryColumns = 5
-    local inventoryRows = 8
+    -- Configuración dinámica del inventario basada en los slots reales
+    local maxSlots = 20 -- Default conservador
+    if player and player.inventory then
+        local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
+        maxSlots = shipComp.maxSlots or 20
+    end
+
+    local inventoryColumns = 8
+    local inventoryRows = math.ceil(maxSlots / inventoryColumns)
     
     uiState.layout.inventoryWidth = inventoryColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.inventoryHeight = inventoryRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
-    
-
+    uiState.layout.inventoryHeight = inventoryRows * (slotSize + padding) - padding + panelPadding * 2 + 40 -- +40 para título
     
     -- Configuración del panel EVA (3 slots horizontales)
     local evaColumns = 3
     local evaRows = 1
-    
     uiState.layout.evaWidth = evaColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.evaHeight = evaRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
+    uiState.layout.evaHeight = evaRows * (slotSize + padding) - padding + panelPadding * 2 + 35
     
     -- Configuración del panel de armas (4 slots horizontales)
     local weaponColumns = 4
     local weaponRows = 1
-    
     uiState.layout.weaponWidth = weaponColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.weaponHeight = weaponRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
+    uiState.layout.weaponHeight = weaponRows * (slotSize + padding) - padding + panelPadding * 2 + 35
     
     -- Configuración del panel de pasivos (6 slots en grid 3x2)
     local passiveColumns = 3
     local passiveRows = 2
-    
     uiState.layout.passiveWidth = passiveColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.passiveHeight = passiveRows * (slotSize + padding) - padding + panelPadding * 2 + 30 -- +30 para título
+    uiState.layout.passiveHeight = passiveRows * (slotSize + padding) - padding + panelPadding * 2 + 35
     
-    -- Posicionamiento mejorado: inventario centrado, paneles a los lados
-    local maxRightPanelWidth = math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth, uiState.layout.passiveWidth)
-    uiState.layout.totalWidth = uiState.layout.inventoryWidth + maxRightPanelWidth + panelPadding * 3
-    uiState.layout.totalHeight = uiState.layout.inventoryHeight
+    -- Posicionamiento: Inventario a la izquierda, equipo a la derecha
+    local totalUIWidth = uiState.layout.inventoryWidth + math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth) + panelPadding
+    local startX = (screenWidth - totalUIWidth) / 2
+    local startY = (screenHeight - uiState.layout.inventoryHeight) / 2
     
-    -- Inventario principal centrado
-    uiState.layout.inventoryX = (screenWidth - uiState.layout.inventoryWidth) / 2
-    uiState.layout.inventoryY = (screenHeight - uiState.layout.inventoryHeight) / 2
+    uiState.layout.inventoryX = startX
+    uiState.layout.inventoryY = startY
     
-    -- Panel EVA a la derecha del inventario, en la parte superior
-    uiState.layout.evaX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
-    uiState.layout.evaY = uiState.layout.inventoryY
+    local rightColumnX = startX + uiState.layout.inventoryWidth + panelPadding
     
-    -- Panel de armas a la derecha del inventario, debajo del panel EVA
-    uiState.layout.weaponX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
-    uiState.layout.weaponY = uiState.layout.evaY + uiState.layout.evaHeight + panelPadding
+    uiState.layout.evaX = rightColumnX
+    uiState.layout.evaY = startY
     
-    -- Panel de pasivos a la derecha del inventario, debajo del panel de armas
-    uiState.layout.passiveX = uiState.layout.inventoryX + uiState.layout.inventoryWidth + panelPadding
-    uiState.layout.passiveY = uiState.layout.weaponY + uiState.layout.weaponHeight + panelPadding
+    uiState.layout.weaponX = rightColumnX
+    uiState.layout.weaponY = uiState.layout.evaY + uiState.layout.evaHeight + 10
+    
+    uiState.layout.passiveX = rightColumnX
+    uiState.layout.passiveY = uiState.layout.weaponY + uiState.layout.weaponHeight + 10
 end
 
 -- Abrir/cerrar inventario
-function InventoryUI:toggle()
+function InventoryUI:toggle(player)
     if uiState.isOpen then
         self:close()
     else
         uiState.isOpen = true
+        -- Forzar recálculo de layout al abrir con los datos del jugador actual
+        self:calculateLayout(player)
     end
 end
 
@@ -191,7 +200,7 @@ function InventoryUI:getCompartmentName(uiType)
     elseif uiType == "eva" then
         return "eva"
     elseif uiType == "weapons" then
-        return "equipable"
+        return "weapons"
     elseif uiType == "passives" then
         return "passives"
     end
@@ -230,6 +239,15 @@ function InventoryUI:update(dt, player)
     uiState.mouseX = love.mouse.getX()
     uiState.mouseY = love.mouse.getY()
     
+    -- Resetear hover cada frame
+    uiState.hoveredItem = nil
+    uiState.hoveredSlotType = nil
+    
+    -- Solo detectar hover si no estamos arrastrando nada
+    if not uiState.draggedItem then
+        self:updateHoverDetection(player)
+    end
+    
     -- Actualizar timer de highlight para items pasivos
     if uiState.passiveSlotHighlightTimer > 0 then
         uiState.passiveSlotHighlightTimer = uiState.passiveSlotHighlightTimer - dt
@@ -242,9 +260,73 @@ function InventoryUI:update(dt, player)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     if screenWidth ~= self.lastScreenWidth or screenHeight ~= self.lastScreenHeight then
-        self:calculateLayout()
+        self:calculateLayout(player)
         self.lastScreenWidth = screenWidth
         self.lastScreenHeight = screenHeight
+    end
+end
+
+-- Nueva función para detectar el slot bajo el mouse
+function InventoryUI:updateHoverDetection(player)
+    local layout = uiState.layout
+    local slotSize = uiState.slotSize
+    local padding = uiState.slotPadding
+    local panelPadding = uiState.panelPadding
+    
+    -- 1. Verificar inventario principal
+    local invStartX = layout.inventoryX + panelPadding
+    local invStartY = layout.inventoryY + 40
+    local invCols = 8
+    local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
+    
+    for i = 1, shipComp.maxSlots do
+        local col = (i - 1) % invCols
+        local row = math.floor((i - 1) / invCols)
+        local x = invStartX + col * (slotSize + padding)
+        local y = invStartY + row * (slotSize + padding)
+        
+        if self:isMouseOverSlot(x, y, slotSize) then
+            uiState.hoveredItem = shipComp.items[i]
+            uiState.hoveredSlotPos = {x = x, y = y}
+            uiState.hoveredSlotType = "inventory"
+            return
+        end
+    end
+    
+    -- 2. Verificar EVA
+    local evaComp = player.inventory:getCompartment('eva')
+    if evaComp then
+        local evaSlot = self:getEVASlotAt(uiState.mouseX, uiState.mouseY, evaComp)
+        if evaSlot then
+            uiState.hoveredItem = evaComp.items[evaSlot]
+            uiState.hoveredSlotPos = {x = uiState.mouseX, y = uiState.mouseY} -- Posición aproximada para tooltip
+            uiState.hoveredSlotType = "eva"
+            return
+        end
+    end
+    
+    -- 3. Verificar Armas
+    local weaponComp = player.inventory:getCompartment('weapons')
+    if weaponComp then
+        local weaponSlot = self:getWeaponSlotAt(uiState.mouseX, uiState.mouseY, weaponComp)
+        if weaponSlot then
+            uiState.hoveredItem = weaponComp.items[weaponSlot]
+            uiState.hoveredSlotPos = {x = uiState.mouseX, y = uiState.mouseY}
+            uiState.hoveredSlotType = "weapons"
+            return
+        end
+    end
+    
+    -- 4. Verificar Pasivos
+    local passiveComp = player.inventory:getCompartment('passives')
+    if passiveComp then
+        local passiveSlot = self:getPassiveSlotAt(uiState.mouseX, uiState.mouseY, passiveComp)
+        if passiveSlot then
+            uiState.hoveredItem = passiveComp.items[passiveSlot]
+            uiState.hoveredSlotPos = {x = uiState.mouseX, y = uiState.mouseY}
+            uiState.hoveredSlotType = "passives"
+            return
+        end
     end
 end
 
@@ -287,8 +369,86 @@ function InventoryUI:draw(player)
     if uiState.modal.isOpen then
         self:drawModal()
     end
+
+    -- Dibujar Tooltip al final (encima de todo)
+    if uiState.hoveredItem and uiState.hoveredItem.data then
+        self:drawTooltip(uiState.hoveredItem)
+    end
     
     love.graphics.pop()
+end
+
+-- Función para dibujar el Tooltip Detallado
+function InventoryUI:drawTooltip(item)
+    local data = item.data
+    local mouseX, mouseY = uiState.mouseX, uiState.mouseY
+    local padding = 12
+    local width = uiState.tooltipWidth
+    local colors = uiState.colors
+    
+    -- Fuentes
+    local font = uiState.font
+    local smallFont = uiState.smallFont
+    
+    -- Preparar textos
+    local name = data.name or "Unknown Item"
+    local category = (data.category or "N/A"):gsub("^%l", string.upper)
+    local rarity = "Común"
+    local rColor = colors.rarity.common
+    
+    if data.rarity then
+        if type(data.rarity) == "table" then
+            rarity = data.rarity.name or "Común"
+            rColor = data.rarity.color or rColor
+        elseif type(data.rarity) == "string" then
+            rarity = data.rarity:gsub("^%l", string.upper)
+            rColor = colors.rarity[data.rarity] or rColor
+        end
+    end
+    
+    local description = data.description or ""
+    
+    -- Calcular altura dinámica
+    local _, wrappedDesc = font:getWrap(description, width - padding * 2)
+    local descHeight = #wrappedDesc * font:getHeight()
+    local height = 80 + descHeight + (data.value and 25 or 0)
+    
+    -- Posicionar tooltip (evitar que se salga de la pantalla)
+    local tx = mouseX + 15
+    local ty = mouseY + 15
+    if tx + width > love.graphics.getWidth() then tx = mouseX - width - 15 end
+    if ty + height > love.graphics.getHeight() then ty = mouseY - height - 15 end
+    
+    -- Fondos
+    love.graphics.setColor(0, 0, 0, 0.9)
+    love.graphics.rectangle("fill", tx, ty, width, height, 4, 4)
+    love.graphics.setColor(rColor[1], rColor[2], rColor[3], 0.3)
+    love.graphics.rectangle("line", tx, ty, width, height, 4, 4)
+    
+    -- Título (Nombre + Rareza)
+    love.graphics.setFont(font)
+    love.graphics.setColor(rColor)
+    love.graphics.print(name, tx + padding, ty + padding)
+    
+    love.graphics.setFont(smallFont)
+    love.graphics.setColor(colors.textSecondary)
+    love.graphics.print(category .. " | " .. rarity, tx + padding, ty + padding + 20)
+    
+    -- Línea divisoria
+    love.graphics.setColor(0.3, 0.3, 0.3, 0.5)
+    love.graphics.line(tx + padding, ty + 45, tx + width - padding, ty + 45)
+    
+    -- Descripción
+    love.graphics.setFont(font)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf(description, tx + padding, ty + 55, width - padding * 2)
+    
+    -- Valor/Peso si existe
+    if data.value then
+        love.graphics.setFont(smallFont)
+        love.graphics.setColor(1, 0.8, 0, 1)
+        love.graphics.print("Valor: " .. data.value .. " créditos", tx + padding, ty + height - 20)
+    end
 end
 
 -- Dibujar panel de inventario
@@ -299,27 +459,27 @@ function InventoryUI:drawInventoryPanel(compartment, mainInventory)
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
-    -- Fondo del panel
-    love.graphics.setColor(colors.background)
+    -- Fondo del panel (Glassmorphism)
+    love.graphics.setColor(colors.panelBackground)
     love.graphics.rectangle("fill", layout.inventoryX, layout.inventoryY, 
-                           layout.inventoryWidth, layout.inventoryHeight)
+                           layout.inventoryWidth, layout.inventoryHeight, uiState.borderRadius, uiState.borderRadius)
     
-    -- Borde del panel
-    love.graphics.setColor(colors.border)
+    -- Borde sutil
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
     love.graphics.rectangle("line", layout.inventoryX, layout.inventoryY, 
-                           layout.inventoryWidth, layout.inventoryHeight)
+                           layout.inventoryWidth, layout.inventoryHeight, uiState.borderRadius, uiState.borderRadius)
     
-    -- Título
-    love.graphics.setColor(colors.text)
-    love.graphics.setFont(uiState.font)
-    local shipType = (mainInventory and mainInventory.shipType) or "Desconocido"
-    love.graphics.print("Inventario (" .. shipType .. ")", 
-                       layout.inventoryX + panelPadding, layout.inventoryY + 5)
+    -- Título con fuente más grande
+    love.graphics.setColor(colors.accent)
+    love.graphics.setFont(uiState.titleFont)
+    local shipType = (mainInventory and mainInventory.shipType) or "Carga"
+    love.graphics.print("NAVE: " .. shipType:upper(), 
+                       layout.inventoryX + panelPadding, layout.inventoryY + 10)
     
-    -- Slots del inventario
+    -- Slots del inventario (8 columnas)
     local startX = layout.inventoryX + panelPadding
-    local startY = layout.inventoryY + 30
-    local columns = 5
+    local startY = layout.inventoryY + 40
+    local columns = 8
     
     for i = 1, compartment.maxSlots do
         local col = (i - 1) % columns
@@ -341,29 +501,28 @@ function InventoryUI:drawEVAPanel(evaCompartment)
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
-    -- Fondo del panel
-    love.graphics.setColor(colors.background)
+    -- Fondo (Glassmorphism)
+    love.graphics.setColor(colors.panelBackground)
     love.graphics.rectangle("fill", layout.evaX, layout.evaY, 
-                           layout.evaWidth, layout.evaHeight)
+                           layout.evaWidth, layout.evaHeight, uiState.borderRadius, uiState.borderRadius)
     
-    -- Borde del panel
-    love.graphics.setColor(colors.border)
+    -- Borde sutil
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
     love.graphics.rectangle("line", layout.evaX, layout.evaY, 
-                           layout.evaWidth, layout.evaHeight)
+                           layout.evaWidth, layout.evaHeight, uiState.borderRadius, uiState.borderRadius)
     
     -- Título
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
-    love.graphics.print("Inventario EVA", layout.evaX + panelPadding, layout.evaY + 5)
+    love.graphics.print("EQUIPO EVA", layout.evaX + panelPadding, layout.evaY + 8)
     
-    -- Slots del inventario EVA (3 slots horizontales)
+    -- Slots (Horizontales)
     local startX = layout.evaX + panelPadding
-    local startY = layout.evaY + 30
+    local startY = layout.evaY + 35
     
     for i = 1, evaCompartment.maxSlots do
         local x = startX + (i - 1) * (slotSize + padding)
         local y = startY
-        
         self:drawEVASlot(x, y, i, evaCompartment.items[i])
     end
 end
@@ -376,29 +535,27 @@ function InventoryUI:drawWeaponPanel(weaponCompartment)
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
-    -- Fondo del panel
-    love.graphics.setColor(colors.background)
+    -- Fondo (Glassmorphism)
+    love.graphics.setColor(colors.panelBackground)
     love.graphics.rectangle("fill", layout.weaponX, layout.weaponY, 
-                           layout.weaponWidth, layout.weaponHeight)
+                           layout.weaponWidth, layout.weaponHeight, uiState.borderRadius, uiState.borderRadius)
     
-    -- Borde del panel
-    love.graphics.setColor(colors.border)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
     love.graphics.rectangle("line", layout.weaponX, layout.weaponY, 
-                           layout.weaponWidth, layout.weaponHeight)
+                           layout.weaponWidth, layout.weaponHeight, uiState.borderRadius, uiState.borderRadius)
     
     -- Título
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
-    love.graphics.print("Armas Equipadas", layout.weaponX + panelPadding, layout.weaponY + 5)
+    love.graphics.print("ARMAS", layout.weaponX + panelPadding, layout.weaponY + 8)
     
-    -- Slots de armas (4 slots horizontales)
+    -- Slots (Horizontales)
     local startX = layout.weaponX + panelPadding
-    local startY = layout.weaponY + 30
+    local startY = layout.weaponY + 35
     
     for i = 1, weaponCompartment.maxSlots do
         local x = startX + (i - 1) * (slotSize + padding)
         local y = startY
-        
         self:drawWeaponSlot(x, y, i, weaponCompartment.items[i])
     end
 end
@@ -407,6 +564,7 @@ end
 function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
+    local borderRadius = uiState.borderRadius
     
     -- Determinar color del slot
     local slotColor = colors.slotEmpty
@@ -414,26 +572,32 @@ function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
         slotColor = colors.slotFilled
     end
     
-    -- Verificar hover
-    if self:isMouseOverSlot(x, y, slotSize) then
+    -- Feedback visual para drag and drop
+    if uiState.draggedItem then
+        if self:isMouseOverSlot(x, y, slotSize) then
+            if self:isValidDropTarget("inventory", slotIndex) then
+                slotColor = colors.slotDragTarget
+            else
+                slotColor = {0.4, 0.1, 0.1, 0.8} -- Rojo para indicar que no es válido
+            end
+        elseif self:isValidDropTarget("inventory", slotIndex) then
+            -- Resaltado suave para todos los slots válidos
+            slotColor = {colors.slotDragTarget[1], colors.slotDragTarget[2], colors.slotDragTarget[3], 0.3}
+        end
+    elseif self:isMouseOverSlot(x, y, slotSize) then
         slotColor = colors.slotHover
     end
     
-    -- Verificar si es target válido para drop
-    if uiState.draggedItem and self:isValidDropTarget("inventory", slotIndex) then
-        slotColor = colors.slotDragTarget
-    end
-    
-    -- Dibujar slot
+    -- Dibujar slot redondeado
     love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
     -- Dibujar item si existe
     if item then
-        self:drawItem(x + 2, y + 2, slotSize - 4, item)
+        self:drawItem(x + 4, y + 4, slotSize - 8, item)
     end
 end
 
@@ -441,6 +605,7 @@ end
 function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
+    local borderRadius = uiState.borderRadius
     
     -- Determinar color del slot
     local slotColor = colors.slotEmpty
@@ -448,26 +613,31 @@ function InventoryUI:drawEVASlot(x, y, slotIndex, item)
         slotColor = colors.slotFilled
     end
     
-    -- Verificar hover
-    if self:isMouseOverSlot(x, y, slotSize) then
+    -- Feedback visual para drag and drop
+    if uiState.draggedItem then
+        if self:isMouseOverSlot(x, y, slotSize) then
+            if self:isValidDropTarget("eva", slotIndex) then
+                slotColor = colors.slotDragTarget
+            else
+                slotColor = {0.4, 0.1, 0.1, 0.8} -- Rojo
+            end
+        elseif self:isValidDropTarget("eva", slotIndex) then
+            slotColor = {colors.slotDragTarget[1], colors.slotDragTarget[2], colors.slotDragTarget[3], 0.3}
+        end
+    elseif self:isMouseOverSlot(x, y, slotSize) then
         slotColor = colors.slotHover
-    end
-    
-    -- Verificar si es target válido para drop
-    if uiState.draggedItem and self:isValidDropTarget("eva", slotIndex) then
-        slotColor = colors.slotDragTarget
     end
     
     -- Dibujar slot
     love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
     -- Dibujar item si existe
     if item then
-        self:drawItem(x + 2, y + 2, slotSize - 4, item)
+        self:drawItem(x + 4, y + 4, slotSize - 8, item)
     end
 end
 
@@ -475,6 +645,7 @@ end
 function InventoryUI:drawWeaponSlot(x, y, slotIndex, item)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
+    local borderRadius = uiState.borderRadius
     
     -- Determinar color del slot
     local slotColor = colors.slotEmpty
@@ -484,89 +655,72 @@ function InventoryUI:drawWeaponSlot(x, y, slotIndex, item)
     
     -- Slot 1 tiene color especial (arma por defecto)
     if slotIndex == 1 then
-        slotColor = {0.3, 0.2, 0.1, 1} -- Color dorado/marrón para slot por defecto
-        if item then
-            slotColor = {0.4, 0.3, 0.2, 1}
-        end
+        slotColor = {0.2, 0.15, 0.1, 0.7}
     end
     
-    -- Verificar hover
-    if self:isMouseOverSlot(x, y, slotSize) then
+    -- Feedback visual para drag and drop
+    if uiState.draggedItem then
+        if self:isMouseOverSlot(x, y, slotSize) then
+            if self:isValidDropTarget("weapons", slotIndex) then
+                slotColor = colors.slotDragTarget
+            else
+                slotColor = {0.4, 0.1, 0.1, 0.8} -- Rojo si es inválido
+            end
+        elseif self:isValidDropTarget("weapons", slotIndex) then
+            slotColor = {colors.slotDragTarget[1], colors.slotDragTarget[2], colors.slotDragTarget[3], 0.3}
+        end
+    elseif self:isMouseOverSlot(x, y, slotSize) then
         slotColor = colors.slotHover
-    end
-    
-    -- Verificar si es target de drag
-    if uiState.draggedItem and self:isMouseOverSlot(x, y, slotSize) then
-        -- Solo permitir drop de armas
-        if uiState.draggedItem.data and uiState.draggedItem.data.category == "equipable" and 
-           uiState.draggedItem.data.equipType == "weapon" then
-            slotColor = colors.slotDragTarget
-        else
-            slotColor = {0.6, 0.2, 0.2, 1} -- Rojo para indicar que no se puede hacer drop
-        end
     end
     
     -- Dibujar slot
     love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
-    -- Borde del slot
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
     -- Indicador de slot número
-    love.graphics.setColor(colors.textSecondary)
+    love.graphics.setColor(1, 1, 1, 0.3)
     love.graphics.setFont(uiState.smallFont)
-    love.graphics.print(tostring(slotIndex), x + 2, y + 2)
+    love.graphics.print(tostring(slotIndex), x + 4, y + 2)
     
     -- Dibujar item si existe
     if item then
-        -- Color por rareza
-        local rarityColor = self:getItemRarityColor(item)
-        love.graphics.setColor(rarityColor)
-        love.graphics.rectangle("fill", x + 2, y + 12, slotSize - 4, slotSize - 14)
-        
-        -- Nombre del item
-        love.graphics.setColor(colors.text)
-        love.graphics.setFont(uiState.smallFont)
-        local itemName = item.data and item.data.name or "Unknown"
-        local textWidth = uiState.smallFont:getWidth(itemName)
-        if textWidth > slotSize - 4 then
-            itemName = string.sub(itemName, 1, 6) .. "..."
-        end
-        love.graphics.print(itemName, x + 2, y + slotSize - 15)
+        self:drawItem(x + 4, y + 4, slotSize - 8, item)
     end
 end
 
 -- Dibujar item
 function InventoryUI:drawItem(x, y, size, item)
     local colors = uiState.colors
+    if not item or not item.data then return end
     
-    -- Verificar que el item y sus datos existan
-    if not item or not item.data then
-        return
-    end
+    local rColor = self:getItemRarityColor(item)
     
-    -- Usar el color de rareza obtenido desde el sistema de items por ID
-    local rarityColor = self:getItemRarityColor(item)
-    love.graphics.setColor(rarityColor)
-    love.graphics.rectangle("fill", x, y, size, size)
+    -- Fondo con brillo sutil de rareza
+    love.graphics.setColor(rColor[1], rColor[2], rColor[3], 0.2)
+    love.graphics.rectangle("fill", x, y, size, size, 4, 4)
     
-    -- Texto del item (primera letra del nombre)
+    -- Icono (Placeholder mejorado)
+    love.graphics.setColor(rColor)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.rectangle("line", x + 4, y + 4, size - 8, size - 8, 2, 2)
+    
+    -- Letra distintiva
     love.graphics.setColor(colors.text)
     love.graphics.setFont(uiState.font)
-    local itemName = item.data and item.data.name or "Unknown"
-    local firstLetter = string.sub(itemName, 1, 1)
-    local textWidth = uiState.font:getWidth(firstLetter)
-    local textHeight = uiState.font:getHeight()
-    love.graphics.print(firstLetter, 
-                       x + (size - textWidth) / 2, 
-                       y + (size - textHeight) / 2)
+    local itemName = item.data.name or "?"
+    local firstLetter = string.sub(itemName, 1, 1):upper()
+    local tw = uiState.font:getWidth(firstLetter)
+    local th = uiState.font:getHeight()
+    love.graphics.print(firstLetter, x + (size - tw)/2, y + (size - th)/2)
     
-    -- Cantidad si es mayor a 1
+    -- Cantidad
     if item.quantity and item.quantity > 1 then
         love.graphics.setFont(uiState.smallFont)
-        love.graphics.print(tostring(item.quantity), x + size - 15, y + size - 15)
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print("x"..item.quantity, x + size - 18, y + size - 14)
     end
 end
 
@@ -589,15 +743,19 @@ end
 function InventoryUI:drawModal()
     local modal = uiState.modal
     local colors = uiState.colors
+    local br = uiState.borderRadius
     
-    -- Fondo del modal
-    love.graphics.setColor(colors.background)
-    love.graphics.rectangle("fill", modal.x, modal.y, modal.width, modal.height)
+    -- Fondo con sombra/glow sutil
+    love.graphics.setColor(0, 0, 0, 0.4)
+    love.graphics.rectangle("fill", modal.x + 4, modal.y + 4, modal.width, modal.height, br, br)
     
-    -- Borde del modal
-    love.graphics.setColor(colors.border)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", modal.x, modal.y, modal.width, modal.height)
+    love.graphics.setColor(colors.panelBackground)
+    love.graphics.rectangle("fill", modal.x, modal.y, modal.width, modal.height, br, br)
+    
+    -- Borde de acento
+    love.graphics.setColor(colors.accent[1], colors.accent[2], colors.accent[3], 0.5)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", modal.x, modal.y, modal.width, modal.height, br, br)
     
     -- Texto de opciones
     love.graphics.setColor(colors.text)
@@ -710,13 +868,24 @@ end
 function InventoryUI:isValidDropTarget(targetType, targetSlot)
     if not uiState.draggedItem or not uiState.draggedItem.data then return false end
     
+    local itemData = uiState.draggedItem.data
+    
     if targetType == "inventory" then
         return true -- Siempre se puede mover a inventario
     elseif targetType == "eva" then
         return true -- Siempre se puede mover a EVA (las restricciones se manejan en la transferencia)
+    elseif targetType == "weapons" then
+        -- Solo armas pueden ir al panel de armas
+        if itemData.category == "equipable" and itemData.equipType == "weapon" then
+            -- Restricción del slot 1 (solo armas por defecto)
+            if targetSlot == 1 then
+                return itemData.isDefault == true
+            end
+            return true
+        end
     elseif targetType == "passives" then
         -- Solo items con categoría PASSIVE pueden ir a pasivos
-        return uiState.draggedItem.data.category == "passive"
+        return itemData.category == "passive"
     end
     
     return false
@@ -750,92 +919,72 @@ function InventoryUI:mousepressed(x, y, button, player)
         -- Verificar click en inventario (compartimento 'ship')
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
         local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
+        
         if inventorySlot then
             local item = shipComp.items[inventorySlot]
             if item then
-                -- Si se presiona Shift, transferir al compartimento EVA
+                -- Si se presiona Shift, transferencia inteligente
                 if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
-                    -- Verificar proximidad a la nave si está en modo EVA
-                    if player.isInEVA and player.evaPlayer and not player.evaPlayer:canEnterShip() then
-                        print("[TRANSFER] Error: Debes estar cerca de la nave para transferir items")
-                        return
+                    local data = item.data
+                    if data then
+                        -- 1. Si es Arma, intentar equipar
+                        if data.category == "equipable" and data.equipType == "weapon" then
+                            if self:transferInventoryToWeaponSlot(player, inventorySlot, nil) then return end
+                        end
+                        -- 2. Si es Pasivo, intentar equipar
+                        if data.category == "passive" then
+                            if self:equipPassiveItem(inventorySlot, "inventory", player) then return end
+                        end
                     end
+                    -- Fallback: Transferir al compartimento EVA si es posible
                     self:transferItemToEVA(player, inventorySlot)
                     return
                 end
                 
-                -- Verificar si es un item pasivo para mostrar feedback visual
-                if item.data and item.data.category == "passive" then
-                    uiState.selectedPassiveItemFromInventory = item
-                else
-                    uiState.selectedPassiveItemFromInventory = nil
-                end
-                
+                -- Iniciar drag
                 uiState.draggedItem = item
                 uiState.draggedFromSlot = inventorySlot
                 uiState.draggedFromType = "inventory"
-                -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
-            else
-                -- Si se hace clic en un slot vacío, limpiar selección
-                uiState.selectedPassiveItemFromInventory = nil
             end
             return
         end
         
         -- Verificar click en panel EVA
-        local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
+        local evaComp = player.inventory:getCompartment('eva')
         if evaComp then
-            local evaSlot = self:getEVASlotAt(x, y)
+            local evaSlot = self:getEVASlotAt(x, y, evaComp)
             if evaSlot then
                 local item = evaComp.items[evaSlot]
                 if item then
-                    -- Si se presiona Shift, transferir al compartimento ship
                     if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
-                        -- Verificar proximidad a la nave si está en modo EVA
-                        if player.isInEVA and player.evaPlayer and not player.evaPlayer:canEnterShip() then
-                            print("[TRANSFER] Error: Debes estar cerca de la nave para transferir items")
-                            return
-                        end
                         self:transferItemToShip(player, evaSlot)
                         return
                     end
-                    
-                    -- Verificar si es un item pasivo para mostrar feedback visual
-                    if item.data and item.data.category == "passive" then
-                        uiState.selectedPassiveItemFromInventory = item
-                    else
-                        uiState.selectedPassiveItemFromInventory = nil
-                    end
-                    
                     uiState.draggedItem = item
                     uiState.draggedFromSlot = evaSlot
                     uiState.draggedFromType = "eva"
-                    -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
-                else
-                    -- Si se hace clic en un slot vacío, limpiar selección
-                    uiState.selectedPassiveItemFromInventory = nil
                 end
                 return
             end
         end
         
         -- Verificar click en panel de armas
-        local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
+        local weaponComp = player.inventory:getCompartment('weapons')
         if weaponComp then
-            local weaponSlot = self:getWeaponSlotAt(x, y)
+            local weaponSlot = self:getWeaponSlotAt(x, y, weaponComp)
             if weaponSlot then
                 local item = weaponComp.items[weaponSlot]
                 if item then
-                    -- No permitir arrastrar el arma por defecto del slot 1
-                    if weaponSlot == 1 then
-                        print("[DRAG] Error: No se puede mover el arma por defecto")
+                    if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+                        self:transferWeaponToInventory(player, weaponSlot)
                         return
                     end
+                    -- No permitir arrastrar arma por defecto
+                    if weaponSlot == 1 then return end
                     
                     uiState.draggedItem = item
                     uiState.draggedFromSlot = weaponSlot
                     uiState.draggedFromType = "weapons"
-                    -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
                 end
                 return
             end
@@ -844,7 +993,7 @@ function InventoryUI:mousepressed(x, y, button, player)
         -- Verificar click en panel de pasivos
         local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
         if passiveComp then
-            local passiveSlot = self:getPassiveSlotAt(x, y)
+            local passiveSlot = self:getPassiveSlotAt(x, y, passiveComp)
             if passiveSlot then
                 local item = passiveComp.items[passiveSlot]
                 if item then
@@ -866,8 +1015,7 @@ function InventoryUI:mousepressed(x, y, button, player)
                 end
                 return
             end
-        end
-
+        end    
     elseif button == 2 then -- Clic derecho
         -- Verificar clic derecho en inventario (compartimento 'ship')
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
@@ -880,7 +1028,7 @@ function InventoryUI:mousepressed(x, y, button, player)
         -- Verificar clic derecho en panel EVA
         local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
         if evaComp then
-            local evaSlot = self:getEVASlotAt(x, y)
+            local evaSlot = self:getEVASlotAt(x, y, evaComp)
             if evaSlot and evaComp.items[evaSlot] then
                 self:openModal(x, y, evaSlot, "eva")
                 return
@@ -890,7 +1038,7 @@ function InventoryUI:mousepressed(x, y, button, player)
         -- Verificar clic derecho en panel de armas
         local weaponComp = (player.inventory.getCompartment and player.inventory:getCompartment('weapons')) or nil
         if weaponComp then
-            local weaponSlot = self:getWeaponSlotAt(x, y)
+            local weaponSlot = self:getWeaponSlotAt(x, y, weaponComp)
             if weaponSlot and weaponComp.items[weaponSlot] then
                 self:openModal(x, y, weaponSlot, "weapons")
                 return
@@ -900,7 +1048,7 @@ function InventoryUI:mousepressed(x, y, button, player)
         -- Verificar clic derecho en panel de pasivos
         local passiveComp = (player.inventory.getCompartment and player.inventory:getCompartment('passives')) or nil
         if passiveComp then
-            local passiveSlot = self:getPassiveSlotAt(x, y)
+            local passiveSlot = self:getPassiveSlotAt(x, y, passiveComp)
             if passiveSlot and passiveComp.items[passiveSlot] then
                 self:openModal(x, y, passiveSlot, "passives")
                 return
@@ -930,7 +1078,7 @@ function InventoryUI:mousereleased(x, y, button, player)
     
     -- Verificar drop en panel EVA
     if not dropped and evaComp then
-        local evaSlot = self:getEVASlotAt(x, y)
+        local evaSlot = self:getEVASlotAt(x, y, evaComp)
         if evaSlot then
             dropped = self:handleDrop(player, "eva", evaSlot)
         end
@@ -938,63 +1086,60 @@ function InventoryUI:mousereleased(x, y, button, player)
     
     -- Verificar drop en panel de armas
     if not dropped and weaponComp then
-        local weaponSlot = self:getWeaponSlotAt(x, y)
+        local weaponSlot = self:getWeaponSlotAt(x, y, weaponComp)
         if weaponSlot then
-            -- Solo permitir drop de armas
-            if uiState.draggedItem.data and uiState.draggedItem.data.category == "equipable" and 
-               uiState.draggedItem.data.equipType == "weapon" then
-                dropped = self:handleDrop(player, "weapons", weaponSlot)
-            end
+            -- Solo permitir drop de armas (la validación se hace en handleDrop -> isValidDropTarget)
+            dropped = self:handleDrop(player, "weapons", weaponSlot)
         end
     end
     
     -- Verificar drop en panel de pasivos
     if not dropped and passiveComp then
-        local passiveSlot = self:getPassiveSlotAt(x, y)
+        local passiveSlot = self:getPassiveSlotAt(x, y, passiveComp)
         if passiveSlot then
-            -- Solo permitir drop de items pasivos
-            if uiState.draggedItem.data and uiState.draggedItem.data.category == "passive" then
-                dropped = self:handleDrop(player, "passives", passiveSlot)
-            end
+            -- Solo permitir drop de items pasivos (la validación se hace en handleDrop -> isValidDropTarget)
+            dropped = self:handleDrop(player, "passives", passiveSlot)
         end
     end
     
     -- Si no se pudo hacer drop en el inventario, verificar drop al mundo
     if not dropped then
-        -- Verificar si el mouse está fuera de todos los paneles
+        -- Verificar si el mouse está fuera de todos los paneles usando los márgenes actuales
         local layout = uiState.layout
-        local mouseOutsideInventory = uiState.mouseX < layout.inventoryX or 
-                                     uiState.mouseX > layout.inventoryX + layout.inventoryWidth or
-                                     uiState.mouseY < layout.inventoryY or 
-                                     uiState.mouseY > layout.inventoryY + layout.inventoryHeight
-        
-        local mouseOutsideEVA = true
-        if evaComp then
-            mouseOutsideEVA = uiState.mouseX < layout.evaX or 
-                             uiState.mouseX > layout.evaX + layout.evaWidth or
-                             uiState.mouseY < layout.evaY or 
-                             uiState.mouseY > layout.evaY + layout.evaHeight
+        local isOutsidePanel = true
+
+        -- 1. Dentro de Inventario?
+        if x >= layout.inventoryX and x <= layout.inventoryX + layout.inventoryWidth and
+           y >= layout.inventoryY and y <= layout.inventoryY + layout.inventoryHeight then
+            isOutsidePanel = false
+        end
+
+        -- 2. Dentro de EVA?
+        if isOutsidePanel and evaComp then
+            if x >= layout.evaX and x <= layout.evaX + layout.evaWidth and
+               y >= layout.evaY and y <= layout.evaY + layout.evaHeight then
+                isOutsidePanel = false
+            end
+        end
+
+        -- 3. Dentro de Armas?
+        if isOutsidePanel and weaponComp then
+            if x >= layout.weaponX and x <= layout.weaponX + layout.weaponWidth and
+               y >= layout.weaponY and y <= layout.weaponY + layout.weaponHeight then
+                isOutsidePanel = false
+            end
+        end
+
+        -- 4. Dentro de Pasivos?
+        if isOutsidePanel and passiveComp then
+            if x >= layout.passiveX and x <= layout.passiveX + layout.passiveWidth and
+               y >= layout.passiveY and y <= layout.passiveY + layout.passiveHeight then
+                isOutsidePanel = false
+            end
         end
         
-        local mouseOutsideWeapons = true
-        if weaponComp then
-            mouseOutsideWeapons = uiState.mouseX < layout.weaponX or 
-                                 uiState.mouseX > layout.weaponX + layout.weaponWidth or
-                                 uiState.mouseY < layout.weaponY or 
-                                 uiState.mouseY > layout.weaponY + layout.weaponHeight
-        end
-        
-        local mouseOutsidePassives = true
-        if passiveComp then
-            mouseOutsidePassives = uiState.mouseX < layout.passiveX or 
-                                  uiState.mouseX > layout.passiveX + layout.passiveWidth or
-                                  uiState.mouseY < layout.passiveY or 
-                                  uiState.mouseY > layout.passiveY + layout.passiveHeight
-        end
-        
-        if mouseOutsideInventory and mouseOutsideEVA and mouseOutsideWeapons and mouseOutsidePassives then
-            -- Drop al mundo
-            self:dropItemToWorld(uiState.draggedItem, player, uiState.mouseX, uiState.mouseY)
+        if isOutsidePanel then
+            self:dropItemToWorld(uiState.draggedItem, player, x, y)
             dropped = true
         else
             -- Devolver item a su lugar original directamente para evitar doble anidación
@@ -1323,8 +1468,8 @@ function InventoryUI:getInventorySlotAt(x, y, inventory)
     local panelPadding = uiState.panelPadding
     
     local startX = layout.inventoryX + panelPadding
-    local startY = layout.inventoryY + 30
-    local columns = 5
+    local startY = layout.inventoryY + 40 -- Consistente con drawInventoryPanel
+    local columns = 8 -- Nuevo layout de 8 columnas
     
     for i = 1, inventory.maxSlots do
         local col = (i - 1) % columns
@@ -1340,77 +1485,72 @@ function InventoryUI:getInventorySlotAt(x, y, inventory)
     return nil
 end
 
-
-
 -- Obtener slot EVA en posición
-function InventoryUI:getEVASlotAt(x, y)
+function InventoryUI:getEVASlotAt(x, y, evaComp)
+    if not evaComp then return nil end
+    
     local layout = uiState.layout
     local slotSize = uiState.slotSize
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
     local startX = layout.evaX + panelPadding
-    local startY = layout.evaY + 30
+    local startY = layout.evaY + 35 -- Consistente con drawEVAPanel
     
-    -- 3 slots horizontales
-    for i = 1, 3 do
+    for i = 1, evaComp.maxSlots do
         local slotX = startX + (i - 1) * (slotSize + padding)
         local slotY = startY
-        
         if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
             return i
         end
     end
-    
     return nil
 end
 
 -- Obtener slot de arma en posición
-function InventoryUI:getWeaponSlotAt(x, y)
+function InventoryUI:getWeaponSlotAt(x, y, weaponComp)
+    if not weaponComp then return nil end
+    
     local layout = uiState.layout
     local slotSize = uiState.slotSize
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
     local startX = layout.weaponX + panelPadding
-    local startY = layout.weaponY + 30
+    local startY = layout.weaponY + 35 -- Consistente con drawWeaponPanel
     
-    -- 4 slots horizontales
-    for i = 1, 4 do
+    for i = 1, weaponComp.maxSlots do
         local slotX = startX + (i - 1) * (slotSize + padding)
         local slotY = startY
-        
         if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
             return i
         end
     end
-    
     return nil
 end
 
 -- Obtener slot de pasivos en coordenadas específicas
-function InventoryUI:getPassiveSlotAt(x, y)
+function InventoryUI:getPassiveSlotAt(x, y, passiveComp)
+    if not passiveComp then return nil end
+    
     local layout = uiState.layout
     local slotSize = uiState.slotSize
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
     local startX = layout.passiveX + panelPadding
-    local startY = layout.passiveY + 30
+    local startY = layout.passiveY + 35 -- Consistente con drawPassivePanel
     local columns = 3
     
-    -- 6 slots en grid 3x2
-    for i = 1, 6 do
+    for i = 1, passiveComp.maxSlots do
         local col = (i - 1) % columns
         local row = math.floor((i - 1) / columns)
         local slotX = startX + col * (slotSize + padding)
         local slotY = startY + row * (slotSize + padding)
-        
         if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
             return i
         end
     end
-    
     return nil
 end
 
@@ -1796,6 +1936,25 @@ function InventoryUI:transferInventoryToWeaponSlot(player, invSlot, weaponSlot)
         return false
     end
     
+    -- Si no se especifica slot, buscar el primero libre (excepto el 1 si no es arma por defecto)
+    if not weaponSlot then
+        -- Buscar primer slot libre
+        for i = 1, weaponComp.maxSlots do
+            -- Saltamos el slot 1 si el item no es arma por defecto
+            if i == 1 and not item.data.isDefault then
+                -- continue
+            elseif not weaponComp.items[i] then
+                weaponSlot = i
+                break
+            end
+        end
+        
+        -- Si no hay libres, usar el slot 2 por defecto (para intercambiar)
+        if not weaponSlot then
+            weaponSlot = 2
+        end
+    end
+    
     -- Verificar restricciones del slot 1
     if weaponSlot == 1 and not item.data.isDefault then
         print("[TRANSFER] Error: Solo armas por defecto pueden ir en el slot 1")
@@ -1820,24 +1979,23 @@ function InventoryUI:drawPassivePanel(passiveCompartment, player)
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
-    -- Fondo del panel
-    love.graphics.setColor(colors.background)
+    -- Fondo
+    love.graphics.setColor(colors.panelBackground)
     love.graphics.rectangle("fill", layout.passiveX, layout.passiveY, 
-                           layout.passiveWidth, layout.passiveHeight)
+                           layout.passiveWidth, layout.passiveHeight, uiState.borderRadius, uiState.borderRadius)
     
-    -- Borde del panel
-    love.graphics.setColor(colors.border)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
     love.graphics.rectangle("line", layout.passiveX, layout.passiveY, 
-                           layout.passiveWidth, layout.passiveHeight)
+                           layout.passiveWidth, layout.passiveHeight, uiState.borderRadius, uiState.borderRadius)
     
     -- Título
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
-    love.graphics.print("Items Pasivos", layout.passiveX + panelPadding, layout.passiveY + 5)
+    love.graphics.print("PASIVOS", layout.passiveX + panelPadding, layout.passiveY + 8)
     
-    -- Slots de pasivos (6 slots en grid 3x2)
+    -- Slots (3x2 grid)
     local startX = layout.passiveX + panelPadding
-    local startY = layout.passiveY + 30
+    local startY = layout.passiveY + 35
     local columns = 3
     
     for i = 1, passiveCompartment.maxSlots do
@@ -1845,7 +2003,6 @@ function InventoryUI:drawPassivePanel(passiveCompartment, player)
         local row = math.floor((i - 1) / columns)
         local x = startX + col * (slotSize + padding)
         local y = startY + row * (slotSize + padding)
-        
         self:drawPassiveSlot(x, y, i, passiveCompartment.items[i], player)
     end
 end
@@ -1854,43 +2011,43 @@ end
 function InventoryUI:drawPassiveSlot(x, y, slotIndex, item, player)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
+    local borderRadius = uiState.borderRadius
     
-    -- Determinar color del slot
+    -- Determinar color
     local slotColor = colors.slotEmpty
     if item then
         slotColor = colors.slotFilled
     end
     
-    -- Verificar si está seleccionado (feedback visual)
+    -- Feedback visual para pasivos específicos
     if uiState.selectedPassiveSlot == slotIndex then
         slotColor = colors.slotSelected
     end
     
-    -- Verificar si debería mostrar feedback visual para item pasivo seleccionado
-    if self:shouldShowPassiveSlotFeedback(slotIndex, player) then
-        slotColor = colors.slotDragTarget
-    end
-    
-    -- Verificar hover
-    if self:isMouseOverSlot(x, y, slotSize) then
+    -- Feedback visual para drag and drop
+    if uiState.draggedItem then
+        if self:isMouseOverSlot(x, y, slotSize) then
+            if self:isValidDropTarget("passives", slotIndex) then
+                slotColor = colors.slotDragTarget
+            else
+                slotColor = {0.4, 0.1, 0.1, 0.8} -- Rojo si es inválido
+            end
+        elseif self:isValidDropTarget("passives", slotIndex) then
+            slotColor = {colors.slotDragTarget[1], colors.slotDragTarget[2], colors.slotDragTarget[3], 0.3}
+        end
+    elseif self:isMouseOverSlot(x, y, slotSize) then
         slotColor = colors.slotHover
     end
     
-    -- Verificar si es target válido para drop
-    if uiState.draggedItem and self:isValidDropTarget("passives", slotIndex) then
-        slotColor = colors.slotDragTarget
-    end
-    
-    -- Dibujar slot
+    -- Dibujar
     love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
+    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
     
-    -- Dibujar item si existe
     if item then
-        self:drawItem(x + 2, y + 2, slotSize - 4, item)
+        self:drawItem(x + 4, y + 4, slotSize - 8, item)
     end
 end
 

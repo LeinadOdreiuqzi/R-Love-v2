@@ -190,11 +190,11 @@ function InputManager.toggleInventory(gameState, player, InventoryUI, EVAInvento
         -- Abrir el deseado (y cerrar el otro)
         if desired == "ship" then
             if EVAInventoryUI and EVAInventoryUI.close then EVAInventoryUI:close() end
-            if InventoryUI then InventoryUI:toggle() end
+            if InventoryUI then InventoryUI:toggle(player) end
             gameState.inventoryMode = "ship"
         else
             if InventoryUI and InventoryUI.close then InventoryUI:close() end
-            if EVAInventoryUI then EVAInventoryUI:toggle() end
+            if EVAInventoryUI then EVAInventoryUI:toggle(player) end
             gameState.inventoryMode = "eva"
         end
     end
