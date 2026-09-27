@@ -14,7 +14,7 @@ local _isInitialized = false
 
 -- Acción especial: Toggle Fullscreen
 local function toggleFullscreen()
-    local FullscreenManager = package.loaded['src.utils.fullscreen_manager']
+    local FullscreenManager = require 'src.utils.fullscreen_manager'
     if FullscreenManager and FullscreenManager.toggle then
         FullscreenManager.toggle()
     end

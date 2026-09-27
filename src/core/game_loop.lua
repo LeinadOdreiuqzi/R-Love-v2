@@ -14,7 +14,7 @@ local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local Map = require 'src.maps.map'
 local OptimizedRenderer = require 'src.maps.optimized_renderer'
 local ChunkManager = require 'src.maps.chunk_manager'
-local FullscreenManager = package.loaded['src.utils.fullscreen_manager']
+local FullscreenManager = require 'src.utils.fullscreen_manager'
 local DebugRenderer = require 'src.utils.debug_renderer'
 local WorldItems = require 'src.item_systems.world_items'
 
@@ -111,10 +111,14 @@ function GameLoop.update(dt)
         end
     end
     
-    if ChunkManager and ChunkManager.updateFullscreenOptimizations then
-        local fsManager = package.loaded['src.utils.fullscreen_manager']
-        local isFullscreen = (fsManager and fsManager.isFullscreen and fsManager:isFullscreen()) or false
-        ChunkManager.updateFullscreenOptimizations(isFullscreen, camera)
+    if ChunkManager then
+        local isFullscreen = (FullscreenManager and FullscreenManager.isFullscreen and FullscreenManager.isFullscreen()) or false
+        if ChunkManager.updateFullscreenState then
+            ChunkManager.updateFullscreenState(isFullscreen)
+        end
+        if ChunkManager.updateFullscreenOptimizations then
+            ChunkManager.updateFullscreenOptimizations(camera, dt)
+        end
     end
 
     -- 5. SEGUIMIENTO

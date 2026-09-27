@@ -69,7 +69,7 @@ function Camera:update(dt)
     local lerpFactor = math.min(0.15, dt * 8) -- Más estable en zoom alto
     
     -- Evitar micro-fluctuaciones cerca del target
-    if math.abs(zoomDiff) < 1.0 then
+    if math.abs(zoomDiff) < 0.005 then
         self.zoom = self.targetZoom
     else
         self.zoom = self.zoom + zoomDiff * lerpFactor

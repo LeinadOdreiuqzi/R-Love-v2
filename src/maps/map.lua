@@ -261,18 +261,6 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     local specialRendered = MapRenderer.drawSpecialObjects(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(specialRendered, specialRendered, 0)
     
-    -- 4.5. Dibujar items del mundo
-    local WorldItems = require 'src.item_systems.world_items'
-    -- Usar World sobre globales
-    local w = getWorld()
-    local _player = w and w.get('player')
-    local playerX, playerY = 0, 0
-    if _player then
-        playerX, playerY = _player.x or 0, _player.y or 0
-    end
-    local itemsRendered = WorldItems.draw(camera, playerX, playerY)
-    MapStats.addObjects(itemsRendered or 0, itemsRendered or 0, 0)
-    
     -- 5. Dibujar características de biomas
     local featuresRendered = MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)
     MapStats.addObjects(featuresRendered, featuresRendered, 0)

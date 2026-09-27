@@ -3,8 +3,10 @@
 
 local DebugGrid = {}
 
+local GameState = require 'src.core.game_state'
+
 function DebugGrid.draw(camera)
-    if not _G.showGrid then return end
+    if not (GameState.state and GameState.state.showGrid) then return end
     local Map = require 'src.maps.map'
     if not Map or not camera then return end
 

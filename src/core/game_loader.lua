@@ -195,16 +195,6 @@ function GameLoader.changeSeedWithLoading(newSeed)
     state.isLoading = true
     
     InventoryManager.forceCloseAll()
-    World.reset()
-    
-    local stateManager = World.get('stateManager')
-    if stateManager and stateManager.clear then
-        stateManager:clear()
-    end
-    
-    if ChunkManager and ChunkManager.cleanup then
-        ChunkManager.cleanup()
-    end
     
     PassiveManager.reset()
     local player = World.get('player')
@@ -222,6 +212,17 @@ function GameLoader.changeSeedWithLoading(newSeed)
             end
         end
     end
+
+    local stateManager = World.get('stateManager')
+    if stateManager and stateManager.clear then
+        stateManager:clear()
+    end
+    
+    if ChunkManager and ChunkManager.cleanup then
+        ChunkManager.cleanup()
+    end
+
+    World.reset()
     
     print("Passive effects and items cleared for seed change")
     
