@@ -1017,7 +1017,7 @@ function ChunkManager.applyFullscreenOptimizations()
         
         if ChunkManager.countActiveChunks() > newLimit then
             ChunkManager.aggressiveUnloadForFullscreen(newLimit)
-            stats.fullscreenOptimizations = stats.fullscreenOptimizations + 1
+            stats.fullscreenOptimizations = (stats.fullscreenOptimizations or 0) + 1
         end
     end
     
@@ -1127,7 +1127,7 @@ function ChunkManager.optimizeForViewport(camera)
                 fsState.unloadTimer[id] = nil
                 
                 ChunkManager.state.stats.fullscreenOptimizations = 
-                    ChunkManager.state.stats.fullscreenOptimizations + 1
+                    (ChunkManager.state.stats.fullscreenOptimizations or 0) + 1
             end
         else
             -- Chunk volvió al viewport, cancelar descarga
@@ -1178,7 +1178,7 @@ function ChunkManager.getFullscreenStats()
     
     return {
         isFullscreen = fsState.isFullscreen,
-        optimizationsApplied = ChunkManager.state.stats.fullscreenOptimizations,
+        optimizationsApplied = ChunkManager.state.stats.fullscreenOptimizations or 0,
         chunksMarkedForUnload = 0, -- contar elementos en fsState.chunksMarkedForUnload
         maxActiveInFullscreen = config.maxActiveFullscreen,
         currentActive = ChunkManager.countActiveChunks(),
@@ -1225,7 +1225,8 @@ end
             cacheHits = 0,
             cacheMisses = 0,
             generationTime = 0,
-            lastFrameTime = 0
+            lastFrameTime = 0,
+            fullscreenOptimizations = 0
         }
     end
     
