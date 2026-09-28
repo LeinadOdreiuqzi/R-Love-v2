@@ -122,11 +122,9 @@ function EnergyShotgunProjectile:update(dt)
     end
     
     -- Actualizar distancia recorrida
-    if self.body then
-        local vx, vy = self.body:getLinearVelocity()
-        local speed = math.sqrt(vx * vx + vy * vy)
-        self.travel_distance = self.travel_distance + speed * dt
-    end
+    local vx, vy = self:getVelocity()
+    local speed = math.sqrt(vx * vx + vy * vy)
+    self.travel_distance = self.travel_distance + speed * dt
     
     -- Verificar si debe fragmentarse
     if not self.has_fragmented and self.travel_distance >= self.config.fragmentation_distance then
@@ -266,13 +264,13 @@ end
     Fragmenta el proyectil en múltiples proyectiles menores
 --]]
 function EnergyShotgunProjectile:fragmentProjectile()
-    if self.has_fragmented or not self.body then
+    if self.has_fragmented then
         return
     end
     
     self.has_fragmented = true
-    local x, y = self.body:getPosition()
-    local base_angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local base_angle = self:getAngle()
     local base_speed = self.config.speed * self.config.fragment_speed_factor
     
     -- Crear fragmentos
@@ -392,9 +390,7 @@ end
     Crea una partícula de descarga
 --]]
 function EnergyShotgunProjectile:createDischargeParticle()
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     local particle = {
         x = x + (math.random() - 0.5) * 6,
         y = y + (math.random() - 0.5) * 6,
@@ -419,10 +415,8 @@ function EnergyShotgunProjectile:draw()
         return
     end
     
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
-    local angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local angle = self:getAngle()
     
     love.graphics.push()
     love.graphics.translate(x, y)
@@ -541,7 +535,7 @@ function EnergyShotgunProjectile:drawEnergyTrail()
         love.graphics.setLineWidth(thickness)
         
         -- Convertir a coordenadas locales
-        local current_x, current_y = self.body:getPosition()
+        local current_x, current_y = self:getPosition()
         local local_x1 = point1.x - current_x
         local local_y1 = point1.y - current_y
         local local_x2 = point2.x - current_x
@@ -564,7 +558,7 @@ function EnergyShotgunProjectile:drawDischargeParticles()
         love.graphics.setColor(0.6, 0.8, 1, alpha)
         
         -- Convertir a coordenadas locales
-        local current_x, current_y = self.body:getPosition()
+        local current_x, current_y = self:getPosition()
         local local_x = particle.x - current_x
         local local_y = particle.y - current_y
         
@@ -652,9 +646,7 @@ end
     @param dt: tiempo delta
 --]]
 function EnergyShotgunProjectile:updateTrail(dt)
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     
     -- Añadir punto actual a la estela
     table.insert(self.trail_points, 1, {x = x, y = y, alpha = 1.0})

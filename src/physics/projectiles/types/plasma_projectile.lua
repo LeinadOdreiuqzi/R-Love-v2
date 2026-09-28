@@ -200,10 +200,8 @@ function PlasmaProjectile:draw()
         return
     end
     
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
-    local angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local angle = self:getAngle()
     
     love.graphics.push()
     love.graphics.translate(x, y)

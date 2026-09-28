@@ -300,12 +300,9 @@ function WeaponSystem:shoot(mouseX, mouseY)
         return false
     end
     
-    -- Verificar que tenemos acceso al mundo de física
+    -- Obtener gestor de física (opcional si opera por cinemática desacoplada)
     local physMgr = World.get('physics')
-    if not physMgr or not physMgr:getWorld() then
-        -- Error: Physics world not available
-        return false
-    end
+    local box2dWorld = (physMgr and physMgr.getWorld and physMgr:getWorld()) or nil
     
     -- Convertir coordenadas del mouse a coordenadas del mundo
     local worldMouseX, worldMouseY
@@ -376,11 +373,13 @@ function WeaponSystem:shoot(mouseX, mouseY)
             pelletAngle = pelletAngle + (math.random() - 0.5) * 0.1
             
             -- Crear proyectil individual
-            local projectile = ProjectileClass.new(physMgr:getWorld(), spawnX, spawnY, pelletAngle, nil, custom_config)
+            local projectile = ProjectileClass.new(box2dWorld, spawnX, spawnY, pelletAngle, nil, custom_config)
             
-            -- Agregar el proyectil al sistema de física
-            if projectile and physMgr.addProjectile then
-                physMgr:addProjectile(projectile)
+            -- Agregar el proyectil al sistema de física si está disponible
+            if projectile then
+                if physMgr and physMgr.addProjectile then
+                    physMgr:addProjectile(projectile)
+                end
                 
                 -- Almacenar el proyectil para actualizaciones y renderizado
                 if not self.player.projectiles then
@@ -392,11 +391,13 @@ function WeaponSystem:shoot(mouseX, mouseY)
         end
     else
         -- Disparo normal para otras armas
-        local projectile = ProjectileClass.new(physMgr:getWorld(), spawnX, spawnY, angle, nil, custom_config)
+        local projectile = ProjectileClass.new(box2dWorld, spawnX, spawnY, angle, nil, custom_config)
         
-        -- Agregar el proyectil al sistema de física
-        if projectile and physMgr.addProjectile then
-            physMgr:addProjectile(projectile)
+        -- Agregar el proyectil al sistema de física si está disponible
+        if projectile then
+            if physMgr and physMgr.addProjectile then
+                physMgr:addProjectile(projectile)
+            end
             
             -- Almacenar el proyectil para actualizaciones y renderizado
             if not self.player.projectiles then

@@ -53,9 +53,9 @@ OptimizedRenderer.config = {
         temporal = true         -- Culling temporal (basado en movimiento)
     },
     
-    -- Batch rendering optimizado para zoom alto
+    -- Batch rendering (desactivado: MapRenderer maneja el dibujo activo en GPU)
     batching = {
-        enabled = true,
+        enabled = false,
         maxBatchSize = 8000,    -- Reducido para mejor rendimiento en zoom alto
         autoSort = true,        -- Ordenamiento automático por textura/tipo
         dynamicBatching = true, -- Batching dinámico basado en visibilidad
@@ -189,26 +189,25 @@ function OptimizedRenderer.init()
 
     -- Crear batches si el batching está habilitado
     if OptimizedRenderer.config.batching.enabled then
-        -- Crear SpriteBatches para todos los tipos
         OptimizedRenderer.createSpriteBatches()
-
-        -- Cachear visuales por bioma para tint y brillo (sin costos por frame)
-        OptimizedRenderer.state.biomeVisuals = {}
-        local BT = BiomeSystem.BiomeType
-        local function cfg(typeId, brightnessMul)
-            local c = BiomeSystem.getBiomeConfig(typeId).color or {1,1,1,1}
-            OptimizedRenderer.state.biomeVisuals[typeId] = {
-                color = {c[1], c[2], c[3]},
-                brightness = brightnessMul or 1.0
-            }
-        end
-        cfg(BT.DEEP_SPACE,       0.97)
-        cfg(BT.NEBULA_FIELD,     1.07)
-        cfg(BT.ASTEROID_BELT,    0.93)
-        cfg(BT.GRAVITY_ANOMALY,  1.08)
-        cfg(BT.RADIOACTIVE_ZONE, 1.12)
-        cfg(BT.ANCIENT_RUINS,    0.95)
     end
+
+    -- Cachear visuales por bioma para tint y brillo (sin costos por frame)
+    OptimizedRenderer.state.biomeVisuals = {}
+    local BT = BiomeSystem.BiomeType
+    local function cfg(typeId, brightnessMul)
+        local c = BiomeSystem.getBiomeConfig(typeId).color or {1,1,1,1}
+        OptimizedRenderer.state.biomeVisuals[typeId] = {
+            color = {c[1], c[2], c[3]},
+            brightness = brightnessMul or 1.0
+        }
+    end
+    cfg(BT.DEEP_SPACE,       0.97)
+    cfg(BT.NEBULA_FIELD,     1.07)
+    cfg(BT.ASTEROID_BELT,    0.93)
+    cfg(BT.GRAVITY_ANOMALY,  1.08)
+    cfg(BT.RADIOACTIVE_ZONE, 1.12)
+    cfg(BT.ANCIENT_RUINS,    0.95)
     
     -- Inicializar cache de visibilidad
     OptimizedRenderer.state.visibilityCache = {}
@@ -231,45 +230,8 @@ end
 
 -- Crear sprite batches para diferentes tipos de objetos
 function OptimizedRenderer.createSpriteBatches()
-    if not love.graphics then return end
-    
-    local batchConfigs = OptimizedRenderer.config.batching.batchConfigs
-    
-    -- Crear batch para estrellas
-    local starImage = ShaderManager.getBaseImage("white")
-    if starImage then
-        OptimizedRenderer.state.batches.stars = love.graphics.newSpriteBatch(
-            starImage, batchConfigs.stars.maxSize
-        )
-        print("✓ SpriteBatch for stars created")
-    end
-    
-    -- Crear batch para asteroides
-    local asteroidImage = ShaderManager.getBaseImage("circle")
-    if asteroidImage then
-        OptimizedRenderer.state.batches.asteroids = love.graphics.newSpriteBatch(
-            asteroidImage, batchConfigs.asteroids.maxSize
-        )
-        print("✓ SpriteBatch for asteroids created")
-    end
-    
-    -- Crear batch para nebulosas
-    local nebulaImage = ShaderManager.getBaseImage("circle")
-    if nebulaImage then
-        OptimizedRenderer.state.batches.nebulae = love.graphics.newSpriteBatch(
-            nebulaImage, batchConfigs.nebulae.maxSize
-        )
-        print("✓ SpriteBatch for nebulae created")
-    end
-    
-    -- Crear batch para estaciones
-    local stationImage = ShaderManager.getBaseImage("white")
-    if stationImage then
-        OptimizedRenderer.state.batches.stations = love.graphics.newSpriteBatch(
-            stationImage, batchConfigs.stations.maxSize
-        )
-        print("✓ SpriteBatch for stations created")
-    end
+    -- Desactivado por saneamiento: MapRenderer maneja el pipeline de dibujo activo
+    -- y evita alojar batches no utilizados en VRAM
 end
 
 -- Funciones de optimización removidas para garantizar renderizado consistente

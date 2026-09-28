@@ -12,7 +12,6 @@ local InventoryManager = require 'src.core.inventory_manager'
 local InventoryUI = require 'src.ui.inventory_ui'
 local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local Map = require 'src.maps.map'
-local OptimizedRenderer = require 'src.maps.optimized_renderer'
 local ChunkManager = require 'src.maps.chunk_manager'
 local FullscreenManager = require 'src.utils.fullscreen_manager'
 local DebugRenderer = require 'src.utils.debug_renderer'
@@ -50,7 +49,7 @@ function GameLoop.update(dt)
     local runState = World.get('runState')
     local gameDirector = World.get('director')
     local physMgr = World.get('physics')
-    local camera = _G.camera or World.get('camera')
+    local camera = World.get('camera')
 
     -- 3. Acumular tiempo (Fixed Timestep)
     physics.accumulator = physics.accumulator + math.min(dt, 0.25)
@@ -105,10 +104,6 @@ function GameLoop.update(dt)
         local vx, vy = player.dx or 0, player.dy or 0
         
         Map.update(dt, px, py, vx, vy)
-        
-        if type(OptimizedRenderer) == "table" and OptimizedRenderer.update then
-            OptimizedRenderer.update(dt, px, py, camera)
-        end
     end
     
     if ChunkManager then
@@ -148,7 +143,7 @@ function GameLoop.draw()
         return
     end
 
-    local camera = _G.camera or World.get('camera')
+    local camera = World.get('camera')
     
     if camera then camera:apply() end
     

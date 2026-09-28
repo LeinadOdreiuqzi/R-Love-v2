@@ -315,9 +315,9 @@ function Naves:update(dt)
     local mouseX, mouseY = love.mouse.getPosition()
     local screenX, screenY = love.graphics.getDimensions()
     
-    -- Access the global camera instance, preferring World over _G
+    -- Acceder a la cámara a través del bus central World
     local w = getWorld()
-    local cam = (w and w.getCamera()) or _G.camera
+    local cam = (w and (w.getCamera and w.getCamera() or w.get('camera')))
     
     -- Convert mouse position to world coordinates
     local worldMouseX, worldMouseY = self.x, self.y
@@ -354,9 +354,9 @@ function Naves:update(dt)
         
         -- Incrementar contador de boosts en RunState cuando se activa por primera vez
         if not wasBoostActive then
-            -- Preferir World sobre _G para mayor desacoplamiento
+            -- Desacoplar estado usando el bus central World
             local w = getWorld()
-            local rs = (w and w.getRunState()) or _G.runState
+            local rs = (w and (w.getRunState and w.getRunState() or w.get('runState')))
             if rs and rs.incrementBoosts then
                 rs:incrementBoosts()
             end
@@ -583,9 +583,9 @@ function Naves:handleInput()
     -- Get mouse position in screen coordinates
     local mx, my = love.mouse.getPosition()
     
-    -- Access the global camera instance, preferring World over _G
+    -- Acceder a la cámara a través del bus central World
     local w = getWorld()
-    local cam = (w and w.getCamera()) or _G.camera
+    local cam = (w and (w.getCamera and w.getCamera() or w.get('camera')))
 
     if cam then
         -- Convert mouse position to world coordinates using the camera
@@ -1373,17 +1373,14 @@ function Naves:shoot(mouseX, mouseY)
         return self.weaponSystem:shoot(mouseX, mouseY)
     end
     
-    -- Verificar que tenemos acceso al mundo de física
+    -- Acceso a sistemas (física opcional si opera por cinemática desacoplada)
     local w = getWorld()
     local physMgr = w and w.get('physics')
-    if not physMgr or not physMgr:getWorld() then
-        print("[SHOOT] Error: Physics world not available")
-        return false
-    end
+    local box2dWorld = (physMgr and physMgr.getWorld and physMgr:getWorld()) or nil
     
     -- Convertir coordenadas del mouse a coordenadas del mundo
     local worldMouseX, worldMouseY
-    local cam = w and w.getCamera()
+    local cam = (w and (w.getCamera and w.getCamera() or w.get('camera')))
     if cam then
         worldMouseX, worldMouseY = cam:screenToWorld(mouseX, mouseY)
     else
@@ -1423,11 +1420,13 @@ function Naves:shoot(mouseX, mouseY)
     end
 
     local BasicRedProjectile = require('src.physics.projectiles.types.basic_red_projectile')
-    local projectile = BasicRedProjectile.new(physMgr:getWorld(), spawnX, spawnY, angle, nil, custom_config)
+    local projectile = BasicRedProjectile.new(box2dWorld, spawnX, spawnY, angle, nil, custom_config)
     
-    -- Agregar el proyectil al sistema de física
-    if projectile and physMgr.addProjectile then
-        physMgr:addProjectile(projectile)
+    -- Agregar el proyectil al sistema de física si está disponible
+    if projectile then
+        if physMgr and physMgr.addProjectile then
+            physMgr:addProjectile(projectile)
+        end
         
         -- Almacenar el proyectil para actualizaciones y renderizado
         if not self.projectiles then
@@ -1438,7 +1437,7 @@ function Naves:shoot(mouseX, mouseY)
         print("[SHOOT] Fired projectile from (", spawnX, ",", spawnY, ")")
         return true
     else
-        print("[SHOOT] Error: Could not create projectile or PhysicsManager doesn't have addProjectile method")
+        print("[SHOOT] Error: Could not create projectile")
         return false
     end
 end

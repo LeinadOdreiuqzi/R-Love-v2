@@ -121,8 +121,8 @@ function BasicRedProjectile:updateLaserEffects(dt)
     self.core_brightness = 0.9 + 0.1 * math.sin(self.laser_flicker)
     
     -- Crear menos partículas para efecto más limpio
-    if self.body and math.random() < 0.3 then -- Solo 30% de probabilidad
-        local x, y = self.body:getPosition()
+    if math.random() < 0.3 then -- Solo 30% de probabilidad
+        local x, y = self:getPosition()
         self:addTrailParticle(x, y)
     end
 end
@@ -132,9 +132,7 @@ end
     @param dt: tiempo delta
 --]]
 function BasicRedProjectile:updateTrail(dt)
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     
     -- Añadir punto actual a la estela
     table.insert(self.trail_points, 1, {x = x, y = y, alpha = 1.0})
@@ -182,10 +180,8 @@ function BasicRedProjectile:draw()
         return
     end
     
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
-    local angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local angle = self:getAngle()
     
     love.graphics.push()
     love.graphics.translate(x, y)
@@ -243,7 +239,7 @@ function BasicRedProjectile:drawTrail()
         love.graphics.setLineWidth(thickness)
         
         -- Convertir coordenadas del mundo a coordenadas locales
-        local current_x, current_y = self.body:getPosition()
+        local current_x, current_y = self:getPosition()
         local local_x1 = point1.x - current_x
         local local_y1 = point1.y - current_y
         local local_x2 = point2.x - current_x
@@ -297,7 +293,7 @@ function BasicRedProjectile:drawTrailParticles()
             love.graphics.setColor(trail_color[1], trail_color[2], trail_color[3], alpha)
             
             -- Convertir a coordenadas locales
-            local current_x, current_y = self.body:getPosition()
+            local current_x, current_y = self:getPosition()
             local local_x = particle.x - current_x
             local local_y = particle.y - current_y
             

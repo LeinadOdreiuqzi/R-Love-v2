@@ -1538,9 +1538,9 @@ function BiomeSystem.updatePlayerBiome(playerX, playerY)
         local config = BiomeSystem.getBiomeConfig(currentBiome)
         local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
         
-        -- El bioma de anomalía gravitacional mantiene su funcionalidad sin shaders
-        
-        if _G.advancedStats and _G.advancedStats.enabled then
+        local GameState = package.loaded['src.core.game_state']
+        local showStats = (GameState and GameState.state and GameState.state.advancedStats and GameState.state.advancedStats.enabled)
+        if showStats then
             print("=== BIOME CHANGE #" .. BiomeSystem.debugInfo.biomeChangeCount .. " ===")
             print("Entered: " .. config.name .. " (" .. config.rarity .. ")")
             print("Color: R=" .. string.format("%.2f", config.color[1]) .. 

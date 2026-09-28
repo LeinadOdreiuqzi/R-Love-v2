@@ -29,7 +29,6 @@ local function loadWorld(updateProgress)
     
     table.insert(loadSteps, function()
         updateProgress("init", "Setting up game systems...")
-        love.window.setMode(1200, 800, {resizable = true})
         return true
     end)
     
@@ -67,8 +66,7 @@ local function loadWorld(updateProgress)
         if not success or not cam then error("Failed to initialize camera") end
         
         World.set('camera', cam)
-        _G.camera = cam -- Global por compatibilidad por ahora
-        _G.camera:updateScreenDimensions()
+        cam:updateScreenDimensions()
         return true
     end)
     
@@ -132,7 +130,6 @@ local function loadWorld(updateProgress)
         local runState = RunState:new({ seed = state.currentSeed })
         local gameDirector = GameDirector:new(runState)
         local physMgr = PhysicsManager:new()
-        _G.physicsManager = physMgr
         
         World.set('state', state)
         World.set('runState', runState)
@@ -300,7 +297,7 @@ function GameLoader.regenerateMap(seed)
         end
     end
     
-    local camera = _G.camera or World.get('camera')
+    local camera = World.get('camera')
     if camera then camera:setPosition(0, 0) end
     
     CoordinateSystem.init(0, 0)

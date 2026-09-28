@@ -120,7 +120,12 @@ end
     Crea el cuerpo físico Box2D para el proyectil
 --]]
 function Projectile:createPhysicsBody()
-    -- TODO: Implementar creación completa del cuerpo físico
+    if not self.world or not love.physics then
+        -- Modo cinemático ligero (desacoplado de Box2D)
+        self.vx = self.initial_velocity_x
+        self.vy = self.initial_velocity_y
+        return
+    end
     
     -- Crear cuerpo dinámico
     self.body = love.physics.newBody(self.world, self.x, self.y, "dynamic")
@@ -208,8 +213,15 @@ function Projectile:update(dt)
     -- Actualizar edad
     self.age = self.age + dt
     
-    -- Actualizar distancia recorrida
-    self:updateDistanceTraveled(dt)
+    -- Actualizar distancia recorrida (cinemática o Box2D)
+    if not self.body then
+        self.x = (self.x or 0) + (self.vx or self.initial_velocity_x or 0) * dt
+        self.y = (self.y or 0) + (self.vy or self.initial_velocity_y or 0) * dt
+        local spd = math.sqrt((self.vx or self.initial_velocity_x or 0)^2 + (self.vy or self.initial_velocity_y or 0)^2)
+        self.distance_traveled = self.distance_traveled + (spd * dt)
+    else
+        self:updateDistanceTraveled(dt)
+    end
     
     -- Verificar condiciones de destrucción
     self:checkDestructionConditions()
@@ -264,12 +276,7 @@ end
     @return: true si está fuera de límites
 --]]
 function Projectile:isOutOfBounds()
-    -- TODO: Implementar verificación de límites del mundo
-    if not self.body then
-        return true
-    end
-    
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     local world_bounds = self.config.world_bounds
     
     if world_bounds then
@@ -535,7 +542,7 @@ end
 --]]
 function Projectile:createExplosion()
     -- TODO: Implementar sistema de explosiones
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     
     -- Crear efectos de explosión
     -- Aplicar daño en área
@@ -555,7 +562,7 @@ end
     Renderiza el proyectil
 --]]
 function Projectile:draw()
-    if self.state == ProjectileState.DESTROYED or not self.body then
+    if self.state == ProjectileState.DESTROYED then
         return
     end
     
@@ -563,8 +570,8 @@ function Projectile:draw()
     love.graphics.push("all")
     
     -- Obtener posición y rotación
-    local x, y = self.body:getPosition()
-    local angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local angle = self:getAngle()
     
     -- Dibujar el proyectil según su tipo
     self:drawProjectileBody(x, y, angle)
@@ -709,7 +716,18 @@ function Projectile:getPosition()
     if self.body then
         return self.body:getPosition()
     end
-    return self.x, self.y
+    return self.x or 0, self.y or 0
+end
+
+--[[
+    Obtiene el ángulo actual del proyectil
+    @return: ángulo en radianes
+--]]
+function Projectile:getAngle()
+    if self.body then
+        return self.body:getAngle()
+    end
+    return self.angle or 0
 end
 
 --[[
@@ -720,7 +738,7 @@ function Projectile:getVelocity()
     if self.body then
         return self.body:getLinearVelocity()
     end
-    return 0, 0
+    return self.vx or self.initial_velocity_x or 0, self.vy or self.initial_velocity_y or 0
 end
 
 -- Exportar enumeraciones para uso externo

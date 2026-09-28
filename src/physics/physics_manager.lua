@@ -58,14 +58,16 @@ end
     Inicializa el mundo Box2D con la configuración especificada
 --]]
 function PhysicsManager:initializeWorld()
-    -- TODO: Implementar inicialización completa del mundo Box2D
+    if not love.physics then return nil end
     -- Crear mundo con gravedad especificada
     world = love.physics.newWorld(gravity_x, gravity_y, true)
+    self.world = world
     
     -- Configurar callbacks de colisión
     self:setupCollisionCallbacks()
     
     print("[PhysicsManager] Mundo Box2D inicializado con gravedad: (" .. gravity_x .. ", " .. gravity_y .. ")")
+    return self.world
 end
 
 --[[
@@ -178,19 +180,9 @@ end
     @return: true si se añadió exitosamente, false en caso contrario
 --]]
 function PhysicsManager:addProjectile(projectile)
-    if not world then
-        print("[PhysicsManager] Error: No hay mundo de física disponible")
-        return false
-    end
-    
     if not projectile then
-        print("[PhysicsManager] Error: Proyectil inválido")
         return false
     end
-    
-    -- El proyectil ya debería tener su cuerpo físico creado
-    -- Solo necesitamos registrarlo si es necesario
-    print("[PhysicsManager] Proyectil añadido al mundo de física")
     return true
 end
 
@@ -199,7 +191,10 @@ end
     @return: mundo Box2D
 --]]
 function PhysicsManager:getWorld()
-    return world
+    if not self.world and not world and love.physics then
+        self:initializeWorld()
+    end
+    return self.world or world
 end
 
 --[[

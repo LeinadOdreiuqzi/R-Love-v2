@@ -143,10 +143,8 @@ end
     @param dt: tiempo delta
 --]]
 function KineticProjectile:updateVelocityTrail(dt)
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
-    local vx, vy = self.body:getLinearVelocity()
+    local x, y = self:getPosition()
+    local vx, vy = self:getVelocity()
     local speed = math.sqrt(vx * vx + vy * vy)
     
     -- Añadir punto actual a la estela
@@ -175,9 +173,7 @@ end
     Crea una chispa metálica
 --]]
 function KineticProjectile:createMetalSpark()
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     local spark = {
         x = x + (math.random() - 0.5) * 4,
         y = y + (math.random() - 0.5) * 4,
@@ -226,10 +222,8 @@ function KineticProjectile:draw()
         return
     end
     
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
-    local angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local angle = self:getAngle()
     
     love.graphics.push()
     love.graphics.translate(x, y)
@@ -291,7 +285,7 @@ function KineticProjectile:drawVelocityTrail()
         love.graphics.setLineWidth(thickness)
         
         -- Convertir a coordenadas locales
-        local current_x, current_y = self.body:getPosition()
+        local current_x, current_y = self:getPosition()
         local local_x1 = point1.x - current_x
         local local_y1 = point1.y - current_y
         local local_x2 = point2.x - current_x
@@ -374,7 +368,7 @@ function KineticProjectile:drawMetalSparks()
         love.graphics.setColor(1, 0.9, 0.6, alpha)
         
         -- Convertir a coordenadas locales
-        local current_x, current_y = self.body:getPosition()
+        local current_x, current_y = self:getPosition()
         local local_x = spark.x - current_x
         local local_y = spark.y - current_y
         

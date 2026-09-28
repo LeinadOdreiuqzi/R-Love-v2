@@ -6,6 +6,7 @@ local MapRenderer = require 'src.maps.systems.map_renderer'
 local MapGenerator = require 'src.maps.systems.map_generator'
 local MapConfig = require 'src.maps.config.map_config'
 local SeedSystem = require 'src.utils.seed_system'
+local World = require 'src.core.world'
 
 local SublevelWorld = {}
 SublevelWorld.__index = SublevelWorld
@@ -66,7 +67,7 @@ function SublevelWorld:update(dt, player)
     end
 
     -- Precarga limitada de chunks alrededor de la cámara para evitar sobrecarga
-    local camera = _G.camera
+    local camera = World.get('camera')
     if not camera then return end
 
     local sizePixels = (MapConfig.chunk.size or 64) * (MapConfig.chunk.tileSize or 32)

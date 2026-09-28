@@ -324,10 +324,8 @@ function HeavyPlasmaProjectile:draw()
         return
     end
     
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
-    local angle = self.body:getAngle()
+    local x, y = self:getPosition()
+    local angle = self:getAngle()
     
     love.graphics.push()
     love.graphics.translate(x, y)
@@ -415,7 +413,7 @@ function HeavyPlasmaProjectile:drawPlasmaTrail()
         love.graphics.setLineWidth(thickness)
         
         -- Convertir a coordenadas locales
-        local current_x, current_y = self.body:getPosition()
+        local current_x, current_y = self:getPosition()
         local local_x1 = point1.x - current_x
         local local_y1 = point1.y - current_y
         local local_x2 = point2.x - current_x
@@ -629,9 +627,7 @@ end
     @param dt: tiempo delta
 --]]
 function HeavyPlasmaProjectile:updateTrail(dt)
-    if not self.body then return end
-    
-    local x, y = self.body:getPosition()
+    local x, y = self:getPosition()
     
     -- Añadir punto actual a la estela
     table.insert(self.trail_points, 1, {x = x, y = y, alpha = 1.0})
