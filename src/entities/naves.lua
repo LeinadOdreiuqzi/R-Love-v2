@@ -360,6 +360,10 @@ function Naves:update(dt)
             if rs and rs.incrementBoosts then
                 rs:incrementBoosts()
             end
+            local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
+            if audio and audio.play then
+                audio.play("boost", { volume = 0.45, pitchVariation = 0.03 })
+            end
         end
     else
         self.boostDuration = math.max(0, self.boostDuration - dt * 2)  -- Se agota más rápido
@@ -649,7 +653,17 @@ end
 
 -- Functions for testing damage and fuel
 function Naves:takeDamage(damage)
-    return self.stats:takeDamage(damage)
+    local died = self.stats:takeDamage(damage)
+    local w = getWorld()
+    local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
+    if audio and audio.play then
+        if died then
+            audio.play("explosion", { volume = 0.9 })
+        else
+            audio.play("hit", { volume = 0.75, pitchVariation = 0.08 })
+        end
+    end
+    return died
 end
 
 function Naves:heal(amount)
@@ -1433,6 +1447,11 @@ function Naves:shoot(mouseX, mouseY)
             self.projectiles = {}
         end
         table.insert(self.projectiles, projectile)
+        
+        local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
+        if audio and audio.play then
+            audio.play("laser", { pitchVariation = 0.05, volume = 0.8 })
+        end
         
         print("[SHOOT] Fired projectile from (", spawnX, ",", spawnY, ")")
         return true

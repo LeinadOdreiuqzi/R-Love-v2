@@ -14,6 +14,7 @@ local _data = {
     map      = nil,   -- módulo Map
     camera   = nil,   -- instancia Camera  (reemplaza _G.camera)
     physics  = nil,   -- instancia PhysicsManager  (reemplaza _G.physicsManager)
+    audio    = nil,   -- módulo AudioManager
     runState = nil,   -- instancia RunState
     director = nil,   -- instancia GameDirector
     seed     = nil,   -- semilla actual (string alfanumérico)
@@ -47,6 +48,7 @@ function World.getPlayer()   return _data.player   end
 function World.getCamera()   return _data.camera   end
 function World.getMap()      return _data.map      end
 function World.getPhysics()  return _data.physics  end
+function World.getAudio()    return _data.audio    end
 function World.getRunState() return _data.runState end
 function World.getDirector() return _data.director end
 

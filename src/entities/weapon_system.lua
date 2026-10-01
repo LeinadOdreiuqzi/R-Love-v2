@@ -193,6 +193,11 @@ function WeaponSystem:switchToSlot(slot)
     local WeaponHUD = require 'src.ui.weapon_hud'
     WeaponHUD:onWeaponSwitch(slot)
     
+    local audio = (World.getAudio and World.getAudio()) or World.get('audio')
+    if audio and audio.play then
+        audio.play("ui_click", { pitch = 1.3, volume = 0.5 })
+    end
+    
     -- Cambiado a arma
     return true
 end
@@ -413,6 +418,18 @@ function WeaponSystem:shoot(mouseX, mouseY)
         -- Actualizar tiempo del último disparo
         self.lastShotTime = love.timer.getTime()
         
+        -- Audio de disparo según tipo de arma
+        local audio = (World.getAudio and World.getAudio()) or World.get('audio')
+        if audio and audio.play then
+            if weaponId == "energy_shotgun" then
+                audio.play("shotgun", { pitchVariation = 0.08, volume = 0.85 })
+            elseif weaponId == "heavy_plasma_cannon" or weaponId == "plasma_rifle" then
+                audio.play("plasma", { pitchVariation = 0.06, volume = 0.9 })
+            else
+                audio.play("laser", { pitchVariation = 0.06, volume = 0.8 })
+            end
+        end
+        
         -- Consumir munición si aplica
         if self.currentWeapon.maxAmmo then
             self.ammunition[self.currentWeapon.id] = (self.ammunition[self.currentWeapon.id] or 0) - 1
@@ -449,6 +466,11 @@ function WeaponSystem:reload()
     -- Iniciar recarga
     self.isReloading = true
     self.reloadStartTime = love.timer.getTime()
+    
+    local audio = (World.getAudio and World.getAudio()) or World.get('audio')
+    if audio and audio.play then
+        audio.play("item_equip", { pitch = 1.25, volume = 0.65 })
+    end
     
     -- Recargando arma
     return true

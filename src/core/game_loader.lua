@@ -21,6 +21,7 @@ local GameDirector = require 'src.gameplay.game_director'
 local PhysicsManager = require 'src.physics.physics_manager'
 local InventoryManager = require 'src.core.inventory_manager'
 local PassiveManager = require 'src.item_systems.passive_manager'
+local AudioManager = require 'src.audio.audio_manager'
 
 local function loadWorld(updateProgress)
     local state = GameState.state
@@ -131,10 +132,14 @@ local function loadWorld(updateProgress)
         local gameDirector = GameDirector:new(runState)
         local physMgr = PhysicsManager:new()
         
+        AudioManager.init()
+        AudioManager.playMusic("cavern_groove", { loop = true, volume = 0.40 })
+        
         World.set('state', state)
         World.set('runState', runState)
         World.set('director', gameDirector)
         World.set('physics', physMgr)
+        World.set('audio', AudioManager)
         World.set('map', Map)
         World.set('seed', state.currentSeed)
         World.set('biomeDebug', GameState.biomeDebug)
