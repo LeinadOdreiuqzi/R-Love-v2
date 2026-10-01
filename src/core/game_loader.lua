@@ -133,7 +133,7 @@ local function loadWorld(updateProgress)
         local physMgr = PhysicsManager:new()
         
         AudioManager.init()
-        AudioManager.playMusic("cavern_groove", { loop = true, volume = 0.40 })
+        AudioManager.playMusic("ancient_sanctuary", { loop = true, volume = 0.45 })
         
         World.set('state', state)
         World.set('runState', runState)

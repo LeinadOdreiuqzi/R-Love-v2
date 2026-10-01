@@ -1,11 +1,11 @@
 -- src/audio/procedural_music.lua
--- Generador de bandas sonoras procedurales en memoria (Tracker Algorítmico)
--- Inspirado en el diseño sonoro de Yoshi's Island (Underground) de Koji Kondo
+-- Motor de síntesis procedural y composición algorítmica para bandas sonoras
 -- Cero dependencias externas | Síntesis DSP en RAM pura
 
 local ProceduralMusic = {}
 
 local SAMPLE_RATE = 44100
+local TWO_PI = math.pi * 2.0
 
 -- ============================================================================
 -- TEORÍA MUSICAL Y CONVERSIÓN DE NOTAS
@@ -15,20 +15,19 @@ local function midiToFreq(note)
     return 440.0 * (2.0 ^ ((note - 69.0) / 12.0))
 end
 
--- Mapeo semántico de notas (octavas 1 a 6)
-local N = {
-    -- Octava 1 (Sub-bajos profundos)
-    C1 = 24, D1 = 26, Eb1 = 27, E1 = 28, F1 = 29, G1 = 31, Ab1 = 32, A1 = 33, Bb1 = 34, B1 = 35,
-    -- Octava 2 (Bajos principales)
-    C2 = 36, Cs2 = 37, D2 = 38, Eb2 = 39, E2 = 40, F2 = 41, Fs2 = 42, G2 = 43, Ab2 = 44, A2 = 45, Bb2 = 46, B2 = 47,
-    -- Octava 3 (Bajos agudos y armonías)
-    C3 = 48, Cs3 = 49, D3 = 50, Eb3 = 51, E3 = 52, F3 = 53, Fs3 = 54, G3 = 55, Ab3 = 56, A3 = 57, Bb3 = 58, B3 = 59,
-    -- Octava 4 (Teclas / Chimes)
-    C4 = 60, Cs4 = 61, D4 = 62, Eb4 = 63, E4 = 64, F4 = 65, Fs4 = 66, G4 = 67, Ab4 = 68, A4 = 69, Bb4 = 70, B4 = 71,
-    -- Octava 5 y 6 (Gotas de agua y campanas)
-    C5 = 72, D5 = 74, Eb5 = 75, E5 = 76, F5 = 77, G5 = 79, A5 = 81, Bb5 = 82,
-    C6 = 84, D6 = 86, E6 = 88, F6 = 89, G6 = 91, A6 = 93, C7 = 96
+-- Mapeo semántico de notas (octavas 1 a 7 con sostenidos y bemoles)
+local N = {}
+local baseNotes = {
+    C = 0, Cs = 1, Db = 1, D = 2, Ds = 3, Eb = 3, E = 4,
+    F = 5, Fs = 6, Gb = 6, G = 7, Gs = 8, Ab = 8, A = 9,
+    As = 10, Bb = 10, B = 11
 }
+for oct = 1, 7 do
+    for name, semi in pairs(baseNotes) do
+        N[name .. oct] = (oct + 1) * 12 + semi
+    end
+end
+
 
 local function clampSample(v)
     if v > 1.0 then return 1.0 end
@@ -108,6 +107,80 @@ local Instruments = {
         local freq = 60 * math.exp(-progress * 16.0) + 36
         local sample = math.sin(2 * math.pi * freq * t) * env
         return sample * 0.34
+    end,
+
+    -- 6. Bajo melódico acústico (cálido, redondo y resonante)
+    warmUprightBass = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+        local env = math.exp(-progress * 4.4)
+        local fundamental = math.sin(TWO_PI * freq * t)
+        local octave = math.sin(TWO_PI * (freq * 2.0) * t) * 0.28
+        local twelfth = math.sin(TWO_PI * (freq * 3.0) * t) * 0.08
+        local tri = (math.abs(((freq * t) % 1.0) - 0.5) * 4.0 - 1.0) * 0.15
+        local sample = math.tanh((fundamental + octave + twelfth + tri) * 1.3)
+        return sample * env * 0.48
+    end,
+
+    -- 7. Teclas de cristal / Rhodes etéreo
+    crystalRhodes = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+        local env = math.exp(-progress * 5.0)
+        local tine = math.sin(TWO_PI * (freq * 3.98) * t) * 0.30 * math.exp(-progress * 18.0)
+        local body = math.sin(TWO_PI * freq * t)
+        local overtone = math.sin(TWO_PI * (freq * 2.0) * t) * 0.18
+        local trem = 1.0 + 0.06 * math.sin(TWO_PI * 4.2 * t)
+        return (body + overtone + tine) * env * trem * 0.22
+    end,
+
+    -- 8. Vibráfono cálido de jazz / Celesta acústica (Timbre melódico redondo, cálido y resonante)
+    warmVibraphone = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+        local attack = math.min(1.0, t / 0.014)
+        local decay = math.exp(-progress * 3.0)
+        local trem = 1.0 + 0.07 * math.sin(TWO_PI * 4.2 * t)
+        
+        local fund = math.sin(TWO_PI * freq * t)
+        local octave = math.sin(TWO_PI * (freq * 2.0) * t) * 0.18
+        local chime = math.sin(TWO_PI * (freq * 3.98) * t) * 0.12 * math.exp(-progress * 14.0)
+        
+        local sample = math.tanh((fund + octave + chime) * 1.15)
+        return sample * attack * decay * trem * 0.36
+    end,
+    ancientFlute = function(note, t, duration)
+        return Instruments.warmVibraphone(note, t, duration)
+    end,
+
+    -- 9. Side-stick / Rimshot de madera cálida
+    sideStick = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 52.0)
+        local pop = math.sin(TWO_PI * 840 * t) * 0.65
+        local noise = (math.random() * 2 - 1) * 0.35
+        return (pop + noise) * env * 0.20
+    end,
+
+    -- 10. Shaker suave
+    softShaker = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 38.0)
+        return (math.random() * 2 - 1) * env * 0.09
+    end,
+
+    -- 11. Golpe sordo amortiguado (Thud)
+    muffledThud = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 20.0)
+        local freq = 55 * math.exp(-progress * 18.0) + 32
+        return math.sin(TWO_PI * freq * t) * env * 0.30
     end
 }
 
@@ -437,6 +510,370 @@ function ProceduralMusic.generateSpaceAmbient()
 
         local sample = (chord + twinkle) * 0.45
         sd:setSample(i, clampSample(sample))
+    end
+
+    return sd
+end
+
+--[[
+    Genera la pista "ancient_sanctuary" (16 compases / ~49.2 segundos)
+    Armonía modal melancólica en Fa menor, bajo acústico melódico, flauta y arpegios etéreos
+--]]
+function ProceduralMusic.generateAncientSanctuary()
+    local bpm = 78
+    local stepDuration = 60.0 / (bpm * 4) -- ~0.1923 s por semicorchea
+    local totalSteps = 256 -- 16 compases (~49.23 segundos)
+    local totalDuration = totalSteps * stepDuration
+    local totalSamples = math.floor(SAMPLE_RATE * totalDuration)
+
+    local bassBuffer = {}
+    local wetBuffer = {}
+    for i = 1, totalSamples do
+        bassBuffer[i] = 0
+        wetBuffer[i] = 0
+    end
+
+    local function addNote(buf, instrumentFn, note, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = instrumentFn(note, t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    local function addPercussion(buf, percFn, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = percFn(t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    -- ========================================================================
+    -- COMPASES 1-4: INTRO Y ESTABLECIMIENTO DEL GROOVE (Fm9 -> Db -> Bbm -> C7)
+    -- ========================================================================
+    -- Compás 1
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 1, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 5, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab1, 7, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 10, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 13, 1.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Eb2, 15, 2.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C4, 3, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Eb4, 6, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 9, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Ab4, 12, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C5, 15, 3.0)
+
+    -- Compás 2
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 17, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 21, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab1, 24, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 27, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Eb1, 30, 2.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Ab3, 19, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C4, 22, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Eb4, 25, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.F4, 28, 3.0)
+
+    -- Compás 3
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 33, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 37, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 40, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 43, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db2, 46, 2.5)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Db4, 35, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.F4, 38, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Ab4, 41, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C5, 44, 3.0)
+
+    -- Compás 4
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 49, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G2, 53, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 56, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 59, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.E2, 62, 2.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C4, 51, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.F4, 54, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 57, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Bb4, 60, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.E4, 63, 2.5)
+
+    -- ========================================================================
+    -- COMPASES 5-8: TEMA PRINCIPAL (FLAUTA ANTIGUA + GROOVE)
+    -- ========================================================================
+    -- Compás 5
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 65, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 69, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab1, 71, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 74, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 77, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Eb2, 79, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 65, 6.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 71, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F4, 74, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Eb4, 78, 3.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C4, 67, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Eb4, 73, 3.0)
+
+    -- Compás 6
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db2, 81, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 85, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 88, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C3, 91, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 94, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F4, 81, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C4, 85, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Eb4, 88, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F4, 91, 6.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Ab4, 83, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C5, 89, 3.0)
+
+    -- Compás 7
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Eb2, 97, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G2, 101, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 104, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab1, 107, 3.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 110, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 97, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 100, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 103, 5.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 108, 4.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Eb4, 99, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Bb4, 105, 3.0)
+
+    -- Compás 8
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 113, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db2, 117, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 120, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 123, 3.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.E2, 126, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 113, 3.5)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 117, 2.5)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F4, 120, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.E4, 124, 5.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Db4, 115, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 121, 3.0)
+
+    -- ========================================================================
+    -- COMPASES 9-12: VARIACIÓN MODAL Y REGISTRO ALTO
+    -- ========================================================================
+    -- Compás 9
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db2, 129, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 133, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C3, 136, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F3, 139, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Eb3, 142, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 129, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Db5, 133, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 137, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 140, 4.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.F4, 131, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Ab4, 135, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C5, 141, 3.0)
+
+    -- Compás 10
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Eb2, 145, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 149, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db3, 152, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G2, 155, 3.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 158, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 145, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 149, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 152, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 155, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 158, 3.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 147, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Bb4, 153, 3.0)
+
+    -- Compás 11
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 161, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G2, 165, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 168, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 171, 3.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 174, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Eb5, 161, 5.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.D5, 166, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 169, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 173, 4.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Eb4, 163, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 167, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C5, 172, 3.0)
+
+    -- Compás 12
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 177, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 181, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 184, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G2, 187, 3.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 190, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 177, 3.5)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 181, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 184, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 187, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F4, 190, 3.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Db4, 179, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.F4, 185, 3.0)
+
+    -- ========================================================================
+    -- COMPASES 13-16: CLÍMAX MÍSTICO Y RESOLUCIÓN CIRCULAR
+    -- ========================================================================
+    -- Compás 13
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Gb1, 193, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db2, 197, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 200, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 203, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db3, 206, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F5, 193, 6.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Eb5, 199, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Db5, 203, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 207, 2.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Bb4, 195, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Db5, 201, 3.0)
+
+    -- Compás 14
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F1, 209, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 213, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db2, 216, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.F2, 219, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab2, 222, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Db5, 209, 5.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 214, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 217, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 221, 4.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Ab4, 211, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C5, 217, 3.0)
+
+    -- Compás 15
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 225, 3.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G2, 229, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb2, 232, 2.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Db3, 235, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C3, 238, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 225, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 229, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Db5, 233, 4.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.C5, 237, 4.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 227, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Bb4, 233, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.E5, 237, 3.0)
+
+    -- Compás 16
+    addNote(bassBuffer, Instruments.warmUprightBass, N.C2, 241, 3.0)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Bb1, 245, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Ab1, 248, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.G1, 251, 2.5)
+    addNote(bassBuffer, Instruments.warmUprightBass, N.Gb1, 254, 2.0)
+
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Bb4, 241, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.Ab4, 244, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.G4, 247, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.E4, 250, 3.0)
+    addNote(wetBuffer, Instruments.warmVibraphone, N.F4, 253, 4.0)
+
+    addNote(wetBuffer, Instruments.crystalRhodes, N.C4, 243, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.Eb4, 247, 3.0)
+    addNote(wetBuffer, Instruments.crystalRhodes, N.G4, 251, 3.0)
+
+    -- ========================================================================
+    -- PERCUSIÓN ORGÁNICA (16 compases)
+    -- ========================================================================
+    for bar = 0, 15 do
+        local base = bar * 16
+        -- Bombo sordo en pulsos 1 y 9
+        addPercussion(bassBuffer, Instruments.muffledThud, base + 1, 2.5)
+        addPercussion(bassBuffer, Instruments.muffledThud, base + 9, 2.5)
+
+        -- Side-stick en pulsos 5 y 13
+        addPercussion(bassBuffer, Instruments.sideStick, base + 5, 1.5)
+        addPercussion(bassBuffer, Instruments.sideStick, base + 13, 1.5)
+
+        -- Shaker suave continuo en semicorcheas intermedias
+        addPercussion(bassBuffer, Instruments.softShaker, base + 3, 1.0)
+        addPercussion(bassBuffer, Instruments.softShaker, base + 7, 1.0)
+        addPercussion(bassBuffer, Instruments.softShaker, base + 11, 1.0)
+        addPercussion(bassBuffer, Instruments.softShaker, base + 15, 1.0)
+
+        -- Ghost note en rim click en compases 4, 8, 12, 16
+        if bar % 4 == 3 then
+            addPercussion(bassBuffer, Instruments.sideStick, base + 16, 0.8)
+        end
+    end
+
+    -- ========================================================================
+    -- LÍNEA DE RETARDO / REVERB ESPACIAL (SOLO EN EL WET BUFFER)
+    -- ========================================================================
+    local delaySamples = math.floor(stepDuration * 4.0 * SAMPLE_RATE) -- ~769 ms
+    local delayBuffer = {}
+    for i = 1, delaySamples do
+        delayBuffer[i] = 0
+    end
+
+    local delayIdx = 1
+    local feedback = 0.32
+
+    for pass = 1, 2 do
+        for i = 1, totalSamples do
+            local dry = wetBuffer[i]
+            local echo = delayBuffer[delayIdx]
+
+            if pass == 2 then
+                wetBuffer[i] = dry + echo * feedback
+            end
+
+            delayBuffer[delayIdx] = dry + echo * feedback
+            delayIdx = (delayIdx % delaySamples) + 1
+        end
+    end
+
+    -- Mezcla final: Bajo y percusión directa + Flauta y arpegios con espacialidad
+    local sd = love.sound.newSoundData(totalSamples, SAMPLE_RATE, 16, 1)
+    for i = 0, totalSamples - 1 do
+        local bass = bassBuffer[i + 1] or 0
+        local wet = wetBuffer[i + 1] or 0
+        local finalSample = (bass * 0.88 + wet * 0.72) * 0.82
+        sd:setSample(i, clampSample(finalSample))
     end
 
     return sd

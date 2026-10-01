@@ -212,10 +212,20 @@ local Synthesizers = {
         return sd
     end,
 
-    -- Banda sonora estilo Yoshi's Island Underground (Groove sincopado, gotas cavernosas, eco espacial)
+    -- Banda sonora procedural "cavern_groove": Groove percusivo sincopado, gotas cavernosas y retardo estéreo
     cavern_groove = function()
         local ProceduralMusic = require 'src.audio.procedural_music'
         return ProceduralMusic.generateCavernGroove()
+    end,
+
+    -- Banda sonora procedural "ancient_sanctuary": Armonía modal en Fa menor, bajo acústico melódico, flauta y arpegios etéreos
+    ancient_sanctuary = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAncientSanctuary()
+    end,
+    secret_sanctuary = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAncientSanctuary()
     end,
 
     -- Drone espacial ambiental enriquecido (acorde profundo + arpegio estelar)
