@@ -61,18 +61,38 @@ function InputManager.keypressed(key)
         return
     end
 
+    -- Intercepción de Menú de Pausa (Prioridad máxima si está abierto)
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        if key == "escape" then
+            PauseMenu.handleEscape()
+            return
+        end
+        if PauseMenu.keypressed and PauseMenu.keypressed(key) then
+            return
+        end
+        return
+    end
+
     -- 4. ATAJOS GLOBALES (SIEMPRE ACTIVOS)
     if key == "escape" then
-        love.event.quit()
+        -- Si hay inventario abierto, cerrarlo
+        if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA then
+            EVAInventoryUI:toggle(player.evaPlayer)
+            return
+        end
+        if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+            InventoryUI:toggle(player)
+            return
+        end
+        -- De lo contrario, abrir el menú de pausa
+        PauseMenu.open()
         return
     elseif (key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))) or key == "f11" then
         toggleFullscreen()
         return
     elseif key == "p" then
-        if gameState then
-            gameState.paused = not gameState.paused
-            print("Game " .. (gameState.paused and "PAUSED" or "RESUMED"))
-        end
+        PauseMenu.toggle()
         return
     end
 
@@ -253,6 +273,13 @@ function InputManager.mousepressed(x, y, button)
     local InventoryUI = package.loaded['src.ui.inventory_ui']
     local EVAInventoryUI = package.loaded['src.ui.eva_inventory_ui']
 
+    -- 0. Intercepción de Menú de Pausa
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        PauseMenu.mousepressed(x, y, button)
+        return
+    end
+
     -- 1. Delegar al StateManager
     if stateManager and stateManager.mousepressed and stateManager:mousepressed(x, y, button) then
         return
@@ -283,6 +310,12 @@ function InputManager.mousereleased(x, y, button)
 
     local stateManager = World.get('stateManager')
     local InventoryUI = package.loaded['src.ui.inventory_ui']
+
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        PauseMenu.mousereleased(x, y, button)
+        return
+    end
 
     if stateManager and stateManager.mousereleased and stateManager:mousereleased(x, y, button) then
         return

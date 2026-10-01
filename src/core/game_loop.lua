@@ -28,6 +28,13 @@ function GameLoop.update(dt)
     end
     
     if not state.loaded then return end
+    
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        PauseMenu.update(dt)
+        return
+    end
+
     if state.paused then return end
 
     local stateManager = World.get('stateManager')
@@ -196,6 +203,11 @@ function GameLoop.draw()
     end
 
     if stateManager then stateManager:draw() end
+
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        PauseMenu.draw()
+    end
 end
 
 return GameLoop
