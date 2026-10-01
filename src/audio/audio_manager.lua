@@ -228,6 +228,26 @@ local Synthesizers = {
         return ProceduralMusic.generateAncientSanctuary()
     end,
 
+    -- Banda sonora procedural "lunar_waltz": Vals acústico en 3/4 con arpegios de nylon, cello y celesta
+    lunar_waltz = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateLunarWaltz()
+    end,
+    rises_the_moon = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateLunarWaltz()
+    end,
+
+    -- Banda sonora procedural "opaline_haven": Tradicional y nostálgica con koto, flauta de bambú y campanas
+    opaline_haven = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateOpalineHaven()
+    end,
+    ciudad_caolin = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateOpalineHaven()
+    end,
+
     -- Drone espacial ambiental enriquecido (acorde profundo + arpegio estelar)
     space_ambient = function()
         local ProceduralMusic = require 'src.audio.procedural_music'

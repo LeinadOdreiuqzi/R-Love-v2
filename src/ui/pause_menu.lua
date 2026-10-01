@@ -21,6 +21,8 @@ end
 
 -- Lista de soundtracks disponibles para depuración
 local SOUNDTRACKS = {
+    { id = "opaline_haven",     name = "Opaline Haven" },
+    { id = "lunar_waltz",       name = "Lunar Waltz" },
     { id = "ancient_sanctuary", name = "Ancient Sanctuary" },
     { id = "cavern_groove",     name = "Cavern Groove" },
     { id = "space_ambient",     name = "Space Ambient" }
@@ -244,7 +246,7 @@ end
 -- ─── VISTA DE DEPURACIÓN DE AUDIO ───────────────────────────────────────────
 
 function PauseMenu.drawAudioDebugView(sw, sh, alpha)
-    local pw, ph = 460, 400
+    local pw, ph = 460, 450
     local px = math.floor((sw - pw) / 2)
     local py = math.floor((sh - ph) / 2)
 
@@ -453,7 +455,7 @@ function PauseMenu.mousepressed(x, y, button)
         end
 
     elseif PauseMenu.state.view == "audio_debug" then
-        local pw, ph = 460, 400
+        local pw, ph = 460, 450
         local px = math.floor((sw - pw) / 2)
         local py = math.floor((sh - ph) / 2)
         local statusY = py + 62

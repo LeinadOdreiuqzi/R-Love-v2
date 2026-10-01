@@ -39,6 +39,11 @@ end
 -- SÍNTESIS DE INSTRUMENTOS VIRTUALES (DSP)
 -- ============================================================================
 
+local NOISE_TABLE = {}
+for i = 1, 1024 do
+    NOISE_TABLE[i] = (math.random() * 2 - 1) * 0.04
+end
+
 local Instruments = {
     -- 1. Bajo "Rubber Slap" (elástico, limpio, sin siseo ni zumbidos raros)
     rubberBass = function(note, t, duration)
@@ -181,6 +186,246 @@ local Instruments = {
         local env = math.exp(-progress * 20.0)
         local freq = 55 * math.exp(-progress * 18.0) + 32
         return math.sin(TWO_PI * freq * t) * env * 0.30
+    end,
+
+    -- 12. Bajo acústico de nylon (pulgar limpio, definido y profundo con ataque preciso sin artefactos)
+    nylonBass = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.003)
+        local decay = math.exp(-progress * 3.2)
+
+        local w = TWO_PI * freq * t
+        local h1 = math.sin(w)
+        local h2 = math.sin(w * 2.0) * 0.45 * math.exp(-progress * 6.0)
+        local h3 = math.sin(w * 3.0) * 0.14 * math.exp(-progress * 10.0)
+
+        local sample = math.tanh((h1 + h2 + h3) * 1.3) * attack * decay
+        return sample * 0.46
+    end,
+
+    -- 13. Cuerdas pulsadas de nylon para acordes (suaves, cálidas y aireadas)
+    nylonChord = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.006)
+        local decay = math.exp(-progress * 3.8)
+
+        local w = TWO_PI * freq * t
+        local h1 = math.sin(w)
+        local h2 = math.sin(w * 2.0) * 0.30 * math.max(0, 1.0 - progress * 0.8)
+        local h3 = math.sin(w * 3.0) * 0.10 * math.max(0, 1.0 - progress * 0.9)
+
+        local sample = math.tanh((h1 + h2 + h3) * 1.15) * attack * decay
+        return sample * 0.35
+    end,
+
+    -- Alias por compatibilidad
+    nylonGuitar = function(note, t, duration)
+        return Instruments.nylonChord(note, t, duration)
+    end,
+
+    -- 14. Cello de cámara (arco lento y suave que entra como colchón armónico)
+    chamberCello = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.22)
+        local release = math.exp(-math.max(0, (progress - 0.70) * 5.0))
+        local env = attack * release
+
+        local vibDelay = 0.20
+        local vibAmount = t > vibDelay and math.min(1.0, (t - vibDelay) / 0.4) * 0.009 or 0
+        local freq = baseFreq * (1.0 + math.sin(TWO_PI * 4.6 * t) * vibAmount)
+
+        local f1 = math.sin(TWO_PI * freq * t) * 0.72
+        local f2 = math.sin(TWO_PI * (freq * 2.0) * t) * 0.20
+        local f3 = math.sin(TWO_PI * (freq * 3.0) * t) * 0.06
+
+        return (f1 + f2 + f3) * env * 0.25
+    end,
+
+    -- 15. Celesta acústica / Notas de cuna dulces con decaimiento melancólico
+    lullabyCeleste = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.010)
+        local decay = math.exp(-progress * 2.8)
+        local trem = 1.0 + 0.05 * math.sin(TWO_PI * 3.8 * t)
+
+        local fund = math.sin(TWO_PI * freq * t)
+        local oct = math.sin(TWO_PI * (freq * 2.0) * t) * 0.18
+        local tine = math.sin(TWO_PI * (freq * 3.98) * t) * 0.14 * math.exp(-progress * 12.0)
+
+        local sample = math.tanh((fund + oct + tine) * 1.1) * attack * decay * trem
+        return sample * 0.32
+    end,
+
+    -- 16. [16-bit Style] Cuerda tradicional punteada (Koto / Shamisen)
+    -- Cuantización sutil estilo soundfont vintage, micro-deslizamiento inicial y armónicos brillantes
+    folkKoto = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local pitchBend = t < 0.03 and (1.0 + (0.03 - t) * 0.35) or 1.0
+        local freq = baseFreq * pitchBend
+
+        local attack = math.min(1.0, t / 0.002)
+        local decay = (1.0 - progress) * (1.0 - progress) * (1.0 - progress)
+
+        local w = TWO_PI * freq * t
+        local h1 = math.sin(w)
+        local h2 = math.sin(w * 2.0) * 0.38
+        local h3 = math.sin(w * 3.0) * 0.18
+
+        local raw = (h1 + h2 + h3) * attack * decay
+        local quantLevels = 2048
+        local quantized = math.floor(raw * quantLevels + 0.5) / quantLevels
+        return math.tanh(quantized * 1.3) * 0.40
+    end,
+
+    -- 17. [32-bit Floating Point] Flauta de bambú expresiva (Shinobue / Shakuhachi)
+    -- Respiración acústica, transiciones suaves, vibrato lírico y armónicos de madera
+    bambooFlute = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.07)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.75) / 0.25))
+        local env = attack * release
+
+        local vibDelay = 0.12
+        local vibDepth = t > vibDelay and math.min(1.0, (t - vibDelay) / 0.35) * 0.012 or 0
+        local freq = baseFreq * (1.0 + math.sin(TWO_PI * 4.8 * t) * vibDepth)
+
+        local w = TWO_PI * freq * t
+        local f1 = math.sin(w)
+        local f2 = math.sin(w * 2.0) * 0.28
+        local f3 = math.sin(w * 3.0) * 0.10
+
+        local sIdx = math.floor(t * 44100) % 1024 + 1
+        local breath = NOISE_TABLE[sIdx] * (1.0 - progress)
+
+        local sample = math.tanh((f1 + f2 + f3 + breath) * 1.1) * env
+        return sample * 0.34
+    end,
+
+    -- 18. [16-bit Style] Campanilla / Chime nostálgico
+    -- Timbre puro con textura cálida estilo soundfont clásico
+    nostalgicChime = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.005)
+        local decay = (1.0 - progress) * (1.0 - progress)
+
+        local fund = math.sin(TWO_PI * freq * t)
+        local part2 = math.sin(TWO_PI * (freq * 2.76) * t) * 0.24
+        local part3 = math.sin(TWO_PI * (freq * 5.40) * t) * 0.10
+
+        local raw = (fund + part2 + part3) * attack * decay
+        local quantLevels = 1024
+        local quantized = math.floor(raw * quantLevels + 0.5) / quantLevels
+        return quantized * 0.26
+    end,
+
+    -- 19. [32-bit Floating Point] Bajo acústico folk
+    -- Redondo, profundo, con respuesta dinámica de cuerda y cuerpo resonante
+    warmFolkBass = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.004)
+        local decay = (1.0 - progress) * (1.0 - progress) * (1.0 - progress)
+
+        local w = TWO_PI * freq * t
+        local h1 = math.sin(w)
+        local h2 = math.sin(w * 2.0) * 0.30
+        local sub = math.sin(w * 0.5) * 0.16
+
+        local sample = math.tanh((h1 + h2 + sub) * 1.25) * attack * decay
+        return sample * 0.45
+    end,
+
+    -- 20. [32-bit Floating Point] Colchón de cuerdas etéreas (Swell Pad)
+    -- Amplitud estéreo suave, ataque lento y calidez armónica
+    etherealPad = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.25)
+        local release = math.exp(-math.max(0, (progress - 0.72) * 4.0))
+        local env = attack * release
+
+        local w = TWO_PI * freq * t
+        local o1 = math.sin(w)
+        local o2 = math.sin(w * 2.0) * 0.22
+        return (o1 + o2) * env * 0.16
+    end,
+
+    -- 21. [16-bit Style] Percusión de madera tradicional (Woodblock / Clave suave)
+    woodBlock = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 26.0)
+        local freq = 740 * math.exp(-progress * 16.0) + 420
+        local sample = math.sin(TWO_PI * freq * t) * env
+        return math.tanh(sample * 1.4) * 0.22
+    end,
+
+    -- 22. [32-bit Style] Tambor acústico suave (Taiko tenue de fondo)
+    softTaiko = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 7.5)
+        local freq = 78 * math.exp(-progress * 8.0) + 44
+        local tone = math.sin(TWO_PI * freq * t)
+        local body = math.sin(TWO_PI * (freq * 1.52) * t) * 0.25 * math.exp(-progress * 15.0)
+        return math.tanh((tone + body) * 1.3) * env * 0.35
+    end,
+
+    -- 23. Piano acústico normal (macillo de fieltro, doble cuerda con unísono acústico y decaimiento cantarín)
+    acousticPiano = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        -- 1. Transiente percusivo del macillo de fieltro (< 2 ms)
+        local attack = math.min(1.0, t / 0.0018)
+        local hammerKnock = math.sin(TWO_PI * 155.0 * t) * math.exp(-t * 220.0) * 0.20
+
+        -- 2. Doble cuerda al unísono con micro-desafine natural (chorus acústico)
+        local detune = 1.0008
+        local w1 = TWO_PI * baseFreq * t
+        local w2 = TWO_PI * (baseFreq * detune) * t
+
+        -- 3. Decaimiento dual acústico (prompt sound + sustain cantarín)
+        local prompt = (1.0 - progress) * (1.0 - progress) * (1.0 - progress)
+        local sustain = math.exp(-progress * 2.2)
+
+        local h1 = (math.sin(w1) + math.sin(w2)) * 0.55 * sustain
+        local h2 = math.sin(w1 * 2.0) * 0.35 * (sustain * 0.6 + prompt * 0.4)
+        local h3 = math.sin(w1 * 3.0) * 0.18 * prompt
+        local h4 = math.sin(w1 * 4.0) * 0.07 * (prompt * prompt)
+
+        -- Resonancia cálida del cuerpo y arpa de madera
+        local body = math.sin(TWO_PI * (baseFreq * 0.5) * t) * 0.08 * sustain
+
+        local stringSound = (h1 + h2 + h3 + h4 + body) * attack
+        local sample = (stringSound + hammerKnock) * 0.55
+        return math.tanh(sample * 1.15) * 0.46
     end
 }
 
@@ -873,6 +1118,418 @@ function ProceduralMusic.generateAncientSanctuary()
         local bass = bassBuffer[i + 1] or 0
         local wet = wetBuffer[i + 1] or 0
         local finalSample = (bass * 0.88 + wet * 0.72) * 0.82
+        sd:setSample(i, clampSample(finalSample))
+    end
+
+    return sd
+end
+
+--[[
+    Genera la pista "lunar_waltz" (36 compases en compás de 3/4 / ~77.14 segundos)
+    Composición acústica: bajo de pulgar de nylon definido, acordes cálidos, cello de soporte
+    y celesta/caja de música con puente melancólico y resolución dulce en coda.
+--]]
+function ProceduralMusic.generateLunarWaltz()
+    local bpm = 84
+    local beatDuration = 60.0 / bpm
+    local stepDuration = beatDuration / 4.0 -- 12 pasos por compás (~0.1786 s)
+    local totalBars = 36 -- 36 compases (~77.14 segundos)
+    local totalSteps = totalBars * 12
+    local totalDuration = totalSteps * stepDuration
+    local totalSamples = math.floor(SAMPLE_RATE * totalDuration)
+
+    local guitarBuffer = {}
+    local wetBuffer = {}
+    for i = 1, totalSamples do
+        guitarBuffer[i] = 0
+        wetBuffer[i] = 0
+    end
+
+    local function addNote(buf, instrumentFn, note, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = instrumentFn(note, t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    local function addChord(buf, instrumentFn, notes, startStep, durationSteps)
+        for _, note in ipairs(notes) do
+            addNote(buf, instrumentFn, note, startStep, durationSteps)
+        end
+    end
+
+    -- Estructura armónica completa de 36 compases
+    local harmony = {
+        -- Compases 1-4: Intro de guitarra acústica sola
+        { bass = N.C2, chord = {N.E3, N.G3, N.B3} },         -- 1: Cmaj7
+        { bass = N.C2, chord = {N.E3, N.G3, N.Bb3} },        -- 2: C7
+        { bass = N.F2, chord = {N.A3, N.C4, N.E4} },         -- 3: Fmaj7
+        { bass = N.F1, chord = {N.Ab3, N.C4, N.D4} },        -- 4: Fm6
+
+        -- Compases 5-12: Estrofa 1
+        { bass = N.C2, chord = {N.E3, N.G3, N.B3} },         -- 5: Cmaj7
+        { bass = N.C2, chord = {N.E3, N.G3, N.Bb3} },        -- 6: C7
+        { bass = N.F2, chord = {N.A3, N.C4, N.E4} },         -- 7: Fmaj7
+        { bass = N.F1, chord = {N.Ab3, N.C4, N.D4} },        -- 8: Fm6
+        { bass = N.C2, chord = {N.E3, N.G3, N.B3} },         -- 9: Cmaj7
+        { bass = N.A1, chord = {N.G3, N.Cs4, N.E4} },        -- 10: A7
+        { bass = N.D2, chord = {N.F3, N.A3, N.C4} },         -- 11: Dm7
+        { bass = N.G1, chord = {N.F3, N.B3, N.D4} },         -- 12: G7
+
+        -- Compases 13-20: Estrofa 2 (Desarrollo melódico)
+        { bass = N.C2, chord = {N.E3, N.G3, N.B3} },         -- 13: Cmaj7
+        { bass = N.C2, chord = {N.E3, N.G3, N.Bb3} },        -- 14: C7
+        { bass = N.F2, chord = {N.A3, N.C4, N.E4} },         -- 15: Fmaj7
+        { bass = N.F1, chord = {N.Ab3, N.C4, N.D4} },        -- 16: Fm6
+        { bass = N.E2, chord = {N.G3, N.B3, N.D4} },         -- 17: Em7
+        { bass = N.A1, chord = {N.C4, N.E4, N.G4} },         -- 18: Am7
+        { bass = N.D2, chord = {N.F3, N.A3, N.C4, N.E4} },   -- 19: Dm9
+        { bass = N.G1, chord = {N.F3, N.Ab3, N.B3, N.D4} },  -- 20: G7(b9)
+
+        -- Compases 21-28: Puente Melancólico
+        { bass = N.F2, chord = {N.A3, N.C4, N.E4} },         -- 21: Fmaj7
+        { bass = N.Ab1, chord = {N.Ab3, N.C4, N.D4} },       -- 22: Fm6
+        { bass = N.E2, chord = {N.G3, N.B3, N.D4} },         -- 23: Em7
+        { bass = N.A1, chord = {N.G3, N.Cs4, N.E4} },        -- 24: A7
+        { bass = N.D2, chord = {N.F3, N.A3, N.C4} },         -- 25: Dm7
+        { bass = N.F1, chord = {N.Ab3, N.C4, N.Eb4, N.G4} }, -- 26: Fm9 (Melancolía armónica profunda)
+        { bass = N.G1, chord = {N.E3, N.G3, N.B3, N.E4} },   -- 27: Cmaj7/G
+        { bass = N.G1, chord = {N.F3, N.B3, N.D4} },         -- 28: G7
+
+        -- Compases 29-36: Coda y Outro Dulce
+        { bass = N.F2, chord = {N.A3, N.C4, N.E4} },         -- 29: Fmaj7
+        { bass = N.Ab1, chord = {N.Ab3, N.C4, N.D4} },       -- 30: Fm6
+        { bass = N.C2, chord = {N.E3, N.G3, N.B3} },         -- 31: Cmaj7
+        { bass = N.A1, chord = {N.C4, N.E4, N.G4} },         -- 32: Am7
+        { bass = N.D2, chord = {N.F3, N.A3, N.C4} },         -- 33: Dm7
+        { bass = N.Ab1, chord = {N.Ab3, N.C4, N.D4} },       -- 34: Fm6
+        { bass = N.C2, chord = {N.E3, N.G3, N.B3} },         -- 35: Cmaj7
+        { bass = N.G1, chord = {N.F3, N.B3, N.D4} }          -- 36: G7sus4 -> G7
+    }
+
+    -- 1. Base rítmica de guitarra de nylon
+    for barIdx, h in ipairs(harmony) do
+        local base = (barIdx - 1) * 12
+        -- Pulso 1: Golpe de pulgar limpio y nítido
+        addNote(guitarBuffer, Instruments.nylonBass, h.bass, base + 1, 4.0)
+
+        -- Cello suave entra a partir del compás 5 como colchón armónico
+        if barIdx >= 5 and barIdx <= 34 then
+            addNote(wetBuffer, Instruments.chamberCello, h.bass, base + 1, 10.0)
+        end
+
+        -- Pulsos 2 y 3: Acordes suaves y cálidos de cuerdas pulsadas
+        addChord(guitarBuffer, Instruments.nylonChord, h.chord, base + 5, 3.5)
+        addChord(guitarBuffer, Instruments.nylonChord, h.chord, base + 9, 3.5)
+    end
+
+    -- 2. Melodía poética y dulce (Celesta / Caja de música acústica)
+    local melodyNotes = {
+        -- Compás 5-12: Estrofa 1
+        { N.E4, 49, 4.0 }, { N.G4, 53, 4.0 }, { N.B4, 57, 4.0 },
+        { N.Bb4, 61, 4.0 }, { N.A4, 65, 4.0 }, { N.G4, 69, 4.0 },
+        { N.A4, 73, 4.0 }, { N.C5, 77, 4.0 }, { N.E5, 81, 4.0 },
+        { N.D5, 85, 4.0 }, { N.C5, 89, 3.5 }, { N.Ab4, 93, 4.0 },
+        { N.G4, 97, 6.0 }, { N.E4, 103, 5.0 },
+        { N.G4, 109, 4.0 }, { N.A4, 113, 4.0 }, { N.Cs5, 117, 4.0 },
+        { N.F4, 121, 3.0 }, { N.A4, 124, 3.0 }, { N.D5, 127, 3.0 }, { N.C5, 130, 3.0 },
+        { N.B4, 133, 4.0 }, { N.A4, 137, 4.0 }, { N.G4, 141, 4.0 },
+
+        -- Compás 13-20: Estrofa 2 (Registro superior)
+        { N.E5, 145, 6.0 }, { N.G5, 151, 6.0 },
+        { N.Bb5, 157, 4.0 }, { N.A5, 161, 4.0 }, { N.G5, 165, 4.0 },
+        { N.A5, 169, 4.0 }, { N.C6, 173, 4.0 }, { N.E6, 177, 4.0 },
+        { N.D6, 181, 4.0 }, { N.C6, 185, 4.0 }, { N.Ab5, 189, 4.0 },
+        { N.G5, 193, 6.0 }, { N.E5, 199, 6.0 },
+        { N.C5, 205, 4.0 }, { N.E5, 209, 4.0 }, { N.A5, 213, 4.0 },
+        { N.F5, 217, 4.0 }, { N.E5, 221, 4.0 }, { N.D5, 225, 4.0 },
+        { N.B4, 229, 4.0 }, { N.D5, 233, 4.0 }, { N.F5, 237, 4.0 },
+
+        -- Compás 21-28: Puente Melancólico
+        { N.E5, 241, 4.0 }, { N.D5, 245, 4.0 }, { N.C5, 249, 4.0 },
+        { N.C5, 253, 4.0 }, { N.Ab4, 257, 4.0 }, { N.F4, 261, 4.0 },
+        { N.G4, 265, 4.0 }, { N.B4, 269, 4.0 }, { N.D5, 273, 4.0 },
+        { N.Cs5, 277, 4.0 }, { N.E5, 281, 4.0 }, { N.G5, 285, 4.0 },
+        { N.F5, 289, 4.0 }, { N.E5, 293, 4.0 }, { N.D5, 297, 4.0 },
+        -- Compás 26 (Fm9 - Punto álgido de melancolía)
+        { N.C5, 301, 3.0 }, { N.Eb5, 304, 3.0 }, { N.G5, 307, 3.0 }, { N.Ab5, 310, 4.0 },
+        { N.E5, 313, 4.0 }, { N.D5, 317, 4.0 }, { N.C5, 321, 4.0 },
+        { N.B4, 325, 4.0 }, { N.D5, 329, 4.0 }, { N.F5, 333, 4.0 },
+
+        -- Compás 29-36: Coda y Outro Dulce
+        { N.A5, 337, 4.0 }, { N.C6, 341, 4.0 }, { N.E6, 345, 5.0 },
+        { N.D6, 349, 4.0 }, { N.C6, 353, 4.0 }, { N.Ab5, 357, 4.0 },
+        { N.G5, 361, 4.0 }, { N.E5, 365, 4.0 }, { N.C5, 369, 4.0 },
+        { N.E5, 373, 4.0 }, { N.C5, 377, 4.0 }, { N.A4, 381, 4.0 },
+        { N.F4, 385, 3.0 }, { N.A4, 388, 3.0 }, { N.C5, 391, 3.0 }, { N.E5, 394, 3.0 },
+        -- Compás 34 (Fm6 dulce y nostálgico)
+        { N.D5, 397, 4.0 }, { N.C5, 401, 4.0 }, { N.Ab4, 405, 5.0 },
+        -- Compás 35 (Cmaj7 resolución dulce)
+        { N.G4, 409, 4.0 }, { N.E4, 413, 4.0 }, { N.C4, 417, 4.0 },
+        -- Compás 36 (Cadencia final suave hacia el reinicio)
+        { N.B4, 421, 3.0 }, { N.G4, 424, 3.0 }, { N.D4, 427, 3.0 }, { N.C4, 430, 3.0 }
+    }
+
+    for _, m in ipairs(melodyNotes) do
+        addNote(wetBuffer, Instruments.lullabyCeleste, m[1], m[2], m[3])
+    end
+
+    -- 3. Retardo estéreo y espacialidad (~535 ms)
+    local delaySamples = math.floor(stepDuration * 3.0 * SAMPLE_RATE)
+    local delayBuffer = {}
+    for i = 1, delaySamples do
+        delayBuffer[i] = 0
+    end
+
+    local delayIdx = 1
+    local feedback = 0.28
+
+    for pass = 1, 2 do
+        for i = 1, totalSamples do
+            local dry = wetBuffer[i]
+            local echo = delayBuffer[delayIdx]
+
+            if pass == 2 then
+                wetBuffer[i] = dry + echo * feedback
+            end
+
+            delayBuffer[delayIdx] = dry + echo * feedback
+            delayIdx = (delayIdx % delaySamples) + 1
+        end
+    end
+
+    -- 4. Mezcla final
+    local sd = love.sound.newSoundData(totalSamples, SAMPLE_RATE, 16, 1)
+    for i = 0, totalSamples - 1 do
+        local g = guitarBuffer[i + 1] or 0
+        local w = wetBuffer[i + 1] or 0
+        local finalSample = (g * 0.88 + w * 0.72) * 0.82
+        sd:setSample(i, clampSample(finalSample))
+    end
+
+    return sd
+end
+
+--[[
+    Genera la pista "opaline_haven" (24 compases en compás de 4/4 / ~68.57 segundos)
+    Composición tradicional y nostálgica con instrumentos de 16-bit (koto tradicional punteado,
+    chimes vintage, percusión de madera) y 32-bit (flauta de bambú expresiva, bajo folk acústico
+    y cuerdas etéreas con resolución cíclica).
+--]]
+function ProceduralMusic.generateOpalineHaven()
+    local bpm = 84
+    local beatDuration = 60.0 / bpm
+    local stepDuration = beatDuration / 4.0 -- Semicorchea (~0.1786 s, 16 pasos por compás)
+    local totalBars = 24
+    local totalSteps = totalBars * 16 -- 384 pasos (~68.57 s)
+    local totalDuration = totalSteps * stepDuration
+    local totalSamples = math.floor(SAMPLE_RATE * totalDuration)
+
+    local dryBuffer = {}
+    local wetBuffer = {}
+    for i = 1, totalSamples do
+        dryBuffer[i] = 0
+        wetBuffer[i] = 0
+    end
+
+    local function addNote(buf, instrumentFn, note, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = instrumentFn(note, t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    local function addPerc(buf, percFn, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local dur = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(dur * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = percFn(t, dur)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    -- Esquema armónico de 24 compases en Re Menor / Fa Mayor modal (Dorian / Eólico)
+    local barChords = {
+        -- Compases 1-4: Introducción tradicional (Koto + percusión sutil)
+        { bass = N.D2, pad = {N.F3, N.A3},  koto = {N.D3, N.F3, N.A3, N.D4} }, -- 1: Dm9
+        { bass = N.C2, pad = {N.E3, N.G3},  koto = {N.C3, N.E3, N.G3, N.C4} }, -- 2: Cadd9
+        { bass = N.Bb1, pad = {N.D3, N.F3}, koto = {N.Bb2, N.D3, N.F3, N.A3} },-- 3: Bbmaj7
+        { bass = N.A1, pad = {N.Cs3, N.E3}, koto = {N.A2, N.Cs3, N.E3, N.A3} },-- 4: A7
+
+        -- Compases 5-12: Tema A (Flauta de bambú introduce la melodía principal)
+        { bass = N.D2, pad = {N.F3, N.A3},  koto = {N.D3, N.A3, N.D4, N.F4} }, -- 5: Dm9
+        { bass = N.Bb1, pad = {N.D3, N.F3}, koto = {N.Bb2, N.F3, N.Bb3, N.D4} },-- 6: Bbmaj7
+        { bass = N.C2, pad = {N.E3, N.G3},  koto = {N.C3, N.G3, N.C4, N.E4} }, -- 7: C
+        { bass = N.F2, pad = {N.A3, N.C4},  koto = {N.F3, N.C4, N.F4, N.A4} }, -- 8: Fmaj9
+        { bass = N.G2, pad = {N.Bb3, N.D4}, koto = {N.G3, N.D4, N.G4, N.Bb4} },-- 9: Gm9
+        { bass = N.A1, pad = {N.C3, N.E3},  koto = {N.A2, N.E3, N.A3, N.C4} }, -- 10: Am7
+        { bass = N.Bb1, pad = {N.D3, N.F3}, koto = {N.Bb2, N.F3, N.Bb3, N.D4} },-- 11: Bbmaj7
+        { bass = N.A1, pad = {N.Cs3, N.E3}, koto = {N.A2, N.E3, N.G3, N.Cs4} },-- 12: A7
+
+        -- Compases 13-20: Tema B (Desarrollo lírico, registro alto, campanillas)
+        { bass = N.D2, pad = {N.F3, N.A3},  koto = {N.D3, N.A3, N.D4, N.F4} }, -- 13: Dm
+        { bass = N.C2, pad = {N.E3, N.G3},  koto = {N.C3, N.G3, N.C4, N.E4} }, -- 14: C
+        { bass = N.Bb1, pad = {N.D3, N.F3}, koto = {N.Bb2, N.F3, N.Bb3, N.D4} },-- 15: Bbmaj7
+        { bass = N.F2, pad = {N.A3, N.C4},  koto = {N.F3, N.C4, N.F4, N.A4} }, -- 16: Fmaj7
+        { bass = N.G2, pad = {N.Bb3, N.D4}, koto = {N.G3, N.D4, N.G4, N.Bb4} },-- 17: Gm9
+        { bass = N.E2, pad = {N.G3, N.Bb3}, koto = {N.E3, N.Bb3, N.D4, N.G4} },-- 18: Em7b5
+        { bass = N.A1, pad = {N.Cs3, N.E3}, koto = {N.A2, N.E3, N.A3, N.Cs4} },-- 19: A7
+        { bass = N.D2, pad = {N.F3, N.A3},  koto = {N.D3, N.A3, N.D4, N.F4} }, -- 20: Dm9
+
+        -- Compases 21-24: Coda y Puente Cíclico
+        { bass = N.Bb1, pad = {N.D3, N.F3}, koto = {N.Bb2, N.F3, N.Bb3, N.D4} },-- 21: Bbmaj7
+        { bass = N.C2, pad = {N.E3, N.G3},  koto = {N.C3, N.G3, N.C4, N.D4} }, -- 22: Cadd9
+        { bass = N.D2, pad = {N.F3, N.A3},  koto = {N.D3, N.F3, N.A3, N.D4} }, -- 23: Dm9
+        { bass = N.A1, pad = {N.E3, N.G3},  koto = {N.A2, N.E3, N.G3, N.A3} }  -- 24: A7sus4 -> Dm
+    }
+
+    -- 1. Capa armónica y rítmica
+    for bar = 1, totalBars do
+        local c = barChords[bar]
+        local baseStep = (bar - 1) * 16
+
+        -- Bajo Folk acústico (32-bit)
+        addNote(dryBuffer, Instruments.warmFolkBass, c.bass, baseStep + 1, 6.0)
+        addNote(dryBuffer, Instruments.warmFolkBass, c.bass, baseStep + 9, 5.0)
+        if bar % 2 == 0 then
+            addNote(dryBuffer, Instruments.warmFolkBass, c.bass + 7, baseStep + 13, 3.5)
+        end
+
+        -- Acordes de soporte de piano acústico (mano izquierda en pulso 1)
+        if bar >= 5 and bar <= 24 then
+            for _, pNote in ipairs(c.pad) do
+                addNote(dryBuffer, Instruments.acousticPiano, pNote, baseStep + 1, 6.0)
+            end
+        end
+
+        -- Arpegio tradicional de Koto (16-bit vintage)
+        local kNotes = c.koto
+        addNote(dryBuffer, Instruments.folkKoto, kNotes[1], baseStep + 1, 4.0)
+        addNote(dryBuffer, Instruments.folkKoto, kNotes[2], baseStep + 5, 4.0)
+        addNote(dryBuffer, Instruments.folkKoto, kNotes[3], baseStep + 9, 4.0)
+        addNote(dryBuffer, Instruments.folkKoto, kNotes[4], baseStep + 13, 4.0)
+
+        -- Percusión tradicional sutil (16-bit y 32-bit)
+        if bar >= 3 then
+            -- Taiko suave en pulso 1 y pulso 3 (32-bit)
+            addPerc(dryBuffer, Instruments.softTaiko, baseStep + 1, 4.0)
+            addPerc(dryBuffer, Instruments.softTaiko, baseStep + 9, 4.0)
+
+            -- Woodblock tradicional en contratiempos (16-bit)
+            addPerc(dryBuffer, Instruments.woodBlock, baseStep + 5, 2.0)
+            addPerc(dryBuffer, Instruments.woodBlock, baseStep + 11, 2.0)
+            addPerc(dryBuffer, Instruments.woodBlock, baseStep + 15, 2.0)
+        end
+    end
+
+    -- 2. Melodía Lírica de Piano Acústico Normal (macillo, doble cuerda y sustain)
+    local pianoMelody = {
+        -- Compás 5-8 (Frase inicial nostálgica)
+        { N.D4, 65, 4.0 }, { N.F4, 69, 4.0 }, { N.A4, 73, 6.0 }, { N.G4, 79, 2.0 },
+        { N.F4, 81, 4.0 }, { N.D4, 85, 4.0 }, { N.C4, 89, 7.0 },
+        { N.F4, 97, 4.0 }, { N.G4, 101, 4.0 }, { N.A4, 105, 5.0 }, { N.C5, 110, 3.0 },
+        { N.A4, 113, 6.0 }, { N.G4, 119, 2.0 }, { N.F4, 121, 6.0 },
+
+        -- Compás 9-12 (Respuesta melancólica)
+        { N.G4, 129, 4.0 }, { N.A4, 133, 4.0 }, { N.Bb4, 137, 5.0 }, { N.D5, 142, 3.0 },
+        { N.C5, 145, 6.0 }, { N.A4, 151, 2.0 }, { N.F4, 153, 6.0 },
+        { N.G4, 161, 4.0 }, { N.F4, 165, 4.0 }, { N.D4, 169, 6.0 }, { N.C4, 175, 2.0 },
+        { N.D4, 177, 10.0 },
+
+        -- Compás 13-16 (Tema B - Registro elevado y apasionado)
+        { N.A4, 193, 3.0 }, { N.C5, 196, 3.0 }, { N.D5, 199, 4.0 }, { N.F5, 203, 6.0 },
+        { N.E5, 209, 4.0 }, { N.D5, 213, 4.0 }, { N.C5, 217, 7.0 },
+        { N.D5, 225, 4.0 }, { N.F5, 229, 4.0 }, { N.G5, 233, 5.0 }, { N.A5, 238, 3.0 },
+        { N.G5, 241, 6.0 }, { N.F5, 247, 2.0 }, { N.D5, 249, 7.0 },
+
+        -- Compás 17-20 (Clímax y caída dulce)
+        { N.Bb4, 257, 4.0 }, { N.D5, 261, 4.0 }, { N.F5, 265, 5.0 }, { N.G5, 270, 3.0 },
+        { N.E5, 273, 6.0 }, { N.D5, 279, 2.0 }, { N.Cs5, 281, 6.0 },
+        { N.D5, 289, 8.0 }, { N.F5, 297, 4.0 }, { N.E5, 301, 4.0 },
+        { N.D5, 305, 12.0 },
+
+        -- Compás 21-24 (Coda nostálgica hacia el reinicio)
+        { N.F4, 321, 4.0 }, { N.A4, 325, 4.0 }, { N.C5, 329, 6.0 }, { N.A4, 335, 2.0 },
+        { N.G4, 337, 4.0 }, { N.F4, 341, 4.0 }, { N.E4, 345, 6.0 }, { N.C4, 351, 2.0 },
+        { N.D4, 353, 14.0 }
+    }
+
+    for _, p in ipairs(pianoMelody) do
+        addNote(wetBuffer, Instruments.acousticPiano, p[1], p[2], p[3])
+    end
+
+    -- 3. Campanillas y Chimes Nostálgicos (16-bit vintage accents)
+    local chimeNotes = {
+        -- Acentos en compases de reposo
+        { N.D6, 77, 4.0 }, { N.A5, 81, 4.0 }, { N.F5, 85, 4.0 },
+        { N.C6, 109, 4.0 }, { N.G5, 113, 4.0 },
+        { N.D6, 141, 4.0 }, { N.Bb5, 145, 4.0 },
+        { N.A5, 173, 4.0 }, { N.F5, 177, 4.0 }, { N.D5, 181, 4.0 },
+
+        { N.F6, 205, 4.0 }, { N.E6, 209, 4.0 }, { N.C6, 213, 4.0 },
+        { N.A6, 237, 4.0 }, { N.G6, 241, 4.0 }, { N.D6, 245, 4.0 },
+        { N.G6, 269, 4.0 }, { N.E6, 273, 4.0 }, { N.Cs6, 277, 4.0 },
+        { N.D6, 301, 5.0 }, { N.A5, 306, 5.0 },
+
+        -- Coda final
+        { N.C6, 333, 4.0 }, { N.A5, 337, 4.0 }, { N.F5, 341, 4.0 },
+        { N.D5, 361, 6.0 }, { N.A5, 367, 6.0 }, { N.D6, 373, 8.0 }
+    }
+
+    for _, ch in ipairs(chimeNotes) do
+        addNote(wetBuffer, Instruments.nostalgicChime, ch[1], ch[2], ch[3])
+    end
+
+    -- 4. Procesamiento de retardo espacial estéreo (~428 ms)
+    local delaySamples = math.floor(stepDuration * 2.4 * SAMPLE_RATE)
+    local delayBuffer = {}
+    for i = 1, delaySamples do
+        delayBuffer[i] = 0
+    end
+
+    local delayIdx = 1
+    local feedback = 0.28
+
+    for i = 1, totalSamples do
+        local dry = wetBuffer[i]
+        local echo = delayBuffer[delayIdx]
+        local wetVal = dry + echo * feedback
+        wetBuffer[i] = wetVal
+        delayBuffer[delayIdx] = wetVal
+        delayIdx = (delayIdx % delaySamples) + 1
+    end
+
+    -- 5. Mezcla y masterización continua a 32-bit
+    local sd = love.sound.newSoundData(totalSamples, SAMPLE_RATE, 16, 1)
+    for i = 0, totalSamples - 1 do
+        local dry = dryBuffer[i + 1] or 0
+        local wet = wetBuffer[i + 1] or 0
+        local finalSample = (dry * 0.85 + wet * 0.78) * 0.80
         sd:setSample(i, clampSample(finalSample))
     end
 
