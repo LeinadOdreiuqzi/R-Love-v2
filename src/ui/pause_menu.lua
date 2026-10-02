@@ -21,11 +21,12 @@ end
 
 -- Lista de soundtracks disponibles para depuración
 local SOUNDTRACKS = {
-    { id = "opaline_haven",     name = "Opaline Haven" },
-    { id = "lunar_waltz",       name = "Lunar Waltz" },
-    { id = "ancient_sanctuary", name = "Ancient Sanctuary" },
-    { id = "cavern_groove",     name = "Cavern Groove" },
-    { id = "space_ambient",     name = "Space Ambient" }
+    { id = "track_1", alias = "astral_pulse",      name = "Track 1" },
+    { id = "track_2", alias = "opaline_haven",     name = "Track 2" },
+    { id = "track_3", alias = "lunar_waltz",       name = "Track 3" },
+    { id = "track_4", alias = "ancient_sanctuary", name = "Track 4" },
+    { id = "track_5", alias = "cavern_groove",     name = "Track 5" },
+    { id = "track_6", alias = "space_ambient",     name = "Track 6" }
 }
 
 -- ============================================================================
@@ -285,8 +286,21 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
     love.graphics.setColor(isPlaying and 0.2 or 0.6, isPlaying and 0.85 or 0.3, isPlaying and 0.4 or 0.3, alpha)
     love.graphics.circle("fill", px + 42, statusY + 18, 5)
 
+    local currentTrackName = "Ninguna"
+    if currentTrack ~= "Ninguna" then
+        for _, trk in ipairs(SOUNDTRACKS) do
+            if trk.id == currentTrack or (trk.alias and trk.alias == currentTrack) then
+                currentTrackName = trk.name
+                break
+            end
+        end
+        if currentTrackName == "Ninguna" then
+            currentTrackName = currentTrack
+        end
+    end
+
     love.graphics.setColor(0.85, 0.9, 0.98, alpha)
-    love.graphics.printf("Pista actual: " .. currentTrack, px + 58, statusY + 11, pw - 90, "left")
+    love.graphics.printf("Pista actual: " .. currentTrackName, px + 58, statusY + 11, pw - 90, "left")
 
     -- Lista de Soundtracks
     local mx, my = love.mouse.getPosition()
@@ -298,7 +312,7 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
 
     for i, track in ipairs(SOUNDTRACKS) do
         local iy = listY + (i - 1) * (itemH + gap)
-        local isCurrent = (currentTrack == track.id)
+        local isCurrent = (currentTrack == track.id or (track.alias and currentTrack == track.alias))
         local isHover = (mx >= ix and mx <= ix + iw and my >= iy and my <= iy + itemH)
 
         -- Fondo del elemento

@@ -44,6 +44,11 @@ for i = 1, 1024 do
     NOISE_TABLE[i] = (math.random() * 2 - 1) * 0.04
 end
 
+local NOISE_TABLE_NORM = {}
+for i = 1, 2048 do
+    NOISE_TABLE_NORM[i] = (math.random() * 2 - 1)
+end
+
 local Instruments = {
     -- 1. Bajo "Rubber Slap" (elástico, limpio, sin siseo ni zumbidos raros)
     rubberBass = function(note, t, duration)
@@ -426,6 +431,177 @@ local Instruments = {
         local stringSound = (h1 + h2 + h3 + h4 + body) * attack
         local sample = (stringSound + hammerKnock) * 0.55
         return math.tanh(sample * 1.15) * 0.46
+    end,
+
+    -- 24. [32-bit Float] Bombo electrónico contundente (Punch Kick)
+    electroKick = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 14.0)
+
+        -- Caída rápida de tono (pitch drop agresivo de 160 Hz a 42 Hz)
+        local freq = 160.0 * math.exp(-progress * 28.0) + 42.0
+        local sub = math.sin(TWO_PI * freq * t)
+
+        -- Click inicial de pegada (transiente de macillo < 4 ms)
+        local click = math.sin(TWO_PI * 920.0 * t) * math.exp(-t * 450.0) * 0.45
+
+        return math.tanh((sub + click) * 1.5) * env * 0.65
+    end,
+
+    -- 25. [32-bit Float] Caja electrónica con transiente nítido (Snare / Clap)
+    crispSnare = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local bodyEnv = math.exp(-progress * 22.0)
+        local noiseEnv = math.exp(-progress * 16.0)
+
+        -- Tono resonante de caja
+        local tone = math.sin(TWO_PI * 185.0 * t) * 0.45 + math.sin(TWO_PI * 315.0 * t) * 0.25
+        local body = tone * bodyEnv
+
+        -- Ráfaga de ruido blanco brillante
+        local sIdx = math.floor(t * 44100) % 2048 + 1
+        local noise = NOISE_TABLE_NORM[sIdx] * noiseEnv * 0.55
+
+        return math.tanh((body + noise) * 1.4) * 0.52
+    end,
+
+    -- 26. [32-bit Float] Charles electrónico cerrado y abierto (Hi-Hat)
+    fastHat = function(t, duration, isOpen)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local decayRate = isOpen and 14.0 or 48.0
+        local env = math.exp(-progress * decayRate)
+
+        -- Mezcla inarmónica metálica de altas frecuencias
+        local m1 = math.sin(TWO_PI * 4200.0 * t)
+        local m2 = math.sin(TWO_PI * 6700.0 * t) * 0.65
+        local m3 = math.sin(TWO_PI * 8900.0 * t) * 0.45
+        local sIdx = math.floor(t * 44100) % 2048 + 1
+        local noise = NOISE_TABLE_NORM[sIdx] * 0.40
+
+        local metal = (m1 + m2 + m3 + noise) * 0.35
+        return math.tanh(metal * 1.5) * env * (isOpen and 0.28 or 0.20)
+    end,
+
+    -- 27. [32-bit Float] Bajo sintetizado galopante (Rolling Bass con sub-armónico)
+    rollingBass = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.003)
+        local decay = math.exp(-progress * 4.8)
+
+        local w = TWO_PI * freq * t
+        -- Diente de sierra sintética rica con corte de filtro dinámico
+        local h1 = math.sin(w)
+        local h2 = math.sin(w * 2.0) * 0.50 * (1.0 - progress * 0.5)
+        local h3 = math.sin(w * 3.0) * 0.28 * (1.0 - progress * 0.7)
+        local sub = math.sin(w * 0.5) * 0.35 -- Sub-bajo sólido
+
+        local saw = (h1 + h2 + h3 + sub) * attack * decay
+        return math.tanh(saw * 1.45) * 0.48
+    end,
+
+    -- 28. [32-bit Float] Pluck / sintetizador brillante para arpegios rápidos (Sparkle Pluck)
+    sparklePluck = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.002)
+        local decay = math.exp(-progress * 6.5)
+
+        -- Doble oscilador ligeramente detuneado para dar brillo estéreo
+        local w1 = TWO_PI * baseFreq * t
+        local w2 = TWO_PI * (baseFreq * 1.002) * t
+
+        local f1 = (math.sin(w1) + math.sin(w2)) * 0.50
+        local f2 = math.sin(w1 * 2.0) * 0.35 * math.exp(-progress * 12.0)
+        local f3 = math.sin(w1 * 3.0) * 0.15 * math.exp(-progress * 18.0)
+
+        local sample = math.tanh((f1 + f2 + f3) * 1.3) * attack * decay
+        return sample * 0.38
+    end,
+
+    -- 29. [32-bit Float] Lead de Piano Sintético Melancólico (Synth Piano Lead: transiente de macillo, micro-chorus analógico y sustain cantarín)
+    synthPianoLead = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        -- Transiente percusivo de macillo sintético (< 2.5 ms)
+        local attack = math.min(1.0, t / 0.0025)
+        local hammer = math.sin(TWO_PI * 190.0 * t) * math.exp(-t * 280.0) * 0.18
+
+        -- Modulación melancólica sutil en notas sostenidas (>160 ms)
+        local vibDelay = 0.16
+        local vibDepth = t > vibDelay and math.min(1.0, (t - vibDelay) / 0.28) * 0.0035 or 0
+        local freq = baseFreq * (1.0 + math.sin(TWO_PI * 4.5 * t) * vibDepth)
+
+        -- Doble oscilador unísono con micro-chorus analógico (1.0012) para calidez melancólica
+        local w1 = TWO_PI * freq * t
+        local w2 = TWO_PI * (freq * 1.0012) * t
+
+        -- Envolvente dual de piano sintetizado: brillo inicial dinámico + sustain cantarín
+        local brightnessDecay = math.exp(-progress * 8.0)
+        local singingSustain = math.exp(-progress * 2.4)
+        local promptDecay = (1.0 - progress) * (1.0 - progress)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.82) / 0.18))
+
+        -- Armónicos de piano sintetizado (cuerpo acústico + tine/campana brillante)
+        local fund = (math.sin(w1) + math.sin(w2)) * 0.50 * (singingSustain * 0.7 + promptDecay * 0.3)
+        local h2 = math.sin(w1 * 2.0) * 0.32 * singingSustain
+        local h3 = math.sin(w1 * 3.0) * 0.22 * brightnessDecay -- Brillo de lengüeta/tine
+        local h4 = math.sin(w1 * 4.0) * 0.10 * brightnessDecay
+        local body = math.sin(w1 * 0.5) * 0.08 * singingSustain -- Calidez subarmónica
+
+        local pianoTone = (fund + h2 + h3 + h4 + body) * attack * release
+        local sample = (pianoTone + hammer) * 1.15
+        return math.tanh(sample) * 0.48
+    end,
+    singingLead = function(note, t, duration)
+        return Instruments.synthPianoLead(note, t, duration)
+    end,
+    supersawLead = function(note, t, duration)
+        return Instruments.synthPianoLead(note, t, duration)
+    end,
+
+    -- 30. [32-bit Float] Acordes de sintetizador envolvente (Saw Chords)
+    sawChords = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.015)
+        local release = math.exp(-math.max(0, (progress - 0.70) * 5.0))
+        local env = attack * release
+
+        local w = TWO_PI * baseFreq * t
+        local wDetune = TWO_PI * (baseFreq * 1.004) * t
+
+        local h1 = (math.sin(w) + math.sin(wDetune)) * 0.50
+        local h2 = math.sin(w * 2.0) * 0.25
+
+        local sample = math.tanh((h1 + h2) * 1.1) * env
+        return sample * 0.22
+    end,
+
+    -- 31. [32-bit Float] Campanilla cristalina de contra-melodía (Crystal Bell)
+    crystalBell = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.003)
+        local decay = math.exp(-progress * 4.0)
+
+        local fund = math.sin(TWO_PI * freq * t)
+        local tine = math.sin(TWO_PI * (freq * 3.0) * t) * 0.20 * math.exp(-progress * 10.0)
+
+        return (fund + tine) * attack * decay * 0.25
     end
 }
 
@@ -1530,6 +1706,246 @@ function ProceduralMusic.generateOpalineHaven()
         local dry = dryBuffer[i + 1] or 0
         local wet = wetBuffer[i + 1] or 0
         local finalSample = (dry * 0.85 + wet * 0.78) * 0.80
+        sd:setSample(i, clampSample(finalSample))
+    end
+
+    return sd
+end
+
+-- ============================================================================
+-- GENERADOR DE LA BANDA SONORA "ASTRAL_PULSE"
+-- ============================================================================
+
+--[[
+    Pista electrónica melódica de alta energía (144 BPM, 40 compases / ~66.67 s)
+    Síntesis continua de 32-bit en punto flotante:
+    - Arpegios rápidos en semicorcheas con doble oscilador detuneado
+    - Bajo galopante con sub-graves y modulación armónica
+    - Percusión electrónica: Bombo 4-on-the-floor con caída exponencial y caja nítida
+    - Lead melódico de piano sintético (Synth Piano Lead) con transiente percusivo, micro-chorus analógico y sustain cantarín
+    - Acordes estéreo y contra-melodías de campana cristalina
+    - Estructura: Intro (8) -> Estrofa A (8) -> Pre-coro (8) -> Coro clímax (12) -> Outro (4)
+--]]
+function ProceduralMusic.generateAstralPulse()
+    local bpm = 144
+    local beatDuration = 60.0 / bpm
+    local stepDuration = beatDuration / 4.0 -- Semicorchea (~0.10417 s)
+    local totalBars = 40
+    local totalSteps = totalBars * 16 -- 640 semicorcheas (~66.67 s)
+    local totalDuration = totalSteps * stepDuration
+    local totalSamples = math.floor(SAMPLE_RATE * totalDuration)
+
+    local dryBuffer = {}
+    local wetBuffer = {}
+    for i = 1, totalSamples do
+        dryBuffer[i] = 0
+        wetBuffer[i] = 0
+    end
+
+    local function addNote(buf, instrumentFn, note, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = instrumentFn(note, t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    local function addPerc(buf, percFn, startStep, durationSteps, param)
+        local startTime = (startStep - 1) * stepDuration
+        local dur = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(dur * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = percFn(t, dur, param)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    -- Esquema armónico de 40 compases (Progresión IV - V - iii - vi)
+    local barChords = {}
+    local progCycle = {
+        { bass = N.Bb1, chords = {N.D4, N.F4, N.A4},   arp = {N.Bb3, N.D4, N.F4, N.A4} },  -- 1: Bbmaj7
+        { bass = N.C2,  chords = {N.E4, N.G4, N.C5},   arp = {N.C4, N.E4, N.G4, N.C5} },   -- 2: C
+        { bass = N.A1,  chords = {N.C4, N.E4, N.A4},   arp = {N.A3, N.C4, N.E4, N.A4} },   -- 3: Am7
+        { bass = N.D2,  chords = {N.F4, N.A4, N.D5},   arp = {N.D4, N.F4, N.A4, N.D5} },   -- 4: Dm
+        { bass = N.Bb1, chords = {N.D4, N.F4, N.A4},   arp = {N.Bb3, N.D4, N.F4, N.A4} },  -- 5: Bbmaj7
+        { bass = N.C2,  chords = {N.E4, N.G4, N.C5},   arp = {N.C4, N.E4, N.G4, N.C5} },   -- 6: C
+        { bass = N.D2,  chords = {N.F4, N.A4, N.C5},   arp = {N.D4, N.F4, N.A4, N.C5} },   -- 7: Dm7
+        { bass = N.F1,  chords = {N.F4, N.A4, N.C5},   arp = {N.F3, N.A3, N.C4, N.F4} }    -- 8: F/A
+    }
+
+    for b = 1, totalBars do
+        local cycleIdx = ((b - 1) % 8) + 1
+        barChords[b] = progCycle[cycleIdx]
+    end
+
+    -- 1. Base rítmica y arpegios
+    for bar = 1, totalBars do
+        local c = barChords[bar]
+        local baseStep = (bar - 1) * 16
+
+        -- Arpegio veloz de 16 semicorcheas (Sparkle Pluck)
+        local arpNotes = c.arp
+        for s = 1, 16 do
+            local noteIdx = ((s - 1) % #arpNotes) + 1
+            addNote(wetBuffer, Instruments.sparklePluck, arpNotes[noteIdx], baseStep + s, 2.0)
+        end
+
+        -- Bajo galopante (Rolling Bass) a partir del compás 5
+        if bar >= 5 and bar <= 38 then
+            for s = 1, 16, 2 do
+                local bassNote = (s == 15) and (c.bass + 12) or c.bass
+                addNote(dryBuffer, Instruments.rollingBass, bassNote, baseStep + s, 1.8)
+            end
+        end
+
+        -- Acordes de sintetizador (Saw Chords) en pre-coro y coro (compases 17 a 36)
+        if (bar >= 17 and bar <= 36) then
+            for _, chNote in ipairs(c.chords) do
+                addNote(dryBuffer, Instruments.sawChords, chNote, baseStep + 1, 4.0)
+                addNote(dryBuffer, Instruments.sawChords, chNote, baseStep + 7, 3.0)
+                addNote(dryBuffer, Instruments.sawChords, chNote, baseStep + 11, 4.0)
+            end
+        end
+
+        -- Batería electrónica a partir del compás 9
+        if bar >= 9 and bar <= 38 then
+            -- Bombo 4-on-the-floor
+            addPerc(dryBuffer, Instruments.electroKick, baseStep + 1, 3.0)
+            addPerc(dryBuffer, Instruments.electroKick, baseStep + 5, 3.0)
+            addPerc(dryBuffer, Instruments.electroKick, baseStep + 9, 3.0)
+            addPerc(dryBuffer, Instruments.electroKick, baseStep + 13, 3.0)
+
+            -- Caja en pulsos 2 y 4 (pasos 5 y 13)
+            addPerc(dryBuffer, Instruments.crispSnare, baseStep + 5, 3.0)
+            addPerc(dryBuffer, Instruments.crispSnare, baseStep + 13, 3.0)
+
+            -- Redoble en compás de transición (compás 24 y 36)
+            if bar == 24 or bar == 36 then
+                addPerc(dryBuffer, Instruments.crispSnare, baseStep + 11, 2.0)
+                addPerc(dryBuffer, Instruments.crispSnare, baseStep + 14, 1.5)
+                addPerc(dryBuffer, Instruments.crispSnare, baseStep + 15, 1.5)
+            end
+
+            -- Charles en semicorcheas con acento abierto en contratiempos
+            for h = 1, 16 do
+                local isOpen = (h % 4 == 3)
+                addPerc(dryBuffer, Instruments.fastHat, baseStep + h, 1.5, isOpen)
+            end
+        elseif bar >= 5 and bar <= 8 then
+            -- Solo charles cerrado en la segunda mitad de la intro
+            for h = 1, 16, 2 do
+                addPerc(dryBuffer, Instruments.fastHat, baseStep + h, 1.0, false)
+            end
+        end
+    end
+
+    -- 2. Melodía Principal (Piano Sintético Melancólico / Synth Piano Lead)
+    -- Compases 9-16 (Estrofa 1)
+    local verseMelody = {
+        { N.F4, 129, 3.0 }, { N.G4, 132, 3.0 }, { N.A4, 135, 4.0 }, { N.C5, 139, 4.0 },
+        { N.D5, 145, 6.0 }, { N.C5, 151, 4.0 }, { N.A4, 155, 4.0 },
+        { N.G4, 161, 4.0 }, { N.F4, 165, 4.0 }, { N.E4, 169, 4.0 }, { N.D4, 173, 4.0 },
+        { N.F4, 177, 8.0 }, { N.G4, 185, 4.0 },
+
+        { N.F4, 193, 3.0 }, { N.G4, 196, 3.0 }, { N.A4, 199, 4.0 }, { N.C5, 203, 4.0 },
+        { N.D5, 209, 6.0 }, { N.F5, 215, 4.0 }, { N.E5, 219, 4.0 },
+        { N.D5, 225, 4.0 }, { N.C5, 229, 4.0 }, { N.A4, 233, 4.0 }, { N.G4, 237, 4.0 },
+        { N.A4, 241, 12.0 }
+    }
+
+    -- Compases 17-24 (Pre-coro con tensión ascendente)
+    local preChorusMelody = {
+        { N.D4, 257, 4.0 }, { N.F4, 261, 4.0 }, { N.A4, 265, 4.0 }, { N.D5, 269, 4.0 },
+        { N.C5, 273, 6.0 }, { N.Bb4, 279, 4.0 }, { N.A4, 283, 4.0 },
+        { N.G4, 289, 4.0 }, { N.A4, 293, 4.0 }, { N.Bb4, 297, 4.0 }, { N.C5, 301, 4.0 },
+        { N.D5, 305, 8.0 }, { N.E5, 313, 6.0 },
+
+        { N.F5, 321, 6.0 }, { N.E5, 327, 4.0 }, { N.D5, 331, 4.0 },
+        { N.E5, 337, 6.0 }, { N.D5, 343, 4.0 }, { N.C5, 347, 4.0 },
+        { N.D5, 353, 14.0 }, { N.E5, 367, 3.0 }
+    }
+
+    -- Compases 25-36 (Coro clímax / Registro álgido y emotivo)
+    local chorusMelody = {
+        { N.F5, 385, 4.0 }, { N.G5, 389, 4.0 }, { N.A5, 393, 6.0 }, { N.G5, 399, 4.0 },
+        { N.F5, 403, 4.0 }, { N.E5, 407, 4.0 }, { N.D5, 411, 4.0 }, { N.C5, 415, 6.0 },
+        { N.D5, 421, 6.0 }, { N.F5, 427, 4.0 }, { N.A5, 431, 6.0 },
+        { N.G5, 437, 8.0 }, { N.E5, 445, 4.0 },
+
+        { N.F5, 449, 4.0 }, { N.G5, 453, 4.0 }, { N.A5, 457, 6.0 }, { N.C6, 463, 4.0 },
+        { N.D6, 467, 8.0 }, { N.C6, 475, 4.0 }, { N.A5, 479, 4.0 },
+        { N.G5, 483, 4.0 }, { N.F5, 487, 4.0 }, { N.G5, 491, 4.0 }, { N.A5, 495, 4.0 },
+        { N.D5, 499, 12.0 },
+
+        -- Compases 33-36 (Coda del coro y resolución)
+        { N.Bb5, 513, 4.0 }, { N.A5, 517, 4.0 }, { N.G5, 521, 4.0 }, { N.F5, 525, 4.0 },
+        { N.E5, 529, 4.0 }, { N.F5, 533, 4.0 }, { N.G5, 537, 6.0 },
+        { N.A5, 545, 8.0 }, { N.G5, 553, 4.0 }, { N.F5, 557, 4.0 },
+        { N.D5, 561, 14.0 }
+    }
+
+    for _, m in ipairs(verseMelody) do
+        addNote(wetBuffer, Instruments.synthPianoLead, m[1], m[2], m[3])
+    end
+    for _, m in ipairs(preChorusMelody) do
+        addNote(wetBuffer, Instruments.synthPianoLead, m[1], m[2], m[3])
+    end
+    for _, m in ipairs(chorusMelody) do
+        addNote(wetBuffer, Instruments.synthPianoLead, m[1], m[2], m[3])
+    end
+
+    -- 3. Contra-melodía de campanas cristalinas (Crystal Bell)
+    local bells = {
+        { N.D6, 387, 4.0 }, { N.A6, 395, 4.0 }, { N.F6, 403, 4.0 },
+        { N.E6, 419, 4.0 }, { N.C6, 427, 4.0 },
+        { N.D6, 451, 4.0 }, { N.F6, 459, 4.0 }, { N.A6, 467, 4.0 },
+        { N.G6, 485, 4.0 }, { N.E6, 493, 4.0 },
+        { N.D6, 515, 4.0 }, { N.Bb5, 523, 4.0 }, { N.G5, 531, 4.0 },
+        { N.A5, 547, 6.0 }, { N.D6, 563, 8.0 }
+    }
+    for _, b in ipairs(bells) do
+        addNote(wetBuffer, Instruments.crystalBell, b[1], b[2], b[3])
+    end
+
+    -- 4. Procesamiento de retardo espacial tempo-sincronizado (~312 ms)
+    local delaySamples = math.floor(stepDuration * 3.0 * SAMPLE_RATE)
+    local delayBuffer = {}
+    for i = 1, delaySamples do
+        delayBuffer[i] = 0
+    end
+
+    local delayIdx = 1
+    local feedback = 0.28
+
+    for i = 1, totalSamples do
+        local dry = wetBuffer[i]
+        local echo = delayBuffer[delayIdx]
+        local wetVal = dry + echo * feedback
+        wetBuffer[i] = wetVal
+        delayBuffer[delayIdx] = wetVal
+        delayIdx = (delayIdx % delaySamples) + 1
+    end
+
+    -- 5. Mezcla y masterización continua a 32-bit
+    local sd = love.sound.newSoundData(totalSamples, SAMPLE_RATE, 16, 1)
+    for i = 0, totalSamples - 1 do
+        local dry = dryBuffer[i + 1] or 0
+        local wet = wetBuffer[i + 1] or 0
+        local finalSample = (dry * 0.82 + wet * 0.75) * 0.82
         sd:setSample(i, clampSample(finalSample))
     end
 

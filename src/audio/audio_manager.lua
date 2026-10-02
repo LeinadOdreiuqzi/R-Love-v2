@@ -212,33 +212,25 @@ local Synthesizers = {
         return sd
     end,
 
-    -- Banda sonora procedural "cavern_groove": Groove percusivo sincopado, gotas cavernosas y retardo estéreo
-    cavern_groove = function()
+    -- Track 1: Síntesis 32-bit float continua, piano sintético melancólico, arpegios rápidos y percusión electrónica a 144 BPM
+    track_1 = function()
         local ProceduralMusic = require 'src.audio.procedural_music'
-        return ProceduralMusic.generateCavernGroove()
+        return ProceduralMusic.generateAstralPulse()
+    end,
+    astral_pulse = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAstralPulse()
+    end,
+    stellar_velocity = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAstralPulse()
     end,
 
-    -- Banda sonora procedural "ancient_sanctuary": Armonía modal en Fa menor, bajo acústico melódico, flauta y arpegios etéreos
-    ancient_sanctuary = function()
+    -- Track 2: Tradicional y nostálgica con koto, flauta de bambú, piano acústico y campanas
+    track_2 = function()
         local ProceduralMusic = require 'src.audio.procedural_music'
-        return ProceduralMusic.generateAncientSanctuary()
+        return ProceduralMusic.generateOpalineHaven()
     end,
-    secret_sanctuary = function()
-        local ProceduralMusic = require 'src.audio.procedural_music'
-        return ProceduralMusic.generateAncientSanctuary()
-    end,
-
-    -- Banda sonora procedural "lunar_waltz": Vals acústico en 3/4 con arpegios de nylon, cello y celesta
-    lunar_waltz = function()
-        local ProceduralMusic = require 'src.audio.procedural_music'
-        return ProceduralMusic.generateLunarWaltz()
-    end,
-    rises_the_moon = function()
-        local ProceduralMusic = require 'src.audio.procedural_music'
-        return ProceduralMusic.generateLunarWaltz()
-    end,
-
-    -- Banda sonora procedural "opaline_haven": Tradicional y nostálgica con koto, flauta de bambú y campanas
     opaline_haven = function()
         local ProceduralMusic = require 'src.audio.procedural_music'
         return ProceduralMusic.generateOpalineHaven()
@@ -248,7 +240,49 @@ local Synthesizers = {
         return ProceduralMusic.generateOpalineHaven()
     end,
 
-    -- Drone espacial ambiental enriquecido (acorde profundo + arpegio estelar)
+    -- Track 3: Vals acústico en 3/4 con arpegios de nylon, cello y celesta
+    track_3 = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateLunarWaltz()
+    end,
+    lunar_waltz = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateLunarWaltz()
+    end,
+    rises_the_moon = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateLunarWaltz()
+    end,
+
+    -- Track 4: Armonía modal en Fa menor, bajo acústico melódico, flauta y arpegios etéreos
+    track_4 = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAncientSanctuary()
+    end,
+    ancient_sanctuary = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAncientSanctuary()
+    end,
+    secret_sanctuary = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAncientSanctuary()
+    end,
+
+    -- Track 5: Groove percusivo sincopado, gotas cavernosas y retardo estéreo
+    track_5 = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateCavernGroove()
+    end,
+    cavern_groove = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateCavernGroove()
+    end,
+
+    -- Track 6: Drone espacial ambiental enriquecido (acorde profundo + arpegio estelar)
+    track_6 = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateSpaceAmbient()
+    end,
     space_ambient = function()
         local ProceduralMusic = require 'src.audio.procedural_music'
         return ProceduralMusic.generateSpaceAmbient()

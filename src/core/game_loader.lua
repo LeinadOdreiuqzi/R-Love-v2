@@ -135,7 +135,7 @@ local function loadWorld(updateProgress)
         local physMgr = PhysicsManager:new()
         
         AudioManager.init()
-        AudioManager.playMusic("opaline_haven", { loop = true, volume = 0.45, restart = true })
+        AudioManager.playMusic("track_1", { loop = true, volume = 0.45, restart = true })
         
         World.set('state', state)
         World.set('runState', runState)
@@ -324,7 +324,7 @@ function GameLoader.regenerateMap(seed)
     print("Numeric Seed: " .. SeedSystem.toNumeric(seed))
     
     -- Iniciar reproducción limpia de la banda sonora para el nuevo mapa
-    AudioManager.playMusic("opaline_haven", { loop = true, volume = 0.45, restart = true })
+    AudioManager.playMusic("track_1", { loop = true, volume = 0.45, restart = true })
 end
 
 return GameLoader
