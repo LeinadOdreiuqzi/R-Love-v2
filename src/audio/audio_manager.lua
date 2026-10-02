@@ -402,6 +402,16 @@ function AudioManager.playMusic(name, options)
     options = options or {}
     
     if AudioManager.state.currentMusic and AudioManager.state.currentMusicName == name then
+        if options.restart or options.forceRestart then
+            pcall(function()
+                AudioManager.state.currentMusic:stop()
+                AudioManager.state.currentMusic:seek(0)
+                local volume = (options.volume or 1.0) * AudioManager.config.masterVolume * AudioManager.config.musicVolume
+                AudioManager.state.currentMusic:setVolume(AudioManager.config.muted and 0 or volume)
+                AudioManager.state.currentMusic:setLooping(options.loop ~= false)
+                AudioManager.state.currentMusic:play()
+            end)
+        end
         return AudioManager.state.currentMusic
     end
 
@@ -428,6 +438,8 @@ function AudioManager.playMusic(name, options)
     local loop = (options.loop ~= false)
 
     pcall(function()
+        musicSource:stop()
+        musicSource:seek(0)
         musicSource:setLooping(loop)
         musicSource:setVolume(AudioManager.config.muted and 0 or volume)
         musicSource:play()
@@ -440,9 +452,42 @@ end
 
 function AudioManager.stopMusic()
     if AudioManager.state.currentMusic then
-        pcall(function() AudioManager.state.currentMusic:stop() end)
+        pcall(function()
+            AudioManager.state.currentMusic:stop()
+            AudioManager.state.currentMusic:seek(0)
+        end)
         AudioManager.state.currentMusic = nil
         AudioManager.state.currentMusicName = nil
+    end
+end
+
+--[[
+    Detiene toda la reproducción de audio (música, efectos y loops)
+--]]
+function AudioManager.stopAll()
+    AudioManager.stopMusic()
+    if love.audio and love.audio.stop then
+        pcall(love.audio.stop)
+    end
+    AudioManager.state.activeLoops = {}
+end
+
+--[[
+    Limpia y reinicia el estado de audio por completo (al reiniciar la seed o regenerar el mapa)
+--]]
+function AudioManager.reset()
+    AudioManager.stopAll()
+    if AudioManager.state.sfxSources then
+        for _, poolData in pairs(AudioManager.state.sfxSources) do
+            if poolData and poolData.sources then
+                for _, src in ipairs(poolData.sources) do
+                    pcall(function()
+                        src:stop()
+                        src:seek(0)
+                    end)
+                end
+            end
+        end
     end
 end
 

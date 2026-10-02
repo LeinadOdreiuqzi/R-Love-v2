@@ -35,8 +35,10 @@ local function loadWorld(updateProgress)
     
     table.insert(loadSteps, function()
         updateProgress("seed", "Generating universe seed...")
-        math.randomseed(os.time())
-        state.currentSeed = SeedSystem.generate()
+        if not state.currentSeed then
+            math.randomseed(os.time())
+            state.currentSeed = SeedSystem.generate()
+        end
         love.window.setTitle("Space Roguelike - Enhanced Systems - Seed: " .. state.currentSeed)
         return true
     end)
@@ -133,7 +135,7 @@ local function loadWorld(updateProgress)
         local physMgr = PhysicsManager:new()
         
         AudioManager.init()
-        AudioManager.playMusic("opaline_haven", { loop = true, volume = 0.45 })
+        AudioManager.playMusic("opaline_haven", { loop = true, volume = 0.45, restart = true })
         
         World.set('state', state)
         World.set('runState', runState)
@@ -195,6 +197,9 @@ function GameLoader.changeSeedWithLoading(newSeed)
     state.currentSeed = newSeed
     state.loaded = false
     state.isLoading = true
+    
+    -- Limpieza total del sistema de audio al reiniciar
+    AudioManager.reset()
     
     InventoryManager.forceCloseAll()
     
@@ -263,6 +268,9 @@ function GameLoader.changeSeed(newSeed)
 end
 
 function GameLoader.regenerateMap(seed)
+    -- Limpieza total del sistema de audio al reiniciar
+    AudioManager.reset()
+    
     InventoryManager.forceCloseAll()
     PassiveManager.reset()
     
@@ -314,6 +322,9 @@ function GameLoader.regenerateMap(seed)
     print("=== NEW ENHANCED GALAXY GENERATED ===")
     print("Alphanumeric Seed: " .. seed)
     print("Numeric Seed: " .. SeedSystem.toNumeric(seed))
+    
+    -- Iniciar reproducción limpia de la banda sonora para el nuevo mapa
+    AudioManager.playMusic("opaline_haven", { loop = true, volume = 0.45, restart = true })
 end
 
 return GameLoader

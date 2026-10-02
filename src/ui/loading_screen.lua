@@ -219,8 +219,12 @@ function LoadingScreen.start(loadFunction, onComplete)
     LoadingScreen.generateNebulae()
     LoadingScreen.initLoadingRing()
     
-    -- Seleccionar tip aleatorio
-    LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
+    -- Seleccionar tip aleatorio si está inicializado
+    if LoadingScreen.tips and #LoadingScreen.tips > 0 then
+        LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
+    else
+        LoadingScreen.currentTip = "Preparando el universo..."
+    end
     
     print("Loading screen started")
 end

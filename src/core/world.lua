@@ -129,6 +129,9 @@ end
 --- Limpia todos los datos del World (útil al regenerar el mundo con nueva seed).
 --- Mantiene la estructura pero vacía los datos de juego.
 function World.reset()
+    if _data.audio and _data.audio.reset then
+        pcall(_data.audio.reset)
+    end
     _data.state    = nil
     _data.player   = nil
     _data.map      = nil
