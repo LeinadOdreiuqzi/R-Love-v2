@@ -602,6 +602,295 @@ local Instruments = {
         local tine = math.sin(TWO_PI * (freq * 3.0) * t) * 0.20 * math.exp(-progress * 10.0)
 
         return (fund + tine) * attack * decay * 0.25
+    end,
+
+    -- 32. [32-bit Float] Caja de música mecánica de púas de latón (Music Box)
+    carouselMusicBox = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.0015)
+        local decay = math.exp(-progress * 5.2)
+
+        -- Púa de acero sobre cilindro de latón (parciales inarmónicos)
+        local fund = math.sin(TWO_PI * baseFreq * t)
+        local part2 = math.sin(TWO_PI * (baseFreq * 2.76) * t) * 0.28 * math.exp(-progress * 9.0)
+        local part3 = math.sin(TWO_PI * (baseFreq * 5.40) * t) * 0.14 * math.exp(-progress * 15.0)
+
+        -- Click mecánico sutil de escape
+        local click = math.sin(TWO_PI * 1400.0 * t) * math.exp(-t * 350.0) * 0.12
+
+        local sample = (fund + part2 + part3 + click) * attack * decay
+        return math.tanh(sample * 1.1) * 0.38
+    end,
+
+    -- 33. [32-bit Float] Acordeón de carrusel (Doble lengüeta batiente estilo Musette)
+    carouselAccordion = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        -- Ataque de fuelle de aire
+        local attack = math.min(1.0, t / 0.018)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.75) / 0.25))
+        local env = attack * release
+
+        -- Doble lengüeta afinada con batido musette (desafine de 2.4 cents)
+        local w1 = TWO_PI * baseFreq * t
+        local w2 = TWO_PI * (baseFreq * 1.0025) * t
+
+        -- Onda compuesta rica en armónicos impares (lengüeta libre en cámara de madera)
+        local r1 = math.sin(w1) + math.sin(w1 * 2.0) * 0.35 + math.sin(w1 * 3.0) * 0.25
+        local r2 = math.sin(w2) + math.sin(w2 * 2.0) * 0.35 + math.sin(w2 * 3.0) * 0.25
+
+        -- Soplido de aire tenue
+        local sIdx = math.floor(t * 44100) % 2048 + 1
+        local breath = NOISE_TABLE_NORM[sIdx] * 0.03 * (1.0 - progress * 0.5)
+
+        local raw = (r1 + r2 + breath) * 0.40
+        return math.tanh(raw * 1.25) * env * 0.32
+    end,
+
+    -- 34. [32-bit Float] Piano de salón melódico (macillo de fieltro, triple unísono acústico y decaimiento cantarín)
+    carouselPianoLead = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        -- 1. Transiente percusivo del macillo de fieltro (< 2.5 ms)
+        local attack = math.min(1.0, t / 0.0020)
+        local hammerKnock = math.sin(TWO_PI * 170.0 * t) * math.exp(-t * 260.0) * 0.16
+
+        -- 2. Triple cuerda al unísono acústico con micro-batido de concierto (afinado fino)
+        local w1 = TWO_PI * baseFreq * t
+        local w2 = TWO_PI * (baseFreq * 1.0006) * t
+        local w3 = TWO_PI * (baseFreq * 0.9994) * t
+
+        -- 3. Decaimiento armónico acústico natural (prompt sound inicial + sustain dulce)
+        local prompt = math.exp(-t * 14.0)
+        local sustain = math.exp(-progress * 2.6)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.88) / 0.12))
+
+        local h1 = (math.sin(w1) * 0.48 + math.sin(w2) * 0.28 + math.sin(w3) * 0.24) * sustain
+        local h2 = math.sin(w1 * 2.0) * 0.30 * (sustain * 0.65 + prompt * 0.35)
+        local h3 = math.sin(w1 * 3.0) * 0.14 * prompt
+        local h4 = math.sin(w1 * 4.0) * 0.05 * (prompt * prompt)
+
+        -- 4. Resonancia del arpa y caja armónica de madera
+        local body = math.sin(TWO_PI * (baseFreq * 0.5) * t) * 0.08 * sustain
+
+        local stringSound = (h1 + h2 + h3 + h4 + body) * attack * release
+        local sample = (stringSound + hammerKnock) * 0.70
+        return math.tanh(sample * 1.18) * 0.50
+    end,
+
+    twinWoodwindLead = function(note, t, duration)
+        return Instruments.carouselPianoLead(note, t, duration)
+    end,
+
+    -- 35. [32-bit Float] Bajo pizzicato acústico de madera (Pizzicato Upright Bass)
+    pizzWaltzBass = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.003)
+        local decay = math.exp(-progress * 4.2)
+
+        local w = TWO_PI * freq * t
+        local fund = math.sin(w)
+        local h2 = math.sin(w * 2.0) * 0.35 * (1.0 - progress * 0.6)
+        local sub = math.sin(w * 0.5) * 0.25
+
+        -- Transiente de cuerda pulsada con el pulgar
+        local pluck = math.sin(TWO_PI * 130.0 * t) * math.exp(-t * 220.0) * 0.22
+
+        local sample = (fund + h2 + sub + pluck) * attack * decay
+        return math.tanh(sample * 1.35) * 0.50
+    end,
+
+    -- 36. [32-bit Float] Glockenspiel de juguete brillante (Toy Glockenspiel)
+    toyGlockenspiel = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.001)
+        local decay = math.exp(-progress * 6.5)
+
+        local bar1 = math.sin(TWO_PI * freq * t)
+        local bar2 = math.sin(TWO_PI * (freq * 3.0) * t) * 0.25 * math.exp(-progress * 12.0)
+        local strike = math.sin(TWO_PI * 2200.0 * t) * math.exp(-t * 500.0) * 0.15
+
+        return (bar1 + bar2 + strike) * attack * decay * 0.30
+    end,
+
+    -- 37. [32-bit Float] Pandereta de carrusel (Carousel Tambourine)
+    carnivalTambourine = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 24.0)
+
+        -- Tintineo de cascabeles metálicos
+        local j1 = math.sin(TWO_PI * 5400.0 * t)
+        local j2 = math.sin(TWO_PI * 7200.0 * t) * 0.7
+        local j3 = math.sin(TWO_PI * 9600.0 * t) * 0.5
+        local sIdx = math.floor(t * 44100) % 2048 + 1
+        local noise = NOISE_TABLE_NORM[sIdx] * 0.45
+
+        local metal = (j1 + j2 + j3 + noise) * 0.30
+        return math.tanh(metal * 1.4) * env * 0.24
+    end,
+
+    -- 38. [32-bit Float] Bombo acústico de carrusel (Soft Carnival Drum)
+    carnivalKick = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local progress = t / duration
+        local env = math.exp(-progress * 10.0)
+        local freq = 110.0 * math.exp(-progress * 14.0) + 48.0
+        local tone = math.sin(TWO_PI * freq * t)
+        return math.tanh(tone * 1.3) * env * 0.45
+    end,
+
+    -- 39. [32-bit Float] Tictac mecánico de engranajes (Clockwork Tick)
+    clockworkTick = function(t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local env = math.exp(-t * 220.0)
+        local tick = math.sin(TWO_PI * 1850.0 * t) * env
+        return tick * 0.18
+    end,
+
+    -- 40. [32-bit Float] Arpa nostálgica etérea (pulsación de yema de dedos, dispersión armónica y resonancia de caja)
+    angelicHarp = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.0025)
+        local pluckFlesh = math.sin(TWO_PI * 160.0 * t) * math.exp(-t * 260.0) * 0.18
+        local pluckNail = math.sin(TWO_PI * 2200.0 * t) * math.exp(-t * 650.0) * 0.05
+
+        local w1 = TWO_PI * baseFreq * t
+        local w2 = TWO_PI * (baseFreq * 2.0008) * t
+        local w3 = TWO_PI * (baseFreq * 3.002) * t
+
+        local prompt = math.exp(-t * 14.0)
+        local sustain = math.exp(-progress * 2.2)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.88) / 0.12))
+
+        local h1 = math.sin(w1) * sustain
+        local h2 = math.sin(w2) * 0.28 * (sustain * 0.7 + prompt * 0.3)
+        local h3 = math.sin(w3) * 0.10 * prompt
+
+        local body = math.sin(TWO_PI * (baseFreq * 0.5) * t) * 0.09 * sustain
+
+        local stringSound = (h1 + h2 + h3 + body) * attack * release
+        local sample = (stringSound + pluckFlesh + pluckNail) * 0.62
+        return math.tanh(sample * 1.12) * 0.40
+    end,
+
+    -- 41. [32-bit Float] Coro celestial etéreo melancólico (respiración profunda, formantes 'Aah' envolventes)
+    celestialChoir = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.40)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.75) / 0.25))
+        local env = attack * release
+
+        -- Modulación lenta y nostálgica
+        local vib = math.sin(TWO_PI * 3.8 * t) * 0.0030
+        local f1 = baseFreq * (1.0 + vib)
+        local f2 = baseFreq * 1.0015 * (1.0 - vib * 0.7)
+        local f3 = baseFreq * 0.9985 * (1.0 + vib * 0.5)
+
+        local o1 = math.sin(TWO_PI * f1 * t)
+        local o2 = math.sin(TWO_PI * f2 * t) * 0.85
+        local o3 = math.sin(TWO_PI * f3 * t) * 0.85
+
+        local formant1 = math.sin(TWO_PI * 720.0 * t) * 0.10
+        local formant2 = math.sin(TWO_PI * 1150.0 * t) * 0.06
+
+        local raw = (o1 + o2 + o3 + formant1 + formant2) * 0.28
+        return math.tanh(raw * 1.15) * env * 0.32
+    end,
+
+    -- 42. [32-bit Float] Piano de cola acústico nostálgico / fieltro íntimo (felt hammer, micro-deriva nostálgica, decaimiento dulce)
+    angelicPianoLead = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local baseFreq = midiToFreq(note)
+        local progress = t / duration
+
+        -- 1. Transiente cálido de macillo de fieltro (~3.2 ms, amortiguado y suave)
+        local attack = math.min(1.0, t / 0.0032)
+        local hammerKnock = math.sin(TWO_PI * 145.0 * t) * math.exp(-t * 220.0) * 0.10
+
+        -- 2. Deriva nostálgica muy sutil (efecto cinta vintage / piano vertical íntimo)
+        local drift = math.sin(TWO_PI * 1.35 * t) * 0.00075
+
+        -- 3. Triple cuerda al unísono acústico con micro-batido
+        local w1 = TWO_PI * (baseFreq * (1.0 + drift)) * t
+        local w2 = TWO_PI * (baseFreq * (1.0005 + drift * 0.8)) * t
+        local w3 = TWO_PI * (baseFreq * (0.9995 - drift * 0.6)) * t
+
+        -- 4. Decaimiento armónico acústico nostálgico (sustain más cantarín y resonante)
+        local prompt = math.exp(-t * 11.0)
+        local sustain = math.exp(-progress * 1.8)
+        local release = math.max(0, 1.0 - math.max(0, (progress - 0.90) / 0.10))
+
+        local h1 = (math.sin(w1) * 0.52 + math.sin(w2) * 0.26 + math.sin(w3) * 0.22) * sustain
+        local h2 = math.sin(w1 * 2.0) * 0.28 * (sustain * 0.70 + prompt * 0.30)
+        local h3 = math.sin(w1 * 3.0) * 0.10 * prompt
+        local h4 = math.sin(w1 * 4.0) * 0.03 * (prompt * prompt)
+
+        -- 5. Resonancia de caja armónica de madera
+        local body = math.sin(TWO_PI * (baseFreq * 0.5) * t) * 0.10 * sustain
+
+        local stringSound = (h1 + h2 + h3 + h4 + body) * attack * release
+        local sample = (stringSound + hammerKnock) * 0.72
+        return math.tanh(sample * 1.15) * 0.48
+    end,
+
+    silverFlute = function(note, t, duration)
+        return Instruments.angelicPianoLead(note, t, duration)
+    end,
+
+    -- 43. [32-bit Float] Destellos de campanas de cristal (Stardust Crystal Chimes)
+    stardustChime = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.001)
+        local decay = math.exp(-progress * 5.8)
+
+        local c1 = math.sin(TWO_PI * freq * t)
+        local c2 = math.sin(TWO_PI * (freq * 2.756) * t) * 0.24 * math.exp(-progress * 10.0)
+        local c3 = math.sin(TWO_PI * (freq * 5.404) * t) * 0.12 * math.exp(-progress * 16.0)
+        local strike = math.sin(TWO_PI * 3400.0 * t) * math.exp(-t * 600.0) * 0.18
+
+        return (c1 + c2 + c3 + strike) * attack * decay * 0.28
+    end,
+
+    -- 44. [32-bit Float] Contrabajo acústico profundo (Deep Upright Bass)
+    deepAcousticBass = function(note, t, duration)
+        if t < 0 or t >= duration then return 0 end
+        local freq = midiToFreq(note)
+        local progress = t / duration
+
+        local attack = math.min(1.0, t / 0.004)
+        local decay = math.exp(-progress * 3.2)
+
+        local w = TWO_PI * freq * t
+        local fund = math.sin(w)
+        local sub = math.sin(w * 0.5) * 0.35
+        local h2 = math.sin(w * 2.0) * 0.25 * (1.0 - progress * 0.6)
+        local woodKnock = math.sin(TWO_PI * 110.0 * t) * math.exp(-t * 180.0) * 0.20
+
+        local sample = (fund + sub + h2 + woodKnock) * attack * decay
+        return math.tanh(sample * 1.3) * 0.48
     end
 }
 
@@ -1951,5 +2240,572 @@ function ProceduralMusic.generateAstralPulse()
 
     return sd
 end
+
+-- ============================================================================
+-- GENERADOR DE LA BANDA SONORA "TRACK 7" (VALS MODAL DE CARRUSEL EN 3/4)
+-- ============================================================================
+
+--[[
+    Pista en compás de 3/4 (Vals mecánico de carrusel, 192 BPM, 64 compases / 60.0 s)
+    Síntesis continua de 32-bit en coma flotante:
+    - Caja de música mecánica con parciales inarmónicos de lengüeta metálica
+    - Acordeón de carrusel con batido musette de doble lengüeta
+    - Bajo acústico pizzicato en primer pulso y bombo de feria
+    - Melodía solista de piano de salón acústico con macillo de fieltro, triple unísono y decaimiento cantarín
+    - Glockenspiel brillante en notas álgidas del clímax
+    - Tictac rítmico continuo de engranajes mecánicos y pandereta
+    - Estructura: Tema A (16) -> Tema B (16) -> Clímax (16) -> Coda y resolución (16)
+--]]
+function ProceduralMusic.generateCarouselWaltz()
+    local bpm = 192
+    local beatDuration = 60.0 / bpm -- 0.3125 s
+    local stepDuration = beatDuration / 4.0 -- Semicorchea (12 pasos por compás de 3/4, ~0.078125 s)
+    local totalBars = 64
+    local totalSteps = totalBars * 12 -- 768 pasos (60.0 s)
+    local totalDuration = totalSteps * stepDuration
+    local totalSamples = math.floor(SAMPLE_RATE * totalDuration)
+
+    local dryBuffer = {}
+    local wetBuffer = {}
+    for i = 1, totalSamples do
+        dryBuffer[i] = 0
+        wetBuffer[i] = 0
+    end
+
+    local function addNote(buf, instrumentFn, note, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = instrumentFn(note, t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    local function addPerc(buf, percFn, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local dur = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(dur * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = percFn(t, dur)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    -- Esquema armónico de 64 compases en La menor (Vals modal de carrusel)
+    local progression = {
+        -- Tema A (1-8)
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.C2, chords = {N.C4, N.E4, N.G4},   box = {N.C5, N.E5, N.G5} },
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.B1, chords = {N.D4, N.F4, N.B4},   box = {N.B4, N.D5, N.F5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+
+        -- Tema A Repetición (9-16)
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.C2, chords = {N.C4, N.E4, N.G4},   box = {N.C5, N.E5, N.G5} },
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.B1, chords = {N.D4, N.F4, N.B4},   box = {N.B4, N.D5, N.F5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+
+        -- Tema B (17-24)
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.C2, chords = {N.C4, N.E4, N.G4},   box = {N.C5, N.E5, N.G5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+
+        -- Tema B2 / Tensión creciente (25-32)
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.E1, chords = {N.B3, N.E4, N.G4},   box = {N.E4, N.G4, N.B4} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.B1, chords = {N.D4, N.F4, N.B4},   box = {N.B4, N.D5, N.F5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.B4, N.E5, N.Gs5} },
+
+        -- Clímax / Gran Carrusel (33-40)
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.E1, chords = {N.B3, N.E4, N.G4},   box = {N.E4, N.G4, N.B4} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.A1, chords = {N.Cs4, N.E4, N.G4},  box = {N.A4, N.Cs5, N.E5} },
+
+        -- Clímax 2 (41-48)
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.C2, chords = {N.C4, N.E4, N.G4},   box = {N.C5, N.E5, N.G5} },
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.B1, chords = {N.D4, N.F4, N.B4},   box = {N.B4, N.D5, N.F5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+
+        -- Coda / Desaceleración y caja de música solitaria (49-56)
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.C2, chords = {N.C4, N.E4, N.G4},   box = {N.C5, N.E5, N.G5} },
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.B1, chords = {N.D4, N.F4, N.B4},   box = {N.B4, N.D5, N.F5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+
+        -- Resolución cíclica (57-64)
+        { bass = N.F1, chords = {N.C4, N.F4, N.A4},   box = {N.A4, N.C5, N.F5} },
+        { bass = N.G1, chords = {N.B3, N.D4, N.G4},   box = {N.G4, N.B4, N.D5} },
+        { bass = N.E1, chords = {N.B3, N.E4, N.G4},   box = {N.E4, N.G4, N.B4} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.D2, chords = {N.D4, N.F4, N.A4},   box = {N.D5, N.F5, N.A5} },
+        { bass = N.E1, chords = {N.D4, N.E4, N.Gs4},  box = {N.Gs4, N.B4, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} },
+        { bass = N.A1, chords = {N.C4, N.E4, N.A4},   box = {N.A4, N.C5, N.E5} }
+    }
+
+    -- 1. Capa Rítmica de Vals (Bajo pizzicato en 1, Acordeón en 2 y 3, Percusión y Reloj)
+    for bar = 1, totalBars do
+        local p = progression[bar]
+        local baseStep = (bar - 1) * 12
+
+        -- Pulso 1 (paso 1): Bajo y bombo
+        if bar <= 48 or (bar >= 57 and bar <= 62) then
+            addNote(dryBuffer, Instruments.pizzWaltzBass, p.bass, baseStep + 1, 4.0)
+            if bar >= 9 and bar <= 48 then
+                addPerc(dryBuffer, Instruments.carnivalKick, baseStep + 1, 4.0)
+            end
+        end
+
+        -- Pulsos 2 y 3 (pasos 5 y 9): Acordeón y pandereta
+        if bar >= 5 and bar <= 52 then
+            for _, chNote in ipairs(p.chords) do
+                addNote(wetBuffer, Instruments.carouselAccordion, chNote, baseStep + 5, 3.2)
+                addNote(wetBuffer, Instruments.carouselAccordion, chNote, baseStep + 9, 3.2)
+            end
+            if bar >= 9 and bar <= 48 then
+                addPerc(dryBuffer, Instruments.carnivalTambourine, baseStep + 5, 2.0)
+                addPerc(dryBuffer, Instruments.carnivalTambourine, baseStep + 9, 2.0)
+            end
+        end
+
+        -- Caja de música en arpegio de carrusel (giro continuo de 6 corcheas: pasos 1, 3, 5, 7, 9, 11)
+        local bNotes = p.box
+        local bPat = { bNotes[1], bNotes[2], bNotes[3], bNotes[2], bNotes[3], bNotes[1] + 12 }
+        for sIdx = 1, 6 do
+            local stepOffset = (sIdx - 1) * 2 + 1
+            addNote(wetBuffer, Instruments.carouselMusicBox, bPat[sIdx], baseStep + stepOffset, 2.5)
+        end
+
+        -- Tictac mecánico continuo de engranajes
+        addPerc(dryBuffer, Instruments.clockworkTick, baseStep + 1, 1.0)
+        addPerc(dryBuffer, Instruments.clockworkTick, baseStep + 4, 1.0)
+        addPerc(dryBuffer, Instruments.clockworkTick, baseStep + 7, 1.0)
+        addPerc(dryBuffer, Instruments.clockworkTick, baseStep + 10, 1.0)
+    end
+
+    -- 2. Melodía Solista de Piano de Salón (Carousel Melodic Piano)
+    -- Compases 9-16 (Tema A Melancólico)
+    local themeAMelody = {
+        { N.E5, 97, 4.0 },  { N.D5, 101, 2.0 }, { N.C5, 103, 4.0 }, { N.B4, 107, 2.0 },
+        { N.A4, 109, 6.0 }, { N.D5, 115, 4.0 }, { N.F5, 119, 2.0 },
+        { N.G5, 121, 6.0 }, { N.D5, 127, 4.0 }, { N.B4, 131, 2.0 },
+        { N.C5, 133, 8.0 }, { N.E5, 141, 4.0 },
+        { N.F5, 145, 6.0 }, { N.E5, 151, 4.0 }, { N.C5, 155, 2.0 },
+        { N.D5, 157, 6.0 }, { N.C5, 163, 4.0 }, { N.B4, 167, 2.0 },
+        { N.Gs4, 169, 6.0 },{ N.B4, 175, 4.0 }, { N.D5, 179, 2.0 },
+        { N.C5, 181, 4.0 }, { N.B4, 185, 2.0 }, { N.A4, 187, 6.0 }
+    }
+
+    -- Compases 17-32 (Tema B - Vals Giratorio)
+    local themeBMelody = {
+        { N.F5, 193, 4.0 }, { N.E5, 197, 2.0 }, { N.D5, 199, 4.0 }, { N.F5, 203, 2.0 },
+        { N.E5, 205, 6.0 }, { N.C5, 211, 4.0 }, { N.A4, 215, 2.0 },
+        { N.B4, 217, 4.0 }, { N.C5, 221, 2.0 }, { N.D5, 223, 4.0 }, { N.Gs4, 227, 2.0 },
+        { N.A4, 229, 8.0 }, { N.C5, 237, 4.0 },
+
+        { N.D5, 241, 4.0 }, { N.E5, 245, 2.0 }, { N.F5, 247, 4.0 }, { N.A5, 251, 2.0 },
+        { N.G5, 253, 6.0 }, { N.D5, 259, 4.0 }, { N.B4, 263, 2.0 },
+        { N.C5, 265, 8.0 }, { N.E5, 273, 4.0 },
+        { N.E5, 277, 6.0 }, { N.D5, 283, 4.0 }, { N.Gs4, 287, 2.0 },
+
+        -- Escala ascendente de tensión hacia el clímax (compases 25-32)
+        { N.A5, 289, 4.0 }, { N.G5, 293, 2.0 }, { N.F5, 295, 4.0 }, { N.A5, 299, 2.0 },
+        { N.B5, 301, 4.0 }, { N.A5, 305, 2.0 }, { N.G5, 307, 4.0 }, { N.B5, 311, 2.0 },
+        { N.G5, 313, 6.0 }, { N.E5, 319, 4.0 }, { N.G5, 323, 2.0 },
+        { N.A5, 325, 6.0 }, { N.C6, 331, 4.0 }, { N.E6, 335, 2.0 },
+        { N.F6, 337, 4.0 }, { N.E6, 341, 2.0 }, { N.D6, 343, 4.0 }, { N.F6, 347, 2.0 },
+        { N.D6, 349, 6.0 }, { N.B5, 355, 4.0 }, { N.F5, 359, 2.0 },
+        { N.Gs5, 361, 6.0 },{ N.B5, 367, 4.0 }, { N.D6, 371, 2.0 },
+        { N.E6, 373, 6.0 }, { N.B5, 379, 4.0 }, { N.Gs5, 383, 2.0 }
+    }
+
+    -- Compases 33-48 (Clímax - Registro Álgido y Apasionado)
+    local climaxMelody = {
+        { N.C6, 385, 4.0 }, { N.B5, 389, 2.0 }, { N.A5, 391, 4.0 }, { N.G5, 395, 2.0 },
+        { N.B5, 397, 6.0 }, { N.D6, 403, 4.0 }, { N.B5, 407, 2.0 },
+        { N.G5, 409, 6.0 }, { N.B5, 415, 4.0 }, { N.E5, 419, 2.0 },
+        { N.E5, 421, 6.0 }, { N.A5, 427, 4.0 }, { N.C6, 431, 2.0 },
+        { N.A5, 433, 6.0 }, { N.F5, 439, 4.0 }, { N.D5, 443, 2.0 },
+        { N.Gs5, 445, 6.0 },{ N.B5, 451, 4.0 }, { N.D6, 455, 2.0 },
+        { N.C6, 457, 6.0 }, { N.B5, 463, 4.0 }, { N.A5, 467, 2.0 },
+        { N.Cs6, 469, 6.0 },{ N.E6, 475, 4.0 }, { N.G5, 479, 2.0 },
+
+        { N.F5, 481, 6.0 }, { N.A5, 487, 4.0 }, { N.F5, 491, 2.0 },
+        { N.G5, 493, 6.0 }, { N.B5, 499, 4.0 }, { N.D6, 503, 2.0 },
+        { N.E5, 505, 6.0 }, { N.G5, 511, 4.0 }, { N.C6, 515, 2.0 },
+        { N.C6, 517, 6.0 }, { N.A5, 523, 4.0 }, { N.F5, 527, 2.0 },
+        { N.D5, 529, 6.0 }, { N.F5, 535, 4.0 }, { N.B5, 539, 2.0 },
+        { N.B5, 541, 4.0 }, { N.A5, 545, 2.0 }, { N.Gs5, 547, 4.0 }, { N.B5, 551, 2.0 },
+        { N.A5, 553, 10.0 },{ N.E5, 563, 2.0 },
+        { N.A4, 565, 12.0 }
+    }
+
+    for _, m in ipairs(themeAMelody) do
+        addNote(wetBuffer, Instruments.carouselPianoLead, m[1], m[2], m[3])
+    end
+    for _, m in ipairs(themeBMelody) do
+        addNote(wetBuffer, Instruments.carouselPianoLead, m[1], m[2], m[3])
+    end
+    for _, m in ipairs(climaxMelody) do
+        addNote(wetBuffer, Instruments.carouselPianoLead, m[1], m[2], m[3])
+    end
+
+    -- 3. Destellos de Glockenspiel en el Clímax (Compases 33-48)
+    local glockNotes = {
+        { N.A6, 385, 3.0 }, { N.G6, 397, 3.0 }, { N.B6, 409, 3.0 },
+        { N.C6, 421, 3.0 }, { N.F6, 433, 3.0 }, { N.Gs6, 445, 3.0 },
+        { N.A6, 457, 3.0 }, { N.Cs6, 469, 3.0 }, { N.D6, 481, 3.0 },
+        { N.G6, 493, 3.0 }, { N.C6, 505, 3.0 }, { N.F6, 517, 3.0 },
+        { N.B5, 529, 3.0 }, { N.Gs6, 541, 3.0 }, { N.A6, 553, 5.0 }
+    }
+    for _, g in ipairs(glockNotes) do
+        addNote(wetBuffer, Instruments.toyGlockenspiel, g[1], g[2], g[3])
+    end
+
+    -- 4. Procesamiento de retardo espacial estéreo (~312 ms)
+    local delaySamples = math.floor(beatDuration * SAMPLE_RATE)
+    local delayBuffer = {}
+    for i = 1, delaySamples do
+        delayBuffer[i] = 0
+    end
+
+    local delayIdx = 1
+    local feedback = 0.25
+
+    for i = 1, totalSamples do
+        local dry = wetBuffer[i]
+        local echo = delayBuffer[delayIdx]
+        local wetVal = dry + echo * feedback
+        wetBuffer[i] = wetVal
+        delayBuffer[delayIdx] = wetVal
+        delayIdx = (delayIdx % delaySamples) + 1
+    end
+
+    -- 5. Mezcla final y masterización continua a 32 bits
+    local sd = love.sound.newSoundData(totalSamples, SAMPLE_RATE, 16, 1)
+    for i = 0, totalSamples - 1 do
+        local dry = dryBuffer[i + 1] or 0
+        local wet = wetBuffer[i + 1] or 0
+        local finalSample = (dry * 0.85 + wet * 0.75) * 0.82
+        sd:setSample(i, clampSample(finalSample))
+    end
+
+    return sd
+end
+
+ProceduralMusic.generateTrack7 = ProceduralMusic.generateCarouselWaltz
+
+-- ============================================================================
+-- GENERADOR DE LA BANDA SONORA "TRACK 8" (PAISAJE CELESTIAL NOSTÁLGICO EN 4/4)
+-- ============================================================================
+
+--[[
+    Pista en compás de 4/4 (Paisaje etéreo y melancólico en Fa mayor, 84 BPM, 32 compases / 91.4 s)
+    Síntesis continua de 32-bit en coma flotante:
+    - Arpa de concierto en cascadas fluidas de 16 notas por compás con pulsación cálida
+    - Coro celestial 'Aah' multi-voz con formantes armónicos envolventes y respiración suave
+    - Piano de cola acústico de fieltro con micro-deriva nostálgica, decaimiento dulce y fraseo lírico
+    - Destellos de campanas de cristal en las crestas melódicas
+    - Contrabajo acústico profundo en el pulso 1
+    - Retardo espacial con amortiguación cálida paso bajo (difusión nostálgica de catedral)
+    - Estructura: Intro (8) -> Melodía A (8) -> Variación Modal B (8) -> Clímax (4) -> Coda (4)
+--]]
+function ProceduralMusic.generateAngelicFountain()
+    local bpm = 84 -- Tempo reposado, íntimo y nostálgico
+    local beatDuration = 60.0 / bpm -- ~0.71428 s
+    local stepDuration = beatDuration / 4.0 -- Semicorchea (~0.17857 s, 16 pasos por compás de 4/4)
+    local totalBars = 32
+    local totalSteps = totalBars * 16 -- 512 pasos (~91.43 s)
+    local totalDuration = totalSteps * stepDuration
+    local totalSamples = math.floor(SAMPLE_RATE * totalDuration)
+
+    local dryBuffer = {}
+    local wetBuffer = {}
+    for i = 1, totalSamples do
+        dryBuffer[i] = 0
+        wetBuffer[i] = 0
+    end
+
+    local function addNote(buf, instrumentFn, note, startStep, durationSteps)
+        local startTime = (startStep - 1) * stepDuration
+        local noteDuration = durationSteps * stepDuration
+        local startSample = math.floor(startTime * SAMPLE_RATE) + 1
+        local numSamples = math.floor(noteDuration * SAMPLE_RATE)
+
+        for s = 0, numSamples - 1 do
+            local idx = startSample + s
+            if idx <= totalSamples then
+                local t = s / SAMPLE_RATE
+                local sample = instrumentFn(note, t, noteDuration)
+                buf[idx] = buf[idx] + sample
+            end
+        end
+    end
+
+    -- Esquema de acordes y arpegios en cascada de 16 notas por compás en Fa Mayor
+    local barsData = {
+        -- 1. Fmaj9 (Paz y añoranza pura)
+        {
+            bass = N.F1,
+            choir = { N.A3, N.C4, N.E4, N.G4 },
+            harp = { N.F3, N.A3, N.C4, N.E4, N.G4, N.A4, N.C5, N.E5, N.G5, N.E5, N.C5, N.A4, N.G4, N.E4, N.C4, N.A3 }
+        },
+        -- 2. Dm9 (Suspiro melancólico en Re menor)
+        {
+            bass = N.D2,
+            choir = { N.F3, N.A3, N.C4, N.E4 },
+            harp = { N.D3, N.F3, N.A3, N.C4, N.E4, N.F4, N.A4, N.C5, N.E5, N.C5, N.A4, N.F4, N.E4, N.C4, N.A3, N.F3 }
+        },
+        -- 3. Bbmaj9 (Lirismo subdominante)
+        {
+            bass = N.Bb1,
+            choir = { N.F3, N.Bb3, N.D4, N.F4 },
+            harp = { N.Bb2, N.D3, N.F3, N.A3, N.C4, N.D4, N.F4, N.A4, N.C5, N.A4, N.F4, N.D4, N.C4, N.A3, N.F3, N.D3 }
+        },
+        -- 4. C9sus4 -> C7 (Suspensión armónica)
+        {
+            bass = N.C2,
+            choir = { N.G3, N.Bb3, N.D4, N.E4 },
+            harp = { N.C3, N.F3, N.G3, N.Bb3, N.D4, N.E4, N.G4, N.Bb4, N.D5, N.Bb4, N.G4, N.E4, N.D4, N.Bb3, N.G3, N.E3 }
+        },
+        -- 5. Fmaj9
+        {
+            bass = N.F1,
+            choir = { N.A3, N.C4, N.E4, N.G4 },
+            harp = { N.F3, N.A3, N.C4, N.E4, N.G4, N.A4, N.C5, N.E5, N.G5, N.E5, N.C5, N.A4, N.G4, N.E4, N.C4, N.A3 }
+        },
+        -- 6. Dm9
+        {
+            bass = N.D2,
+            choir = { N.F3, N.A3, N.C4, N.E4 },
+            harp = { N.D3, N.F3, N.A3, N.C4, N.E4, N.F4, N.A4, N.C5, N.E5, N.C5, N.A4, N.F4, N.E4, N.C4, N.A3, N.F3 }
+        },
+        -- 7. Gm9 (Nostalgia profunda con novena y oncena)
+        {
+            bass = N.G1,
+            choir = { N.G3, N.Bb3, N.D4, N.F4 },
+            harp = { N.G2, N.Bb2, N.D3, N.F3, N.A3, N.Bb3, N.D4, N.F4, N.A4, N.F4, N.D4, N.Bb3, N.A3, N.F3, N.D3, N.Bb2 }
+        },
+        -- 8. C7(add9)
+        {
+            bass = N.C2,
+            choir = { N.E3, N.G3, N.Bb3, N.D4 },
+            harp = { N.C3, N.E3, N.G3, N.Bb3, N.D4, N.E4, N.G4, N.Bb4, N.C5, N.Bb4, N.G4, N.E4, N.D4, N.Bb3, N.G3, N.E3 }
+        }
+    }
+
+    -- Construcción de la progresión de 32 compases
+    local progression = {}
+    for i = 1, 8 do progression[i] = barsData[i] end
+    for i = 1, 8 do progression[8 + i] = barsData[i] end
+
+    -- Sección B modal
+    progression[17] = {
+        bass = N.A1,
+        choir = { N.A3, N.C4, N.E4, N.G4 },
+        harp = { N.A2, N.C3, N.E3, N.G3, N.A3, N.C4, N.E4, N.G4, N.A4, N.G4, N.E4, N.C4, N.A3, N.G3, N.E3, N.C3 }
+    }
+    progression[18] = barsData[2] -- Dm9
+    progression[19] = barsData[7] -- Gm9
+    progression[20] = barsData[4] -- C9sus4
+    progression[21] = barsData[3] -- Bbmaj9
+    progression[22] = {
+        bass = N.A1,
+        choir = { N.A3, N.C4, N.E4, N.A4 },
+        harp = { N.A2, N.C3, N.E3, N.A3, N.C4, N.E4, N.A4, N.C5, N.E5, N.C5, N.A4, N.E4, N.C4, N.A3, N.E3, N.C3 }
+    }
+    progression[23] = barsData[7] -- Gm9
+    progression[24] = barsData[8] -- C7
+
+    -- Clímax
+    progression[25] = barsData[1]
+    progression[26] = barsData[2]
+    progression[27] = barsData[3]
+    progression[28] = barsData[4]
+
+    -- Coda y resolución
+    progression[29] = barsData[1]
+    progression[30] = barsData[2]
+    progression[31] = barsData[7]
+    progression[32] = barsData[1]
+
+    -- 1. Capa Armónica y Cascada de Arpa
+    for bar = 1, totalBars do
+        local p = progression[bar]
+        local baseStep = (bar - 1) * 16
+
+        -- Bajo acústico profundo en el pulso 1
+        if bar <= 30 then
+            addNote(dryBuffer, Instruments.deepAcousticBass, p.bass, baseStep + 1, 14.0)
+        end
+
+        -- Coro celestial sostenido
+        if bar <= 31 then
+            for _, chNote in ipairs(p.choir) do
+                addNote(dryBuffer, Instruments.celestialChoir, chNote, baseStep + 1, 16.0)
+            end
+        end
+
+        -- Arpa en cascada líquida (16 notas continuas)
+        local hNotes = p.harp
+        for s = 1, 16 do
+            addNote(wetBuffer, Instruments.angelicHarp, hNotes[s], baseStep + s, 3.8)
+        end
+    end
+
+    -- 2. Melodía Solista de Piano Íntimo y Nostálgico
+    -- Fraseo con suspiros líricos, notas de apoyatura y pausas expresivas
+    local pianoMelody = {
+        -- Sección A (Compases 9-16)
+        -- C9: Entrada dulce en la 9ª (G4) que asciende al 3º (A4) y reposa en C5
+        { N.G4, 129, 4.0 }, { N.A4, 133, 4.0 }, { N.C5, 137, 8.0 },
+        -- C10: Suspensión melancólica en E5 (9ª de Dm) que desciende suavemente a D5 y A4
+        { N.E5, 145, 6.0 }, { N.D5, 151, 2.0 }, { N.C5, 153, 4.0 }, { N.A4, 157, 4.0 },
+        -- C11: Lamento lírico sobre Bbmaj9 (D5 -> C5 -> Bb4)
+        { N.D5, 161, 6.0 }, { N.C5, 167, 2.0 }, { N.Bb4, 169, 4.0 }, { N.A4, 173, 4.0 },
+        -- C12: Resolución tenue a C7 (G4 -> F4 -> E4)
+        { N.G4, 177, 8.0 }, { N.F4, 185, 4.0 }, { N.E4, 189, 4.0 },
+
+        -- C13: Segunda frase con mayor anhelo emotivo (Fmaj9)
+        { N.A4, 193, 4.0 }, { N.C5, 197, 4.0 }, { N.E5, 201, 4.0 }, { N.G5, 205, 4.0 },
+        -- C14: Caída delicada sobre Dm9
+        { N.F5, 209, 6.0 }, { N.E5, 215, 2.0 }, { N.D5, 217, 4.0 }, { N.A4, 221, 4.0 },
+        -- C15: Gm9 con la 9ª tierna (A4) y 11ª (C5)
+        { N.D5, 225, 6.0 }, { N.C5, 231, 2.0 }, { N.Bb4, 233, 4.0 }, { N.A4, 237, 4.0 },
+        -- C16: Cadencia nostálgica hacia E4
+        { N.G4, 241, 6.0 }, { N.Bb4, 247, 2.0 }, { N.D5, 249, 4.0 }, { N.E4, 253, 4.0 },
+
+        -- Sección B Modal (Compases 17-24): Añoranza y recuerdos lejanos
+        -- C17 (Am): La frase se eleva hacia los agudos con suavidad
+        { N.C5, 257, 4.0 }, { N.E5, 261, 4.0 }, { N.A5, 265, 8.0 },
+        -- C18 (Dm9): Suspiro en G5 descendiendo a F5 y E5
+        { N.G5, 273, 6.0 }, { N.F5, 279, 2.0 }, { N.E5, 281, 4.0 }, { N.D5, 285, 4.0 },
+        -- C19 (Gm9): Melodía expresiva
+        { N.D5, 289, 6.0 }, { N.E5, 295, 2.0 }, { N.F5, 297, 4.0 }, { N.G5, 301, 4.0 },
+        -- C20 (C9sus4): Suspensión tierna
+        { N.G5, 305, 8.0 }, { N.F5, 313, 4.0 }, { N.E5, 317, 4.0 },
+        -- C21 (Bbmaj9): Canto nostálgico
+        { N.F5, 321, 6.0 }, { N.G5, 327, 2.0 }, { N.A5, 329, 4.0 }, { N.Bb5, 333, 4.0 },
+        -- C22 (Am): Reflexión íntima
+        { N.C6, 337, 8.0 }, { N.A5, 345, 4.0 }, { N.E5, 349, 4.0 },
+        -- C23 (Gm9):
+        { N.G5, 353, 6.0 }, { N.A5, 359, 2.0 }, { N.Bb5, 361, 4.0 }, { N.D6, 365, 4.0 },
+        -- C24 (C7):
+        { N.E6, 369, 8.0 }, { N.D6, 377, 4.0 }, { N.C6, 381, 4.0 },
+
+        -- Clímax (Compases 25-28): Máxima emoción melancólica
+        { N.A5, 385, 6.0 }, { N.G5, 391, 2.0 }, { N.F5, 393, 4.0 }, { N.C5, 397, 4.0 },
+        { N.D5, 401, 8.0 }, { N.F5, 409, 4.0 }, { N.A5, 413, 4.0 },
+        { N.Bb5, 417, 6.0 },{ N.A5, 423, 2.0 }, { N.F5, 425, 4.0 }, { N.D5, 429, 4.0 },
+        { N.G5, 433, 8.0 }, { N.F5, 441, 4.0 }, { N.E5, 445, 4.0 },
+
+        -- Coda (Compases 29-32): Despedida suave y paz nostálgica
+        { N.F5, 449, 12.0 }, { N.C5, 461, 4.0 },
+        { N.D5, 465, 8.0 },  { N.A4, 473, 8.0 },
+        { N.Bb4, 481, 8.0 }, { N.C5, 489, 8.0 },
+        { N.F4, 497, 16.0 }
+    }
+
+    for _, m in ipairs(pianoMelody) do
+        addNote(wetBuffer, Instruments.angelicPianoLead, m[1], m[2], m[3])
+    end
+
+    -- 3. Destellos de Campanas de Cristal (Stardust Chimes)
+    local chimeNotes = {
+        { N.C6, 65, 4.0 },  { N.F6, 97, 4.0 },  { N.A6, 129, 4.0 },
+        { N.E6, 161, 4.0 }, { N.D6, 193, 4.0 }, { N.C6, 225, 4.0 },
+
+        { N.A6, 385, 4.0 }, { N.C6, 393, 4.0 },
+        { N.F6, 401, 4.0 }, { N.D6, 409, 4.0 },
+        { N.D6, 417, 4.0 }, { N.Bb5, 425, 4.0 },
+        { N.G6, 433, 4.0 }, { N.E6, 441, 4.0 },
+
+        { N.A5, 465, 6.0 }, { N.F6, 497, 8.0 }
+    }
+
+    for _, c in ipairs(chimeNotes) do
+        addNote(wetBuffer, Instruments.stardustChime, c[1], c[2], c[3])
+    end
+
+    -- 4. Procesamiento de retardo espacial estéreo con amortiguación cálida (Analog Tape / Warm Cathedral Echo)
+    local delaySamples = math.floor(beatDuration * 0.5 * SAMPLE_RATE)
+    local delayBuffer = {}
+    for i = 1, delaySamples do
+        delayBuffer[i] = 0
+    end
+
+    local delayIdx = 1
+    local feedback = 0.35
+    local prevEcho = 0.0
+
+    for i = 1, totalSamples do
+        local dry = wetBuffer[i]
+        local rawEcho = delayBuffer[delayIdx]
+        local dampedEcho = rawEcho * 0.65 + prevEcho * 0.35
+        prevEcho = dampedEcho
+
+        local wetVal = dry + dampedEcho * feedback
+        wetBuffer[i] = wetVal
+        delayBuffer[delayIdx] = wetVal
+        delayIdx = (delayIdx % delaySamples) + 1
+    end
+
+    -- 5. Mezcla final y masterización continua a 32 bits
+    local sd = love.sound.newSoundData(totalSamples, SAMPLE_RATE, 16, 1)
+    for i = 0, totalSamples - 1 do
+        local dry = dryBuffer[i + 1] or 0
+        local wet = wetBuffer[i + 1] or 0
+        local finalSample = clampSample((dry * 0.70 + wet * 0.68) * 0.76)
+        sd:setSample(i, finalSample)
+    end
+
+    return sd
+end
+
+ProceduralMusic.generateTrack8 = ProceduralMusic.generateAngelicFountain
 
 return ProceduralMusic

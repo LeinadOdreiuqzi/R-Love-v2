@@ -286,6 +286,26 @@ local Synthesizers = {
     space_ambient = function()
         local ProceduralMusic = require 'src.audio.procedural_music'
         return ProceduralMusic.generateSpaceAmbient()
+    end,
+
+    -- Track 7: Vals modal de carrusel en 3/4 a 192 BPM con caja de música, acordeón musette, bajo pizzicato y flauta solista
+    track_7 = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateCarouselWaltz()
+    end,
+    carousel_waltz = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateCarouselWaltz()
+    end,
+
+    -- Track 8: Arpegios de arpa en cascada líquida, coro celestial y flauta lírica en Fa mayor a 96 BPM
+    track_8 = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAngelicFountain()
+    end,
+    celestial_spring = function()
+        local ProceduralMusic = require 'src.audio.procedural_music'
+        return ProceduralMusic.generateAngelicFountain()
     end
 }
 

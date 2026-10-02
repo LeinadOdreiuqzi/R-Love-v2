@@ -26,7 +26,9 @@ local SOUNDTRACKS = {
     { id = "track_3", alias = "lunar_waltz",       name = "Track 3" },
     { id = "track_4", alias = "ancient_sanctuary", name = "Track 4" },
     { id = "track_5", alias = "cavern_groove",     name = "Track 5" },
-    { id = "track_6", alias = "space_ambient",     name = "Track 6" }
+    { id = "track_6", alias = "space_ambient",     name = "Track 6" },
+    { id = "track_7", alias = "carousel_waltz",    name = "Track 7" },
+    { id = "track_8", alias = "celestial_spring",  name = "Track 8" }
 }
 
 -- ============================================================================
@@ -247,7 +249,7 @@ end
 -- ─── VISTA DE DEPURACIÓN DE AUDIO ───────────────────────────────────────────
 
 function PauseMenu.drawAudioDebugView(sw, sh, alpha)
-    local pw, ph = 460, 450
+    local pw, ph = 460, 560
     local px = math.floor((sw - pw) / 2)
     local py = math.floor((sh - ph) / 2)
 
@@ -268,23 +270,23 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
 
     -- Encabezado
     love.graphics.setColor(0.9, 0.94, 1.0, alpha)
-    love.graphics.printf("Depuración de Audio", px, py + 22, pw, "center")
+    love.graphics.printf("Depuración de Audio", px, py + 18, pw, "center")
 
     -- Línea divisoria
     love.graphics.setColor(0.2, 0.4, 0.65, 0.4 * alpha)
-    love.graphics.line(px + 30, py + 50, px + pw - 30, py + 50)
+    love.graphics.line(px + 30, py + 44, px + pw - 30, py + 44)
 
     -- Indicador de Pista Actual
-    local statusY = py + 62
+    local statusY = py + 52
     local isPlaying = (currentTrack ~= "Ninguna")
 
     love.graphics.setColor(0.08, 0.11, 0.16, 0.8 * alpha)
-    love.graphics.rectangle("fill", px + 25, statusY, pw - 50, 36, 6, 6)
+    love.graphics.rectangle("fill", px + 25, statusY, pw - 50, 32, 6, 6)
     love.graphics.setColor(0.2, 0.4, 0.6, 0.45 * alpha)
-    love.graphics.rectangle("line", px + 25, statusY, pw - 50, 36, 6, 6)
+    love.graphics.rectangle("line", px + 25, statusY, pw - 50, 32, 6, 6)
 
     love.graphics.setColor(isPlaying and 0.2 or 0.6, isPlaying and 0.85 or 0.3, isPlaying and 0.4 or 0.3, alpha)
-    love.graphics.circle("fill", px + 42, statusY + 18, 5)
+    love.graphics.circle("fill", px + 42, statusY + 16, 5)
 
     local currentTrackName = "Ninguna"
     if currentTrack ~= "Ninguna" then
@@ -300,13 +302,13 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
     end
 
     love.graphics.setColor(0.85, 0.9, 0.98, alpha)
-    love.graphics.printf("Pista actual: " .. currentTrackName, px + 58, statusY + 11, pw - 90, "left")
+    love.graphics.printf("Pista actual: " .. currentTrackName, px + 58, statusY + 9, pw - 90, "left")
 
     -- Lista de Soundtracks
     local mx, my = love.mouse.getPosition()
-    local listY = statusY + 48
-    local itemH = 44
-    local gap = 8
+    local listY = statusY + 38
+    local itemH = 34
+    local gap = 5
     local iw = pw - 50
     local ix = px + 25
 
@@ -340,10 +342,10 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
 
         -- Nombre
         love.graphics.setColor(isCurrent and 0.4 or 0.95, isCurrent and 0.9 or 0.95, isCurrent and 1.0 or 0.95, alpha)
-        love.graphics.printf(track.name, ix + 16, iy + 14, iw - 120, "left")
+        love.graphics.printf(track.name, ix + 16, iy + 9, iw - 120, "left")
 
         -- Botón a la derecha
-        local btnW, btnH = 90, 28
+        local btnW, btnH = 90, 24
         local btnX = ix + iw - btnW - 8
         local btnY = iy + (itemH - btnH) / 2
         local isBtnHover = (mx >= btnX and mx <= btnX + btnW and my >= btnY and my <= btnY + btnH)
@@ -353,14 +355,14 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
             love.graphics.rectangle("fill", btnX, btnY, btnW, btnH, 4, 4)
             love.graphics.setColor(0.4, 0.9, 0.55, alpha)
             love.graphics.rectangle("line", btnX, btnY, btnW, btnH, 4, 4)
-            love.graphics.printf("Sonando", btnX, btnY + 7, btnW, "center")
+            love.graphics.printf("Sonando", btnX, btnY + 5, btnW, "center")
         else
             love.graphics.setColor(isBtnHover and 0.25 or 0.12, isBtnHover and 0.55 or 0.30, isBtnHover and 0.85 or 0.55, 0.8 * alpha)
             love.graphics.rectangle("fill", btnX, btnY, btnW, btnH, 4, 4)
             love.graphics.setColor(0.3, 0.7, 0.95, alpha)
             love.graphics.rectangle("line", btnX, btnY, btnW, btnH, 4, 4)
             love.graphics.setColor(1, 1, 1, alpha)
-            love.graphics.printf("Reproducir", btnX, btnY + 7, btnW, "center")
+            love.graphics.printf("Reproducir", btnX, btnY + 5, btnW, "center")
         end
     end
 
@@ -370,14 +372,14 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
     local ctrlX = px + 25
 
     -- Botón Detener
-    local stopW, stopH = 100, 32
+    local stopW, stopH = 100, 30
     local isStopHover = (mx >= ctrlX and mx <= ctrlX + stopW and my >= ctrlY and my <= ctrlY + stopH)
     love.graphics.setColor(isStopHover and 0.7 or 0.45, 0.18, 0.18, 0.85 * alpha)
     love.graphics.rectangle("fill", ctrlX, ctrlY, stopW, stopH, 4, 4)
     love.graphics.setColor(1, 0.4, 0.4, alpha)
     love.graphics.rectangle("line", ctrlX, ctrlY, stopW, stopH, 4, 4)
     love.graphics.setColor(1, 1, 1, alpha)
-    love.graphics.printf("Detener", ctrlX, ctrlY + 8, stopW, "center")
+    love.graphics.printf("Detener", ctrlX, ctrlY + 7, stopW, "center")
 
     -- Control de Volumen (+ / -)
     local volBoxX = ctrlX + stopW + 12
@@ -390,35 +392,35 @@ function PauseMenu.drawAudioDebugView(sw, sh, alpha)
     -- Botón [-]
     local btnMinusX = volBoxX + 4
     local btnMinusW = 24
-    local isMinusHover = (mx >= btnMinusX and mx <= btnMinusX + btnMinusW and my >= ctrlY + 3 and my <= ctrlY + 29)
+    local isMinusHover = (mx >= btnMinusX and mx <= btnMinusX + btnMinusW and my >= ctrlY + 3 and my <= ctrlY + 27)
     love.graphics.setColor(isMinusHover and 0.25 or 0.15, 0.35, 0.5, 0.9 * alpha)
-    love.graphics.rectangle("fill", btnMinusX, ctrlY + 3, btnMinusW, 26, 3, 3)
+    love.graphics.rectangle("fill", btnMinusX, ctrlY + 3, btnMinusW, 24, 3, 3)
     love.graphics.setColor(1, 1, 1, alpha)
-    love.graphics.printf("-", btnMinusX, ctrlY + 6, btnMinusW, "center")
+    love.graphics.printf("-", btnMinusX, ctrlY + 5, btnMinusW, "center")
 
     -- Porcentaje
     local pct = math.floor(musicVolume * 100 + 0.5)
     love.graphics.setColor(0.9, 0.93, 0.98, alpha)
-    love.graphics.printf(string.format("Volumen: %d%%", pct), btnMinusX + btnMinusW, ctrlY + 8, volBoxW - 60, "center")
+    love.graphics.printf(string.format("Volumen: %d%%", pct), btnMinusX + btnMinusW, ctrlY + 7, volBoxW - 60, "center")
 
     -- Botón [+]
     local btnPlusX = volBoxX + volBoxW - 28
     local btnPlusW = 24
-    local isPlusHover = (mx >= btnPlusX and mx <= btnPlusX + btnPlusW and my >= ctrlY + 3 and my <= ctrlY + 29)
+    local isPlusHover = (mx >= btnPlusX and mx <= btnPlusX + btnPlusW and my >= ctrlY + 3 and my <= ctrlY + 27)
     love.graphics.setColor(isPlusHover and 0.25 or 0.15, 0.35, 0.5, 0.9 * alpha)
-    love.graphics.rectangle("fill", btnPlusX, ctrlY + 3, btnPlusW, 26, 3, 3)
+    love.graphics.rectangle("fill", btnPlusX, ctrlY + 3, btnPlusW, 24, 3, 3)
     love.graphics.setColor(1, 1, 1, alpha)
-    love.graphics.printf("+", btnPlusX, ctrlY + 6, btnPlusW, "center")
+    love.graphics.printf("+", btnPlusX, ctrlY + 5, btnPlusW, "center")
 
     -- Botón Volver
-    local backY = py + ph - 46
-    local isBackHover = (mx >= ctrlX and mx <= ctrlX + ctrlW and my >= backY and my <= backY + 32)
+    local backY = py + ph - 42
+    local isBackHover = (mx >= ctrlX and mx <= ctrlX + ctrlW and my >= backY and my <= backY + 30)
     love.graphics.setColor(isBackHover and 0.16 or 0.10, isBackHover and 0.28 or 0.18, isBackHover and 0.44 or 0.28, 0.8 * alpha)
-    love.graphics.rectangle("fill", ctrlX, backY, ctrlW, 32, 4, 4)
+    love.graphics.rectangle("fill", ctrlX, backY, ctrlW, 30, 4, 4)
     love.graphics.setColor(0.3, 0.55, 0.8, alpha)
-    love.graphics.rectangle("line", ctrlX, backY, ctrlW, 32, 4, 4)
+    love.graphics.rectangle("line", ctrlX, backY, ctrlW, 30, 4, 4)
     love.graphics.setColor(1, 1, 1, alpha)
-    love.graphics.printf("Volver", ctrlX, backY + 8, ctrlW, "center")
+    love.graphics.printf("Volver", ctrlX, backY + 7, ctrlW, "center")
 end
 
 -- ============================================================================
@@ -469,13 +471,13 @@ function PauseMenu.mousepressed(x, y, button)
         end
 
     elseif PauseMenu.state.view == "audio_debug" then
-        local pw, ph = 460, 450
+        local pw, ph = 460, 560
         local px = math.floor((sw - pw) / 2)
         local py = math.floor((sh - ph) / 2)
-        local statusY = py + 62
-        local listY = statusY + 48
-        local itemH = 44
-        local gap = 8
+        local statusY = py + 52
+        local listY = statusY + 38
+        local itemH = 34
+        local gap = 5
         local iw = pw - 50
         local ix = px + 25
 
@@ -496,7 +498,7 @@ function PauseMenu.mousepressed(x, y, button)
         local ctrlY = listY + #SOUNDTRACKS * (itemH + gap) + 8
         local ctrlW = pw - 50
         local ctrlX = px + 25
-        local stopW, stopH = 100, 32
+        local stopW, stopH = 100, 30
 
         -- Clic en Detener
         if x >= ctrlX and x <= ctrlX + stopW and y >= ctrlY and y <= ctrlY + stopH then
@@ -514,7 +516,7 @@ function PauseMenu.mousepressed(x, y, button)
         -- Botón [-]
         local btnMinusX = volBoxX + 4
         local btnMinusW = 24
-        if x >= btnMinusX and x <= btnMinusX + btnMinusW and y >= ctrlY + 3 and y <= ctrlY + 29 then
+        if x >= btnMinusX and x <= btnMinusX + btnMinusW and y >= ctrlY + 3 and y <= ctrlY + 27 then
             if audio and audio.setMusicVolume then
                 local currentVol = audio.config.musicVolume or 1.0
                 audio.setMusicVolume(math.max(0, currentVol - 0.1))
@@ -526,7 +528,7 @@ function PauseMenu.mousepressed(x, y, button)
         -- Botón [+]
         local btnPlusX = volBoxX + volBoxW - 28
         local btnPlusW = 24
-        if x >= btnPlusX and x <= btnPlusX + btnPlusW and y >= ctrlY + 3 and y <= ctrlY + 29 then
+        if x >= btnPlusX and x <= btnPlusX + btnPlusW and y >= ctrlY + 3 and y <= ctrlY + 27 then
             if audio and audio.setMusicVolume then
                 local currentVol = audio.config.musicVolume or 1.0
                 audio.setMusicVolume(math.min(1.0, currentVol + 0.1))
@@ -536,8 +538,8 @@ function PauseMenu.mousepressed(x, y, button)
         end
 
         -- Botón Volver
-        local backY = py + ph - 46
-        if x >= ctrlX and x <= ctrlX + ctrlW and y >= backY and y <= backY + 32 then
+        local backY = py + ph - 42
+        if x >= ctrlX and x <= ctrlX + ctrlW and y >= backY and y <= backY + 30 then
             PauseMenu.setView("main")
             return true
         end
