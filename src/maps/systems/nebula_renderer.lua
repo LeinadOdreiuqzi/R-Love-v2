@@ -29,6 +29,7 @@ local function rgb2hsv(r, g, b)
     if h < 0 then h = h + 1 end
     return h, s, v
 end
+
 local function hsv2rgb(h, s, v)
     local i = math.floor(h * 6)
     local f = h * 6 - i
@@ -51,64 +52,61 @@ local function worldToScreenParallax(camera, wx, wy, parallax)
     return camera:worldToScreen(px, py)
 end
 
-local function isOnScreen(screenX, screenY, radiusPx, margin)
+local function isOnScreen(screenX, screenY, radiusPx)
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
-    -- Margen mucho más generoso para nebulosas grandes
-    local m = margin or 200
-    local dynamicMargin = math.max(m, radiusPx * 1.5)  -- 150% del radio como margen para nebulosas grandes
-    -- Para nebulosas muy grandes (>1000px), ser aún más permisivo
-    if radiusPx > 1000 then
-        dynamicMargin = radiusPx * 2.0  -- 200% del radio para nebulosas enormes
-    end
-    return (screenX + radiusPx + dynamicMargin) >= 0 and (screenX - radiusPx - dynamicMargin) <= w
-       and (screenY + radiusPx + dynamicMargin) >= 0 and (screenY - radiusPx - dynamicMargin) <= h
+    -- El radio visual efectivo incluye el radio base, la capa de niebla (1.18x),
+    -- deformación por warp del shader (~8%) y un margen de seguridad de 50px
+    local effectiveRadius = (radiusPx or 140) * 1.25 + 50
+    return (screenX + effectiveRadius >= 0) and (screenX - effectiveRadius <= w)
+       and (screenY + effectiveRadius >= 0) and (screenY - effectiveRadius <= h)
 end
 
--- Calcular factor de alpha para fade-in gradual de nebulas grandes
-local function calculateNebulaAlpha(screenX, screenY, radiusPx, camera)
-    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
-    
-    -- Aplicar fade-in a nebulas medianas y grandes (>300px) para evitar pop-in
-    if radiusPx <= 300 then
+-- Calcular factor de alpha para fade-in gradual de nebulas grandes en el borde del viewport
+local function calculateNebulaAlpha(screenX, screenY, radiusPx)
+    -- Nebulosas pequeñas y medianas no necesitan fade artificial (el shader ya posee bordes suaves)
+    if not radiusPx or radiusPx <= 250 then
         return 1.0
     end
-    
-    -- Calcular distancia al borde del viewport
-    local centerX, centerY = w * 0.5, h * 0.5
-    local viewportRadius = math.min(w, h) * 0.5
-    
-    -- Distancia del centro de la nebula al centro del viewport
-    local distanceToCenter = math.sqrt((screenX - centerX)^2 + (screenY - centerY)^2)
-    
-    -- Para nebulas gigantes, considerar que pueden extenderse mucho más allá del viewport
-    local nebulaVisibilityRadius = radiusPx * 0.4  -- Considerar 40% del radio como margen
-    if radiusPx > 2000 then  -- Nebulas gigantescas
-        nebulaVisibilityRadius = radiusPx * 0.6  -- Margen más amplio para gigantes
+
+    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+
+    -- Distancia euclidiana mínima desde el centro de la nebulosa al rectángulo de la pantalla
+    local dx = 0
+    if screenX < 0 then
+        dx = -screenX
+    elseif screenX > w then
+        dx = screenX - w
     end
-    
-    -- Distancia al borde visible del viewport (considerando el radio extendido de la nebula)
-    local distanceToViewportEdge = math.max(0, distanceToCenter - (viewportRadius + nebulaVisibilityRadius))
-    
-    -- Distancia de fade proporcional al tamaño de la nebula
-    local fadeDistance = radiusPx * 1.0  -- 100% del radio como distancia de transición base
-    
-    -- Para nebulas gigantes (>1000px), usar distancia de fade mucho más amplia
-    if radiusPx > 1000 then
-        fadeDistance = radiusPx * 1.8  -- 180% del radio para transición muy suave
+
+    local dy = 0
+    if screenY < 0 then
+        dy = -screenY
+    elseif screenY > h then
+        dy = screenY - h
     end
-    
-    -- Para nebulas gigantescas (>2000px), fade aún más gradual
-    if radiusPx > 2000 then
-        fadeDistance = radiusPx * 2.5  -- 250% del radio para máxima suavidad
+
+    -- Si el centro está dentro de la pantalla, visibilidad completa
+    if dx == 0 and dy == 0 then
+        return 1.0
     end
-    
-    -- Calcular factor de alpha (1.0 = completamente visible, 0.0 = invisible)
-    local alpha = 1.0 - math.max(0, math.min(1, distanceToViewportEdge / fadeDistance))
-    
-    -- Aplicar curva suave para transición más natural
-    alpha = alpha * alpha * (3.0 - 2.0 * alpha)  -- Smoothstep
-    
-    return alpha
+
+    local distOutside = math.sqrt(dx * dx + dy * dy)
+    local effectiveRadius = radiusPx * 1.25
+    local distToCutoff = effectiveRadius - distOutside
+
+    -- Fuera del alcance visual
+    if distToCutoff <= 0 then
+        return 0.0
+    end
+
+    -- Margen de transición gradual hacia el borde
+    local fadeRange = math.min(radiusPx * 0.4, 250)
+    if distToCutoff >= fadeRange then
+        return 1.0
+    end
+
+    local t = distToCutoff / fadeRange
+    return t * t * (3.0 - 2.0 * t)  -- Smoothstep
 end
 
 function NebulaRenderer.update(dt)
@@ -119,16 +117,10 @@ function NebulaRenderer.update(dt)
 end
 
 function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
-    -- DEBUG: Logging desactivado
-    -- if not NebulaRenderer._drawCallLogged then
-    --     NebulaRenderer._drawCallLogged = true
-    --     print("NebulaRenderer.drawNebulae called - function is active")
-    -- end
-    
-    -- Usar el nuevo sistema de shaders de nebulosas
+    -- Usar el sistema de shaders de nebulosas
     local shader = NebulasShaders and NebulasShaders.getShader and NebulasShaders.getShader() or nil
     local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
-    -- DEBUG: imprimir una sola vez el tamaño del círculo y existencia de shader
+    
     if not NebulaRenderer._debugOnce then
         NebulaRenderer._debugOnce = true
         local iw, ih = 0, 0
@@ -137,19 +129,14 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
     end
     if not shader or not img then return 0 end
 
-    local rendered = 0
     local zoom = camera and camera.zoom or 1
-    local oldBlend, oldAlphaMode = love.graphics.getBlendMode()
-    love.graphics.setBlendMode("add", "alphamultiply")
-
     local timeNow = love.timer.getTime()
 
-    -- DEBUG: imprimir una sola vez el tamaño del círculo y existencia de shader
-    if not NebulaRenderer._debugOnce then
-        NebulaRenderer._debugOnce = true
-        local iw, ih = img:getWidth(), img:getHeight()
-        print(("NebulaRenderer: shader=%s, circle=%dx%d"):format(shader and "OK" or "nil", iw, ih))
-    end
+    -- Pool para recolección de nebulosas visibles (evita GC allocations)
+    NebulaRenderer._visibleList = NebulaRenderer._visibleList or {}
+    local visibleList = NebulaRenderer._visibleList
+    local visibleCount = 0
+
     for chunkY = chunkInfo.startY, chunkInfo.endY do
         for chunkX = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(chunkX, chunkY)
@@ -164,120 +151,154 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 
                     local par = math.max(0.0, math.min(1.0, n.parallax or 0.85))
                     local screenX, screenY = worldToScreenParallax(camera, wx, wy, par)
-                    -- CORREGIDO: El tamaño ya incluye worldScale y baseSizeScale desde map_generator.lua
-                    -- Solo necesitamos aplicar el zoom para obtener el tamaño en píxeles de pantalla
                     local radiusPx = (n.size or 140) * zoom
-                    
-                    -- DEBUG: Logging desactivado para reducir spam
-                    -- if zoom > 0.8 and i == 1 then
-                    --     print(string.format("Nebula debug: zoom=%.2f, worldPos=(%.1f,%.1f), screenPos=(%.1f,%.1f), size=%.1f, radiusPx=%.1f, parallax=%.2f", 
-                    --         zoom, wx, wy, screenX, screenY, n.size or 140, radiusPx, par))
-                    -- end
-                    
-                    -- NUEVO: Sistema basado en intersección con pantalla en lugar de distancia al centro
-                    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
-                    
-                    -- Calcular bounds de la nebulosa en pantalla
-                    local nebulaLeft = screenX - radiusPx
-                    local nebulaRight = screenX + radiusPx
-                    local nebulaTop = screenY - radiusPx
-                    local nebulaBottom = screenY + radiusPx
-                    
-                    -- Usar función isOnScreen con margen dinámico más generoso
-                    local isVisible = isOnScreen(screenX, screenY, radiusPx, nil)
-                    
-                    -- NUEVO: Sistema de fade-in gradual para nebulas grandes
-                    local fadeAlpha = calculateNebulaAlpha(screenX, screenY, radiusPx, camera)
-                    
-                    -- Renderizar si la nebulosa está visible en pantalla y tiene alpha > 0
-                    if isVisible and fadeAlpha > 0.01 then
-                        love.graphics.push()
-                        love.graphics.origin()
 
-                        -- Color base con alpha aumentado para mayor visibilidad
-                        local br, bg, bb, ba = (n.color and n.color[1] or 1), (n.color and n.color[2] or 1), (n.color and n.color[3] or 1), (n.color and n.color[4] or 1)
-                        ba = ba * 1.25 * fadeAlpha  -- Alpha con fade-in gradual para nebulas grandes
-                        
-                        -- Armonización con nebulosas cercanas para coherencia visual
-                        local harmonyFactor = 1.0
-                        local neighborInfluence = 0.0
-                        for j = 1, #chunk.objects.nebulae do
-                            if j ~= i then
-                                local neighbor = chunk.objects.nebulae[j]
-                                local dist = math.sqrt((n.x - neighbor.x)^2 + (n.y - neighbor.y)^2)
-                                if dist < 300 then  -- Nebulosas cercanas
-                                    local influence = math.max(0, 1.0 - dist / 300)
-                                    neighborInfluence = neighborInfluence + influence * 0.15
-                                end
+                    -- Culling matemático exacto con margen físico
+                    if isOnScreen(screenX, screenY, radiusPx) then
+                        local fadeAlpha = calculateNebulaAlpha(screenX, screenY, radiusPx)
+                        if fadeAlpha > 0.01 then
+                            visibleCount = visibleCount + 1
+                            local item = visibleList[visibleCount]
+                            if not item then
+                                item = {}
+                                visibleList[visibleCount] = item
                             end
+                            item.n = n
+                            item.screenX = screenX
+                            item.screenY = screenY
+                            item.radiusPx = radiusPx
+                            item.fadeAlpha = fadeAlpha
+                            item.par = par
+                            item.chunk = chunk
+                            item.idx = i
                         end
-                        harmonyFactor = math.max(0.7, math.min(1.3, 1.0 + neighborInfluence))
-                        
-                        -- Variación armónica mejorada según parallax y vecindad
-                        local h, s, v = rgb2hsv(br, bg, bb)
-                        local hueShift = (par - 0.5) * 0.12 * harmonyFactor         -- ±0.06 modulado
-                        local satAdj   = (0.90 + 0.20 * par) * harmonyFactor        -- [0.90, 1.10] modulado
-                        local valAdj   = (0.95 + 0.10 * (1.0 - par)) * harmonyFactor  -- [0.95, 1.05] modulado
-                        h = (h + hueShift) % 1.0
-                        s = math.max(0.0, math.min(1.0, s * satAdj))
-                        v = math.max(0.0, math.min(1.0, v * valAdj))
-                        local cr, cg, cb = hsv2rgb(h, s, v)
-
-                        -- UNIFICADO: Usar función centralizada de brillo
-                        local OptimizedRenderer = require 'src.maps.optimized_renderer'
-                        local brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
-
-                        -- Configurar uniforms usando el nuevo sistema
-                        love.graphics.setColor(cr, cg, cb, ba)
-                        if NebulasShaders and NebulasShaders.configureForNebula then
-                            NebulasShaders.configureForNebula({
-                                seed = (n.seed or 0) * 0.001,
-                                noiseScale = n.noiseScale or 2.5,
-                                warpAmp = n.warpAmp or 0.05,
-                                warpFreq = n.warpFreq or 0.20,
-                                softness = n.softness or 0.70,
-                                brightness = brightness,
-                                parallax = par,
-                                sparkleStrength = 0.0  -- Destellos desactivados
-                            })
-                        end
-                        NebulasShaders.setShader()
-                        local iw, ih = img:getWidth(), img:getHeight()
-                        local scale = (radiusPx * 2) / math.max(1, iw)
-                        love.graphics.draw(img, screenX, screenY, 0, scale, scale, iw * 0.5, ih * 0.5)
-                        NebulasShaders.unsetShader()
-
-                        -- NUEVO: superponer niebla suave (fog-of-war) para contraste mejorado
-                        do
-                            -- Niebla oscura intensificada para mayor contraste
-                        local baseIntensity = n.intensity or 0.6
-                        local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par))) * fadeAlpha
-                        
-                        if fogAlpha > 0.01 then
-                            local prevBlend, prevAlpha = love.graphics.getBlendMode()
-                            love.graphics.setBlendMode("alpha", "alphamultiply")
-                            
-                            -- Niebla oscura principal con tinte armonizado
-                            local fogTint = 0.08 + 0.04 * par  -- Tinte más pronunciado
-                            local harmonyFactor = 0.85 + 0.15 * math.sin(timeNow * 0.3 + (n.seed or 0) * 0.1)
-                            love.graphics.setColor(fogTint * harmonyFactor, fogTint * 0.75 * harmonyFactor, fogTint * 0.55 * harmonyFactor, fogAlpha)
-                            local fogScale = scale * 1.18  -- Mayor cobertura para mejor integración
-                            love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, iw * 0.5, ih * 0.5)
-                            
-                            love.graphics.setBlendMode(prevBlend or "add", prevAlpha)
-                        end
-                        end
-
-                        love.graphics.pop()
-                        rendered = rendered + 1
                     end
                 end
             end
         end
     end
 
+    if visibleCount == 0 then
+        return 0
+    end
+
+    local iw, ih = img:getWidth(), img:getHeight()
+    local scaleFactor = 2.0 / math.max(1, iw)
+    local halfIw, halfIh = iw * 0.5, ih * 0.5
+
+    -- Preparar transformaciones una sola vez para todo el lote
+    love.graphics.push()
+    love.graphics.origin()
+    local oldBlend, oldAlphaMode = love.graphics.getBlendMode()
+
+    -- =========================================================================
+    -- PASO 1: CUERPOS DE NEBULOSAS (Shader activo + Blend Additive)
+    -- =========================================================================
+    love.graphics.setBlendMode("add", "alphamultiply")
+    NebulasShaders.setShader()
+
+    local OptimizedRenderer = require 'src.maps.optimized_renderer'
+
+    for idx = 1, visibleCount do
+        local item = visibleList[idx]
+        local n = item.n
+        local par = item.par
+        local fadeAlpha = item.fadeAlpha
+        local screenX = item.screenX
+        local screenY = item.screenY
+        local radiusPx = item.radiusPx
+        local chunk = item.chunk
+        local i = item.idx
+
+        -- Color base con alpha aumentado y fade-in gradual
+        local br = (n.color and n.color[1] or 1)
+        local bg = (n.color and n.color[2] or 1)
+        local bb = (n.color and n.color[3] or 1)
+        local ba = (n.color and n.color[4] or 1) * 1.25 * fadeAlpha
+
+        -- Armonización con nebulosas cercanas del mismo chunk
+        local neighborInfluence = 0.0
+        for j = 1, #chunk.objects.nebulae do
+            if j ~= i then
+                local neighbor = chunk.objects.nebulae[j]
+                local dist = math.sqrt((n.x - neighbor.x)^2 + (n.y - neighbor.y)^2)
+                if dist < 300 then
+                    local influence = math.max(0, 1.0 - dist / 300)
+                    neighborInfluence = neighborInfluence + influence * 0.15
+                end
+            end
+        end
+        local harmonyFactor = math.max(0.7, math.min(1.3, 1.0 + neighborInfluence))
+
+        -- Variación armónica según parallax y vecindad
+        local h, s, v = rgb2hsv(br, bg, bb)
+        local hueShift = (par - 0.5) * 0.12 * harmonyFactor
+        local satAdj   = (0.90 + 0.20 * par) * harmonyFactor
+        local valAdj   = (0.95 + 0.10 * (1.0 - par)) * harmonyFactor
+        h = (h + hueShift) % 1.0
+        s = math.max(0.0, math.min(1.0, s * satAdj))
+        v = math.max(0.0, math.min(1.0, v * valAdj))
+        local cr, cg, cb = hsv2rgb(h, s, v)
+
+        local brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
+
+        -- Configurar uniforms para esta nebulosa
+        NebulasShaders.configureForNebula({
+            seed = (n.seed or 0) * 0.001,
+            noiseScale = n.noiseScale or 2.5,
+            warpAmp = n.warpAmp or 0.05,
+            warpFreq = n.warpFreq or 0.20,
+            softness = n.softness or 0.70,
+            brightness = brightness,
+            parallax = par,
+            sparkleStrength = 0.0
+        })
+
+        local scale = radiusPx * scaleFactor
+        item.scale = scale
+
+        love.graphics.setColor(cr, cg, cb, ba)
+        love.graphics.draw(img, screenX, screenY, 0, scale, scale, halfIw, halfIh)
+    end
+
+    NebulasShaders.unsetShader()
+
+    -- =========================================================================
+    -- PASO 2: CAPAS DE NIEBLA SUAVE (FOG-OF-WAR) (Sin shader + Blend Alpha)
+    -- =========================================================================
+    love.graphics.setBlendMode("alpha", "alphamultiply")
+
+    for idx = 1, visibleCount do
+        local item = visibleList[idx]
+        local n = item.n
+        local par = item.par
+        local screenX = item.screenX
+        local screenY = item.screenY
+        local fadeAlpha = item.fadeAlpha
+        local scale = item.scale or (item.radiusPx * scaleFactor)
+
+        local baseIntensity = n.intensity or 0.6
+        local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par))) * fadeAlpha
+
+        if fogAlpha > 0.01 then
+            local fogTint = 0.08 + 0.04 * par
+            local harmonyFactor = 0.85 + 0.15 * math.sin(timeNow * 0.3 + (n.seed or 0) * 0.1)
+            love.graphics.setColor(fogTint * harmonyFactor, fogTint * 0.75 * harmonyFactor, fogTint * 0.55 * harmonyFactor, fogAlpha)
+            local fogScale = scale * 1.18
+            love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, halfIw, halfIh)
+        end
+    end
+
+    -- Limpiar referencias pesadas del pool para permitir GC de chunks descargados
+    for idx = 1, visibleCount do
+        visibleList[idx].n = nil
+        visibleList[idx].chunk = nil
+    end
+
     love.graphics.setBlendMode(oldBlend or "alpha", oldAlphaMode)
-    return rendered
+    love.graphics.pop()
+
+    return visibleCount
 end
 
 return NebulaRenderer

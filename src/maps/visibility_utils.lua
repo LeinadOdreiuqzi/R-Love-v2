@@ -9,9 +9,9 @@ local VisibilityUtils = {}
 VisibilityUtils.dynamicMarginConfig = {
     baseMargin = 300,
     zoomThreshold = 0.3,
-    nebulaMarginMultiplier = 1.5,
+    nebulaMarginMultiplier = 0.75,
     maxZoomFactor = 3.0,
-    maxMarginMultiplier = 30.0,  -- CORREGIDO: Aumentado de 8.0 a 30.0 para nebulas gigantes (hasta 9000px)
+    maxMarginMultiplier = 8.0,  -- Acotado a 8.0 (hasta 2400px) para evitar inflar chunks fuera de pantalla
     lowZoomBonus = 200
 }
 
