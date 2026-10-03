@@ -23,6 +23,10 @@ function Camera:new()
     camera.autoZoomEnabled = false
     camera.baseZoom = 1.15
     
+    -- Effects (inicializar antes de updateScreenDimensions / updateFrustum)
+    camera.shake = 0
+    camera.shakeIntensity = 0
+    
     -- Initialize screen dimensions safely
     camera:updateScreenDimensions()
     
@@ -30,10 +34,6 @@ function Camera:new()
     camera.smoothness = 4.0  -- Lower is smoother
     camera.offsetX = camera.screenWidth / 2
     camera.offsetY = camera.screenHeight / 2
-    
-    -- Effects
-    camera.shake = 0
-    camera.shakeIntensity = 0
     
     -- Cache para utilidades
     camera.MathUtil = require 'src.utils.math_util'
@@ -60,6 +60,68 @@ function Camera:updateScreenDimensions()
     self.y = self.y or 0
     self.zoom = self.zoom or 1
     self.targetZoom = self.targetZoom or 1
+
+    self:updateFrustum()
+end
+
+-- Actualizar el frustum precomputado en coordenadas del mundo
+function Camera:updateFrustum(marginPx)
+    local baseMargin = marginPx or (self._frustum and self._frustum.margin) or 100
+    local hasShake = type(self.shake) == "number" and self.shake > 0
+    local shakeMargin = hasShake and (self.shakeIntensity or 10) or 0
+    local margin = baseMargin + shakeMargin
+
+    local z = self.zoom or 1
+    if z <= 0 then z = 1 end
+    
+    local w = self.screenWidth or 800
+    local h = self.screenHeight or 600
+    
+    local halfW = (w * 0.5 + margin) / z
+    local halfH = (h * 0.5 + margin) / z
+    
+    local cx = self.x or 0
+    local cy = self.y or 0
+    
+    local f = self._frustum
+    if not f then
+        f = {}
+        self._frustum = f
+    end
+
+    f.left = cx - halfW
+    f.right = cx + halfW
+    f.top = cy - halfH
+    f.bottom = cy + halfH
+    f.margin = baseMargin
+    f.zoom = z
+    f.cx = cx
+    f.cy = cy
+    f.halfW = halfW
+    f.halfH = halfH
+
+    -- Límites exactos de pantalla en mundo sin margen
+    f.rawLeft = cx - (w * 0.5) / z
+    f.rawRight = cx + (w * 0.5) / z
+    f.rawTop = cy - (h * 0.5) / z
+    f.rawBottom = cy + (h * 0.5) / z
+
+    -- Precomputar distancias al cuadrado para LOD sin math.sqrt
+    local maxHalfDiagWorld = math.sqrt((w * 0.5)^2 + (h * 0.5)^2) / z
+    f.lodDist0Sq = (maxHalfDiagWorld * 0.3)^2
+    f.lodDist1Sq = (maxHalfDiagWorld * 0.7)^2
+    f.maxHalfDiagWorld = maxHalfDiagWorld
+
+    return f
+end
+
+-- Obtener el frustum precomputado
+function Camera:getFrustum(marginPx)
+    local f = self._frustum
+    if not f or (marginPx and f.margin ~= marginPx) then
+        return self:updateFrustum(marginPx)
+    end
+    return f
 end
 
 -- Actualizar estado de la cámara
@@ -79,10 +141,14 @@ function Camera:update(dt)
     if self.shake > 0 then
         self.shake = math.max(0, self.shake - 1)
     end
+
+    self:updateFrustum()
 end
 
 -- Apply camera transformation
 function Camera:apply()
+    self:updateFrustum()
+
     love.graphics.push()
     
     -- Calculate shake offset
@@ -107,12 +173,14 @@ end
 function Camera:move(dx, dy)
     self.x = self.x + dx
     self.y = self.y + dy
+    self:updateFrustum()
 end
 
 -- Set camera position
 function Camera:setPosition(x, y)
     self.x = x
     self.y = y
+    self:updateFrustum()
 end
 
 -- Follow a target with smooth movement and return target position
@@ -159,6 +227,8 @@ function Camera:follow(target, dt)
         self:zoomTo(self.targetZoom + (targetZoom - self.targetZoom) * 0.1)
     end
     
+    self:updateFrustum()
+
     -- Return target position for synchronization
     return targetX, targetY
 end

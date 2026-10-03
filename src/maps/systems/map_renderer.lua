@@ -139,48 +139,68 @@ function MapRenderer.calculateEdgeFade(screenX, screenY, size, camera)
     return 1.0
 end
 
--- Verificar si un objeto está visible (frustum culling en world-space con margen fijo de 700 px)
+-- Verificar si un objeto está visible (frustum culling en world-space con precomputación O(1))
 function MapRenderer.isObjectVisible(x, y, size, camera)
-    -- Si no hay cámara válida, no cullar (mejor dibujar que desaparecer)
-    if not camera or type(camera.screenToWorld) ~= "function" then
-        return true
+    local f = camera and camera._frustum
+    if not f then
+        if camera and type(camera.updateFrustum) == "function" then
+            f = camera:updateFrustum()
+        elseif camera and camera.x and camera.y then
+            -- Fallback para tablas de cámara simples/mocks sin metatabla
+            local z = camera.zoom or 1
+            if z <= 0 then z = 1 end
+            local w = camera.screenWidth or 800
+            local h = camera.screenHeight or 600
+            local halfW = (w * 0.5 + 100) / z
+            local halfH = (h * 0.5 + 100) / z
+            local r = (size and size > 0) and size or 0
+            return (x + r >= camera.x - halfW) and (x - r <= camera.x + halfW) and
+                   (y + r >= camera.y - halfH) and (y - r <= camera.y + halfH)
+        else
+            return true
+        end
     end
 
-    local screenW, screenH = love.graphics.getDimensions()
-
-    -- Convertir el viewport a coordenadas del mundo
-    local wl, wt = camera:screenToWorld(0, 0)
-    local wr, wb = camera:screenToWorld(screenW, screenH)
-
-    -- Ordenar límites y aplicar margen fijo de 700px en espacio de pantalla
-    local left   = math.min(wl, wr)
-    local right  = math.max(wl, wr)
-    local top    = math.min(wt, wb)
-    local bottom = math.max(wt, wb)
-
-    -- Margen fijo (700 px) convertido a unidades del mundo
-    local marginWorld = 700 / (camera.zoom or 1)
-
-    left   = left   - marginWorld
-    right  = right  + marginWorld
-    top    = top    - marginWorld
-    bottom = bottom + marginWorld
-
-    return x >= left and x <= right and y >= top and y <= bottom
+    local r = (size and size > 0) and size or 0
+    return (x + r >= f.left) and (x - r <= f.right) and
+           (y + r >= f.top)  and (y - r <= f.bottom)
 end
 
--- Calcular nivel de detalle básico
+-- Calcular nivel de detalle básico optimizado (evita llamadas C y sqrt redundantes)
 function MapRenderer.calculateLOD(x, y, camera)
-    local screenX, screenY = camera:worldToScreen(x, y)
-    local centerX = love.graphics.getWidth() / 2
-    local centerY = love.graphics.getHeight() / 2
-    
-    local distance = math.sqrt((screenX - centerX)^2 + (screenY - centerY)^2)
-    local maxDistance = math.sqrt(centerX^2 + centerY^2)
-    
-    if distance < maxDistance * 0.3 then
+    local f = camera and camera._frustum
+    if f and f.lodDist0Sq then
+        local dx = x - (camera.x or 0)
+        local dy = y - (camera.y or 0)
+        local distSq = dx * dx + dy * dy
+        
+        if distSq < f.lodDist0Sq then
+            return 0
+        elseif distSq < f.lodDist1Sq then
+            return 1
+        else
+            return 2
+        end
+    end
+
+    -- Fallback si no hay frustum precalculado
+    if not camera or type(camera.worldToScreen) ~= "function" then
         return 0
-    elseif distance < maxDistance * 0.7 then
+    end
+    local screenX, screenY = camera:worldToScreen(x, y)
+    local w = (camera.screenWidth or (love.graphics and love.graphics.getWidth and love.graphics.getWidth()) or 800)
+    local h = (camera.screenHeight or (love.graphics and love.graphics.getHeight and love.graphics.getHeight()) or 600)
+    local centerX = w * 0.5
+    local centerY = h * 0.5
+    
+    local dx = screenX - centerX
+    local dy = screenY - centerY
+    local distSq = dx * dx + dy * dy
+    local maxDistSq = centerX * centerX + centerY * centerY
+    
+    if distSq < maxDistSq * 0.09 then
+        return 0
+    elseif distSq < maxDistSq * 0.49 then
         return 1
     else
         return 2
@@ -457,23 +477,12 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     -- Obtener la posición del jugador para el efecto de paralaje
     local playerX, playerY = cameraX, cameraY
     
-    -- Calcular el área visible en coordenadas del mundo
-    local camLeft, camTop = camera:screenToWorld(0, 0)
-    local camRight, camBottom = camera:screenToWorld(screenWidth, screenHeight)
-    
-    -- Expandir el área visible con el margen
-    local viewportLeft = camLeft - margin / camera.zoom
-    local viewportTop = camTop - margin / camera.zoom
-    local viewportRight = camRight + margin / camera.zoom
-    local viewportBottom = camBottom + margin / camera.zoom
-    
-    -- Calcular chunks visibles basados en la vista
-    -- Usar los bounds/unidades unificadas
+    -- Chunks visibles basados en chunkInfo unificado
     local chunkSize = STRIDE * MapConfig.chunk.worldScale
-    local viewportLeft = chunkInfo.worldLeft
-    local viewportTop = chunkInfo.worldTop
-    local viewportRight = chunkInfo.worldRight
-    local viewportBottom = chunkInfo.worldBottom
+    local viewportLeft = (chunkInfo and chunkInfo.worldLeft) or (camera._frustum and camera._frustum.left) or -100000
+    local viewportTop = (chunkInfo and chunkInfo.worldTop) or (camera._frustum and camera._frustum.top) or -100000
+    local viewportRight = (chunkInfo and chunkInfo.worldRight) or (camera._frustum and camera._frustum.right) or 100000
+    local viewportBottom = (chunkInfo and chunkInfo.worldBottom) or (camera._frustum and camera._frustum.bottom) or 100000
 
     local startChunkX = chunkInfo.startX
     local endChunkX = chunkInfo.endX

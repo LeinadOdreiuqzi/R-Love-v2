@@ -8,6 +8,14 @@ SeedSystem.digits = "0123456789"
 
 -- Generar semilla alfanumérica (5 letras + 5 dígitos mezclados)
 function SeedSystem.generate()
+    -- Inicializar entropía del generador pseudoaleatorio en el primer llamado
+    if not SeedSystem._initialized then
+        local entropy = os.time() + math.floor((os.clock() or 0) * 100000)
+        math.randomseed(entropy)
+        for _ = 1, 3 do math.random() end
+        SeedSystem._initialized = true
+    end
+
     local chars = {}
     
     -- Agregar 5 letras aleatorias
