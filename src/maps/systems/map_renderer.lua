@@ -151,8 +151,8 @@ function MapRenderer.isObjectVisible(x, y, size, camera)
             if z <= 0 then z = 1 end
             local w = camera.screenWidth or 800
             local h = camera.screenHeight or 600
-            local halfW = (w * 0.5 + 100) / z
-            local halfH = (h * 0.5 + 100) / z
+            local halfW = (w * 0.5 + 500) / z
+            local halfH = (h * 0.5 + 500) / z
             local r = (size and size > 0) and size or 0
             return (x + r >= camera.x - halfW) and (x - r <= camera.x + halfW) and
                    (y + r >= camera.y - halfH) and (y - r <= camera.y + halfH)

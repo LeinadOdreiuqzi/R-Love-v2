@@ -66,7 +66,7 @@ end
 
 -- Actualizar el frustum precomputado en coordenadas del mundo
 function Camera:updateFrustum(marginPx)
-    local baseMargin = marginPx or (self._frustum and self._frustum.margin) or 100
+    local baseMargin = marginPx or (self._frustum and self._frustum.margin) or 500
     local hasShake = type(self.shake) == "number" and self.shake > 0
     local shakeMargin = hasShake and (self.shakeIntensity or 10) or 0
     local margin = baseMargin + shakeMargin
