@@ -289,10 +289,10 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
             center = worldToScreen(world, u_camera, float(u_zoom), u_viewportSize);
         }
 
-        if (screenRadius <= 0.0) return vec4(0.0);
+        if (screenRadius <= 0.0) discard;
 
         float dist = length(screenCoord - center);
-        if (dist > screenRadius * 4.0) return vec4(0.0);
+        if (dist > screenRadius * 4.0) discard;
 
         vec3 accum = vec3(0.0);
 
@@ -315,27 +315,26 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
             pulseMul = (1.0 + 0.08 * pulse); // Pulso muy sutil
         }
 
-        // OPTIMIZADO: Efectos especiales branchless
-        float enhancedEnabled = step(0.5, u_enhancedEffects);
-        
-        // Calcular máscaras de tipo sin branching
-        float isType3 = 1.0 - step(0.5, abs(type - 3.0));
-        float isType5 = 1.0 - step(0.5, abs(type - 5.0));
-        
-        // Calcular todos los efectos y combinar con máscaras
-        float width4 = max(1.8, screenRadius * 0.35);
-        float flare4 = crossFlare(screenCoord, center, width4, 0.8) * isType4;
-        
-        float width5 = max(1.8, screenRadius * 0.3);
-        float flare5 = sixPointFlare(screenCoord, center, width5, 0.9) * isType5;
-        
-        float width3 = max(1.8, screenRadius * 0.4);
-        float flare3 = diamondFlare(screenCoord, center, width3, 0.8) * isType3;
-        
-        // Combinar efectos
-        float totalFlare = flare4 + flare5 + flare3;
-        vec3 flareCol = enhanceColor(c, starBrightness * mix(0.4, mix(0.5, 0.45, isType3), isType5));
-        accum += totalFlare * flareCol * enhancedEnabled;
+        // OPTIMIZADO: Efectos especiales por tipo sin divergencia de warp (mismo tipo en todo el quad)
+        if (u_enhancedEffects > 0.5 && type >= 2.5) {
+            float totalFlare = 0.0;
+            float flareFactor = 0.5;
+            if (abs(type - 4.0) < 0.5) {
+                float width4 = max(1.8, screenRadius * 0.35);
+                totalFlare = crossFlare(screenCoord, center, width4, 0.8);
+                flareFactor = 0.5;
+            } else if (abs(type - 5.0) < 0.5) {
+                float width5 = max(1.8, screenRadius * 0.3);
+                totalFlare = sixPointFlare(screenCoord, center, width5, 0.9);
+                flareFactor = 0.4;
+            } else if (abs(type - 3.0) < 0.5) {
+                float width3 = max(1.8, screenRadius * 0.4);
+                totalFlare = diamondFlare(screenCoord, center, width3, 0.8);
+                flareFactor = 0.45;
+            }
+            vec3 flareCol = enhanceColor(c, starBrightness * flareFactor);
+            accum += totalFlare * flareCol;
+        }
 
         // Composición final equilibrada
         accum += body * bodyCol * finalMul;
@@ -348,7 +347,9 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     }
 
     // Ruta original: leer del buffer por índice y proyectar
-    int idx = int(aStarIndex);
+    // Si aStarIndex >= 0 se usa el uniform (compatibilidad individual hacia atrás)
+    // Si no, se decodifica del color del vértice (permite dibujar cientos de estrellas en 1 solo batch GPU)
+    int idx = (aStarIndex >= 0.0) ? int(aStarIndex) : (int(color.r * 255.0 + 0.5) + int(color.g * 255.0 + 0.5) * 256);
 
     vec4 d0, d1, d2;
     readStar(idx, d0, d1, d2);
@@ -370,12 +371,12 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     float worldRadius = size * float(u_worldScale);
     float screenRadius = worldRadius * float(u_zoom);
     if (screenRadius <= 0.0) {
-        return vec4(0.0);
+        discard;
     }
 
     vec2 center = worldToScreen(world, u_camera, float(u_zoom), u_viewportSize);
     float dist = length(screenCoord - center);
-    if (dist > screenRadius * 4.0) return vec4(0.0);
+    if (dist > screenRadius * 4.0) discard;
 
     // OPTIMIZADO: usar brillo horneado (ya incluye twinkle/pulse en CPU)
     float starBrightness = brightness;
@@ -401,26 +402,27 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     float core = circleFill(dist, screenRadius * 0.25);
     vec3 coreCol = coreTint(c, starBrightness);
 
-    // OPTIMIZADO: Efectos especiales branchless (ruta principal)
-    float enhancedEnabled = step(0.5, u_enhancedEffects);
-    float isType3Main = 1.0 - step(0.5, abs(type - 3.0));
-    float isType5Main = 1.0 - step(0.5, abs(type - 5.0));
-    
-    // Calcular todos los efectos
-    float width4 = max(1.8, screenRadius * 0.35);
-    float flare4 = crossFlare(screenCoord, center, width4, 0.8) * isType4Main;
-    
-    float width5 = max(1.8, screenRadius * 0.3);
-    float flare5 = sixPointFlare(screenCoord, center, width5, 0.9) * isType5Main;
-    
-    float width3 = max(1.8, screenRadius * 0.4);
-    float flare3 = diamondFlare(screenCoord, center, width3, 0.8) * isType3Main;
-    
-    // Combinar efectos
-    float totalFlareMain = flare4 + flare5 + flare3;
-    vec3 flareColMain = enhanceColor(c, starBrightness * mix(0.4, mix(0.5, 0.45, isType3Main), isType5Main));
-    accum += totalFlareMain * flareColMain * enhancedEnabled;
-    
+    // OPTIMIZADO: Efectos especiales por tipo sin divergencia de warp (mismo tipo en todo el quad)
+    if (u_enhancedEffects > 0.5 && type >= 2.5) {
+        float totalFlareMain = 0.0;
+        float flareFactor = 0.5;
+        if (abs(type - 4.0) < 0.5) {
+            float width4 = max(1.8, screenRadius * 0.35);
+            totalFlareMain = crossFlare(screenCoord, center, width4, 0.8);
+            flareFactor = 0.5;
+        } else if (abs(type - 5.0) < 0.5) {
+            float width5 = max(1.8, screenRadius * 0.3);
+            totalFlareMain = sixPointFlare(screenCoord, center, width5, 0.9);
+            flareFactor = 0.4;
+        } else if (abs(type - 3.0) < 0.5) {
+            float width3 = max(1.8, screenRadius * 0.4);
+            totalFlareMain = diamondFlare(screenCoord, center, width3, 0.8);
+            flareFactor = 0.45;
+        }
+        vec3 flareColMain = enhanceColor(c, starBrightness * flareFactor);
+        accum += totalFlareMain * flareColMain;
+    }
+
     // Composición final equilibrada (ruta principal)
     accum += body * bodyCol * pulseMul;
     accum += core * coreCol * 0.9;
@@ -516,31 +518,65 @@ function StarfieldInstanced.preFilterStars(allStars, camera, opts)
     return result
 end
 
--- NUEVO: batching de draw calls para instanced
-function StarfieldInstanced.beginBatchDraw()
+-- SpriteBatch reutilizable para colapsar todas las estrellas en 1 draw call
+local starBatch = nil
+local starBatchCapacity = 0
+
+function StarfieldInstanced.getSpriteBatch(capacity)
+    local needed = math.max(2000, capacity or 2000)
+    if not starBatch or starBatchCapacity < needed then
+        starBatch = love.graphics.newSpriteBatch(whiteImage, needed, "stream")
+        starBatchCapacity = needed
+    end
+    return starBatch
+end
+
+-- NUEVO: batching de draw calls para instanced (1 solo Draw Call GPU)
+function StarfieldInstanced.beginBatchDraw(capacity)
     if not shader or not whiteImage then return end
     if _batchActive then return end
     _prevBlend, _prevAlpha = love.graphics.getBlendMode()
     love.graphics.setBlendMode("add", "alphamultiply")
     love.graphics.setShader(shader)
+    pcall(function() shader:send("aStarIndex", -1.0) end)
+    local batch = StarfieldInstanced.getSpriteBatch(capacity)
+    batch:clear()
     _batchActive = true
+end
+
+function StarfieldInstanced.addStarToBatch(index, x, y, s)
+    if not _batchActive or not starBatch then return end
+    s = math.max(2, (s or 64) * ((MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3))
+    local half = s * 0.5
+    local r = (index % 256) / 255.0
+    local g = math.floor(index / 256) / 255.0
+    starBatch:setColor(r, g, 0.0, 1.0)
+    starBatch:add((x or 0) - half, (y or 0) - half, 0, s, s)
 end
 
 function StarfieldInstanced.endBatchDraw()
     if not _batchActive then return end
+    if starBatch and starBatch:getCount() > 0 then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(starBatch)
+    end
     love.graphics.setShader()
     love.graphics.setBlendMode(_prevBlend or "alpha", _prevAlpha)
     _batchActive = false
 end
 
--- NUEVO: dibujar quad sin cambiar estado (usar dentro de begin/endBatchDraw)
+-- NUEVO: dibujar quad sin cambiar estado (usar dentro de begin/endBatchDraw o standalone)
 function StarfieldInstanced.drawStarQuadRaw(index, x, y, s)
     if not shader or not whiteImage then return end
-    s = math.max(2, (s or 64) * ((MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3))
-    local half = s * 0.5
-    pcall(function() shader:send("aStarIndex", index) end)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(whiteImage, (x or 0) - half, (y or 0) - half, 0, s, s)
+    if _batchActive then
+        StarfieldInstanced.addStarToBatch(index, x, y, s)
+    else
+        s = math.max(2, (s or 64) * ((MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3))
+        local half = s * 0.5
+        pcall(function() shader:send("aStarIndex", index) end)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(whiteImage, (x or 0) - half, (y or 0) - half, 0, s, s)
+    end
 end
 
 -- Enviar el buffer de datos de estrellas (u_starData) y su tamaño (ancho, alto) y stride (normalmente 4)
@@ -595,9 +631,7 @@ function StarfieldInstanced.drawStarQuad(index, x, y, s)
     s = math.max(2, (s or 64) * instScale)
     local half = s * 0.5
     if _batchActive then
-        pcall(function() shader:send("aStarIndex", index) end)
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(whiteImage, x - half, y - half, 0, s, s)
+        StarfieldInstanced.addStarToBatch(index, x, y, s)
     else
         -- Blending y shader por llamada (fallback)
         local oldBlend, oldAlpha = love.graphics.getBlendMode()
@@ -665,67 +699,101 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
     if ok then writerShader = sh else print("✗ StarfieldInstanced: error creando writerShader: "..tostring(sh)) end
 end
 
--- OPTIMIZADO: iniciar la construcción del buffer usando pooling
+-- Buffer de datos rápido en CPU (0 Draw Calls)
+local starDataImageData = nil
+local starDataImage = nil
+local starDataImageW = 0
+
+-- OPTIMIZADO: iniciar la construcción del buffer usando ImageData directo
 function StarfieldInstanced.beginBuildStarData(count)
     if not love.graphics then return end
-    ensureWriterShader()
-    starDataW, starDataH = math.max(1, count or 1), 3
+    local w = math.max(1, count or 1)
+    starDataW, starDataH = w, 3
     
-    -- Intentar obtener Canvas del pool
-    starDataCanvas = getPooledCanvas(starDataW, starDataH)
-    
-    if not starDataCanvas then
-        -- Fallback: crear Canvas directamente si el pool falla
-        local ok, cvs = pcall(love.graphics.newCanvas, starDataW, starDataH, {format="rgba32f", readable=true})
-        if not ok then
-            print("✗ StarfieldInstanced: no se pudo crear Canvas rgba32f: "..tostring(cvs))
-            return
+    if love.image and love.image.newImageData then
+        if not starDataImageData or starDataImageW < w then
+            local allocW = math.max(512, math.floor(w * 1.5))
+            local okData, imgData = pcall(love.image.newImageData, allocW, 3, "rgba32f")
+            if okData and imgData then
+                local okImg, img = pcall(love.graphics.newImage, imgData)
+                if okImg and img then
+                    if img.setFilter then img:setFilter("nearest", "nearest") end
+                    starDataImageData = imgData
+                    starDataImage = img
+                    starDataImageW = allocW
+                end
+            end
         end
-        starDataCanvas = cvs
     end
 
-    -- Preparar estado de dibujo
-    love.graphics.push("all")
-    love.graphics.setCanvas(starDataCanvas)
-    love.graphics.clear(0,0,0,0)
-    love.graphics.setBlendMode("replace", "premultiplied")
-    love.graphics.setShader(writerShader)
+    if not starDataImage then
+        -- Fallback a Canvas si la GPU no soporta ImageData rgba32f
+        ensureWriterShader()
+        starDataCanvas = getPooledCanvas(starDataW, starDataH)
+        if not starDataCanvas then
+            local ok, cvs = pcall(love.graphics.newCanvas, starDataW, starDataH, {format="rgba32f", readable=true})
+            if ok then starDataCanvas = cvs end
+        end
+        if starDataCanvas then
+            love.graphics.push("all")
+            love.graphics.setCanvas(starDataCanvas)
+            love.graphics.clear(0,0,0,0)
+            love.graphics.setBlendMode("replace", "premultiplied")
+            love.graphics.setShader(writerShader)
+        end
+    end
 end
 
--- NUEVO: escribir 3 filas para una estrella en índice 'idx' (0-based)
--- d0=(worldX,worldY,size,type), d1=(depth,brightnessNorm,twinkleIntensity,pulseIntensity), d2=(r,g,b,a)
-function StarfieldInstanced.writeStarDataAt(idx, d0, d1, d2)
-    if not starDataCanvas or not writerShader then return end
-    -- Guardar y normalizar los inputs a tablas de 4
-    local function v4(v) return {v[1] or 0, v[2] or 0, v[3] or 0, v[4] or 0} end
-    d0, d1, d2 = v4(d0 or {}), v4(d1 or {}), v4(d2 or {})
+-- OPTIMIZADO: escribir datos de estrella directamente sin crear tablas temporales (0 allocs)
+function StarfieldInstanced.writeStarDataDirect(idx, wx, wy, size, stype, depth, bright, tw, pulse, r, g, b, a)
+    if starDataImageData then
+        starDataImageData:setPixel(idx, 0, wx or 0, wy or 0, size or 0, stype or 1)
+        starDataImageData:setPixel(idx, 1, depth or 0, bright or 1, tw or 1, pulse or 1)
+        starDataImageData:setPixel(idx, 2, r or 1, g or 1, b or 1, a or 1)
+        return
+    end
+    StarfieldInstanced.writeStarDataAt(idx, {wx, wy, size, stype}, {depth, bright, tw, pulse}, {r, g, b, a})
+end
 
-    -- Para escribir exactamente el texel (idx,row), dibujamos rect de 1x1 px
-    -- writerShader ignora color/textura y devuelve u_value
-    pcall(function() writerShader:send("u_value", d0) end)
+-- OPTIMIZADO: escribir 3 filas para una estrella en índice 'idx' (0-based)
+function StarfieldInstanced.writeStarDataAt(idx, d0, d1, d2)
+    if starDataImageData then
+        starDataImageData:setPixel(idx, 0, d0[1] or 0, d0[2] or 0, d0[3] or 0, d0[4] or 0)
+        starDataImageData:setPixel(idx, 1, d1[1] or 0, d1[2] or 0, d1[3] or 0, d1[4] or 0)
+        starDataImageData:setPixel(idx, 2, d2[1] or 0, d2[2] or 0, d2[3] or 0, d2[4] or 0)
+        return
+    end
+
+    if not starDataCanvas or not writerShader then return end
+    pcall(function() writerShader:send("u_value", {d0[1] or 0, d0[2] or 0, d0[3] or 0, d0[4] or 0}) end)
     love.graphics.rectangle("fill", idx, 0, 1, 1)
 
-    pcall(function() writerShader:send("u_value", d1) end)
+    pcall(function() writerShader:send("u_value", {d1[1] or 0, d1[2] or 0, d1[3] or 0, d1[4] or 0}) end)
     love.graphics.rectangle("fill", idx, 1, 1, 1)
 
-    pcall(function() writerShader:send("u_value", d2) end)
+    pcall(function() writerShader:send("u_value", {d2[1] or 0, d2[2] or 0, d2[3] or 0, d2[4] or 0}) end)
     love.graphics.rectangle("fill", idx, 2, 1, 1)
 end
 
--- NUEVO: finalizar construcción y enviar al shader principal
+-- OPTIMIZADO: finalizar construcción y enviar al shader principal
 function StarfieldInstanced.endBuildStarData()
-    if not starDataCanvas then return end
-    love.graphics.setShader()
-    love.graphics.setCanvas()
-    love.graphics.pop()
+    if starDataImage and starDataImageData then
+        starDataImage:replacePixels(starDataImageData)
+        StarfieldInstanced.setStarData(starDataImage, 3)
+        return
+    end
 
-    -- Enviar a shader y configurar tamaño/stride
-    StarfieldInstanced.setStarData(starDataCanvas, 3)
+    if starDataCanvas then
+        love.graphics.setShader()
+        love.graphics.setCanvas()
+        love.graphics.pop()
+        StarfieldInstanced.setStarData(starDataCanvas, 3)
+    end
 end
 
 -- NUEVO: consultar si hay buffer cargado
 function StarfieldInstanced.hasStarData()
-    return starDataCanvas ~= nil
+    return (starDataImage ~= nil) or (starDataCanvas ~= nil)
 end
 
 -- OPTIMIZADO: limpiar y devolver Canvas al pool

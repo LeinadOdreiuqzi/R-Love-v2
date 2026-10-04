@@ -287,47 +287,18 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     return (sumCount > 0) and sumCount or 0
 end
 
--- NUEVO: Construir buffer instanced con pre-filtrado agresivo
+-- NUEVO: Construir buffer instanced con culling en pantalla y cero recolección de basura
 function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, starConfig)
     if not (starConfig and starConfig.useInstancedShader and StarfieldInstanced) then
         return false
     end
     
-    local allStars = {}
-    local totalStars = 0
-    
-    -- Verificar que chunkInfo y visibleChunks existan
-    if not chunkInfo or not chunkInfo.visibleChunks then
+    if not chunkInfo or not chunkInfo.visibleChunks or #chunkInfo.visibleChunks == 0 then
         return false
     end
     
-    -- Recopilar todas las estrellas visibles
-    for _, chunkData in ipairs(chunkInfo.visibleChunks) do
-        local chunk = getChunkFunc(chunkData.chunkX, chunkData.chunkY)
-        if chunk and chunk.stars and type(chunk.stars) == "table" then
-            for _, star in ipairs(chunk.stars) do
-                allStars[#allStars + 1] = star
-                totalStars = totalStars + 1
-            end
-        end
-    end
-    
-    -- Aplicar pre-filtrado agresivo
-    local filteredStars = StarfieldInstanced.preFilterStars(allStars, camera, {
-        maxStars = starConfig.maxStarsPerFrame or 5000,
-        aggressiveCulling = true,
-        importanceThreshold = 0.1
-    })
-    
-    if #filteredStars == 0 then
-        return false
-    end
-    
-    -- Construir buffer instanced (medir tiempo de construcción)
     local t0_build = love.timer.getTime()
-    StarfieldInstanced.beginBuildStarData(#filteredStars)
-    
-    local time = love.timer.getTime()
+    local time = t0_build
     local zoom = (camera and camera.zoom or 1.0)
     
     -- Limpiar cache automáticamente
@@ -335,72 +306,121 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         StarfieldInstanced.cleanupEffectsCache(time)
     end
     
-    MapRenderer._instancedDrawList = {}
-    for i, star in ipairs(filteredStars) do
-        -- Asegurar que la estrella tenga un ID único para el cache
-        if not star.id then
-            star.id = string.format("%d_%d_%d", star.x or 0, star.y or 0, star.type or 1)
-        end
-        
-        -- Calcular datos de la estrella
-        local worldX, worldY = star.x or 0, star.y or 0
-        local depth = star.depth or 0.5
-        local parallaxStrength = starConfig.parallaxStrength or 0.2
+    MapRenderer._instancedDrawList = MapRenderer._instancedDrawList or {}
+    local drawList = MapRenderer._instancedDrawList
+    MapRenderer._visibleStars = MapRenderer._visibleStars or {}
+    local visibleStars = MapRenderer._visibleStars
 
-        -- Escalado base en mundo (el shader aplicará worldScale y zoom)
-        local baseSizeWorld = (star.size or 1) * (starConfig.sizeScaleGlobal or 1.0)
+    local worldScale = MapConfig.chunk and (MapConfig.chunk.worldScale or 1.0) or 1.0
+    local instancedSizeScale = (starConfig and starConfig.instancedSizeScale) or 2.5
+    local parallaxStrength = (starConfig and starConfig.parallaxStrength) or 0.2
+    local camX, camY = camera.x or 0, camera.y or 0
+    local camZoom = camera.zoom or 1.0
+    local screenW = camera.screenWidth or love.graphics.getWidth()
+    local screenH = camera.screenHeight or love.graphics.getHeight()
+    local halfW = screenW * 0.5
+    local halfH = screenH * 0.5
+    local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
+    local maxStars = starConfig.maxStarsPerFrame or 5000
+    local margin = 120 -- Margen de seguridad para halos y flares sin pop-in
+
+    local visibleCount = 0
+
+    -- Recorrer chunks visibles y aplicar frustum culling individual en O(1)
+    for _, chunkData in ipairs(chunkInfo.visibleChunks) do
+        local chunk = getChunkFunc(chunkData.chunkX, chunkData.chunkY)
+        if chunk and chunk.stars and type(chunk.stars) == "table" then
+            local stars = chunk.stars
+            for sIdx = 1, #stars do
+                local star = stars[sIdx]
+                local worldX, worldY = star.x or 0, star.y or 0
+                local depth = star.depth or 0.5
+                local baseSizeWorld = (star.size or 1) * globalSizeScale
+                local screenRadius = (baseSizeWorld * worldScale) * camZoom
+                local quadSize = math.max(2, screenRadius * instancedSizeScale * 4.0)
+                local halfQuad = quadSize * 0.5
+
+                -- Proyección en pantalla con paralaje
+                local depthFactor = (1.0 - depth)
+                local parallaxX = worldX - camX * depthFactor * parallaxStrength
+                local parallaxY = worldY - camY * depthFactor * parallaxStrength
+                local screenX = (parallaxX - camX) * camZoom + halfW
+                local screenY = (parallaxY - camY) * camZoom + halfH
+
+                -- Comprobación AABB en viewport: solo incluir si el quad intersecta la pantalla
+                if (screenX + halfQuad >= -margin) and (screenX - halfQuad <= screenW + margin) and
+                   (screenY + halfQuad >= -margin) and (screenY - halfQuad <= screenH + margin) then
+                    visibleCount = visibleCount + 1
+                    visibleStars[visibleCount] = star
+
+                    local entry = drawList[visibleCount - 1]
+                    if not entry then
+                        entry = {}
+                        drawList[visibleCount - 1] = entry
+                    end
+                    entry.x = screenX
+                    entry.y = screenY
+                    entry.s = quadSize
+                    entry.worldX = worldX
+                    entry.worldY = worldY
+                    entry.baseSizeWorld = baseSizeWorld
+                    entry.depth = depth
+
+                    if visibleCount >= maxStars then break end
+                end
+            end
+        end
+        if visibleCount >= maxStars then break end
+    end
+
+    if visibleCount == 0 then
+        return false
+    end
+
+    -- Inicializar buffer para la cantidad exacta de estrellas visibles
+    StarfieldInstanced.beginBuildStarData(visibleCount)
+
+    -- Escribir datos de las estrellas visibles directamente a ImageData (0 allocations)
+    for i = 1, visibleCount do
+        local star = visibleStars[i]
+        local entry = drawList[i - 1]
         local starType = star.type or 1
-        
-        -- OPTIMIZADO: Usar cache de efectos
-        local twinkleIntensity = 0.6
-        local pulseIntensity = 1.0
-        local flareEffects = {1.0, 1.0, 1.0}
-        
+
         -- Twinkle precomputado compartido por tipo/fase con cache por banda temporal
         TwinkleManager.update(time, zoom)
         local phaseBin = TwinkleManager.phaseBin(star.twinkle or 0)
-        twinkleIntensity = TwinkleManager.getTwinkle(starType, phaseBin)
-        
+        local twinkleIntensity = TwinkleManager.getTwinkle(starType, phaseBin)
+
         -- Pulse precomputado compartido
         local pBin = TwinkleManager.phaseBin(star.pulseOffset or (star.pulsePhase or 0))
-        pulseIntensity = TwinkleManager.getPulse(starType, pBin)
-        
-        if StarfieldInstanced.getCachedFlare then
-            flareEffects = StarfieldInstanced.getCachedFlare(star, time, size)
-        end
-        
-        -- Calcular color con efectos aplicados
+        local pulseIntensity = TwinkleManager.getPulse(starType, pBin)
+
+        -- Color y brillo
         local color = star.color or {1, 1, 1, 1}
-        -- Normalizar brillo a [0..1] para compresión
         local brightnessRaw = (star.brightness or 1) * twinkleIntensity * pulseIntensity
         local brightnessNorm = math.max(0.0, math.min(1.0, brightnessRaw))
 
-        -- Escribir datos comprimidos al buffer (posiciones en mundo)
-        -- d1.z y d1.w ahora hornean intensidades de twinkle/pulse (sin cálculos en fragment)
-        local d0 = {worldX, worldY, baseSizeWorld, starType}
-        local d1 = {depth, brightnessNorm, twinkleIntensity, pulseIntensity}
-        local d2 = {color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1}
-
-        StarfieldInstanced.writeStarDataAt(i - 1, d0, d1, d2)
-        star._sfIndex = i - 1 -- Guardar índice para referencia
-
-        -- Calcular posición/s y guardar para el draw del quad (CPU ligero)
-        local depthFactor = (1.0 - depth)
-        local parallaxX = worldX - camera.x * depthFactor * parallaxStrength
-        local parallaxY = worldY - camera.y * depthFactor * parallaxStrength
-        local screenX = (parallaxX - camera.x) * camera.zoom + camera.screenWidth * 0.5
-        local screenY = (parallaxY - camera.y) * camera.zoom + camera.screenHeight * 0.5
-        local worldScale = MapConfig.chunk and (MapConfig.chunk.worldScale or 1.0) or 1.0
-        local screenRadius = (baseSizeWorld * worldScale) * camera.zoom
-        local quadSize = math.max(2, screenRadius * (starConfig.instancedSizeScale or 2.5) * 4.0)
-        MapRenderer._instancedDrawList[i - 1] = { x = screenX, y = screenY, s = quadSize }
+        local starIndex = i - 1
+        StarfieldInstanced.writeStarDataDirect(
+            starIndex,
+            entry.worldX, entry.worldY, entry.baseSizeWorld, starType,
+            entry.depth, brightnessNorm, twinkleIntensity, pulseIntensity,
+            color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
+        )
+        star._sfIndex = starIndex
     end
-    
+
+    -- Limpiar referencias residuales en visibleStars para evitar retención de memoria
+    for i = visibleCount + 1, #visibleStars do
+        visibleStars[i] = nil
+    end
+
     StarfieldInstanced.endBuildStarData()
+
     -- Guardar tiempo de construcción
     MapRenderer._perf = MapRenderer._perf or {}
     MapRenderer._perf.instancedBuildMs = (love.timer.getTime() - t0_build) * 1000.0
-    return true, #filteredStars
+    return true, visibleCount
 end
 
 -- Dibujar estrellas con efectos mejorados
@@ -408,9 +428,14 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     -- Configurar uniforms globales una sola vez por frame (si instanced activo)
     if starConfig and starConfig.useInstancedShader and StarfieldInstanced and StarfieldInstanced.setGlobals then
         StarfieldInstanced.setGlobals({
+            camera = camera,
+            zoom = camera and camera.zoom or 1.0,
+            worldScale = MapConfig.chunk and (MapConfig.chunk.worldScale or 1.0) or 1.0,
+            viewportSize = {camera.screenWidth or love.graphics.getWidth(), camera.screenHeight or love.graphics.getHeight()},
             time = love.timer.getTime(),
-            twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) or true,
-            enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) or true
+            parallaxStrength = starConfig and starConfig.parallaxStrength or 0.2,
+            twinkleEnabled = (MapConfig.stars and MapConfig.stars.twinkleEnabled) ~= false,
+            enhancedEffects = (MapConfig.stars and MapConfig.stars.enhancedEffects) ~= false
         })
     end
 
@@ -423,7 +448,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             love.graphics.origin()
             if StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
                 local t0_draw = love.timer.getTime()
-                StarfieldInstanced.beginBatchDraw()
+                StarfieldInstanced.beginBatchDraw(starCount)
                 for i = 0, starCount - 1 do
                     local info = MapRenderer._instancedDrawList and MapRenderer._instancedDrawList[i]
                     if info then
