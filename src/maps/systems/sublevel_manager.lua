@@ -181,6 +181,7 @@ function SubLevelManager.getStatus()
             type = cur.type,
             size = cur.size,
             numericSeed = cur.numericSeed,
+            meta = cur.meta,
         } or nil
     }
 end

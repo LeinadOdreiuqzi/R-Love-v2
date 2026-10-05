@@ -1,0 +1,11 @@
+# Pruebas y scratchpad local
+scratch/
+
+# Archivos de depuración y logs temporales
+*.log
+*.tmp
+
+# Archivos del sistema operativo
+Thumbs.db
+.DS_Store
+Desktop.ini

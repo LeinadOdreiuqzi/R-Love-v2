@@ -4,7 +4,8 @@
 local PauseMenu = {
     state = {
         isOpen = false,
-        view = "main", -- "main" | "audio_debug"
+        view = "main", -- "main" | "audio_debug" | "sublevels" | "sublevels_detail"
+        selectedSubworld = nil,
         fadeAlpha = 0,
         hoveredButton = nil
     }
@@ -30,6 +31,67 @@ local SOUNDTRACKS = {
     { id = "track_7", alias = "carousel_waltz",    name = "Track 7" },
     { id = "track_8", alias = "celestial_spring",  name = "Track 8" }
 }
+
+-- Lista de submundos y sus subniveles
+local SUBWORLDS = {
+    {
+        id = "tau_ceti",
+        name = "Tau Ceti",
+        color = { 0.78, 0.42, 0.95 },
+        levels = {
+            { id = "tau_ceti_1", name = "Nivel 1", tier = 1, width = 8, height = 8, color = { 0.40, 0.70, 1.00 } },
+            { id = "tau_ceti_2", name = "Nivel 2", tier = 2, width = 8, height = 8, color = { 1.00, 0.75, 0.30 } },
+            { id = "tau_ceti_3", name = "Nivel 3", tier = 3, width = 8, height = 8, color = { 0.30, 0.90, 0.65 } }
+        }
+    },
+    {
+        id = "sandbox",
+        name = "Sandbox",
+        color = { 0.45, 0.70, 0.90 },
+        levels = {
+            { id = "sandbox_1", name = "Nivel 1", tier = 0, width = 8, height = 8, color = { 0.60, 0.65, 0.75 } }
+        }
+    }
+}
+
+local function launchSublevel(levelDef, subworldDef)
+    PauseMenu.close()
+
+    local ok, err = pcall(function()
+        local SubLevelManager = require 'src.maps.systems.sublevel_manager'
+        local SubLevelScene = require 'src.sublevels.sublevel_scene'
+        local GameState = require 'src.core.game_state'
+        local Map = require 'src.maps.map'
+
+        local currentSeed = (GameState and GameState.state and GameState.state.currentSeed) or (Map and Map.seed) or "SUBLEVEL_SEED"
+        local cfg = SubLevelManager.createConfig({
+            parentSeed = currentSeed,
+            type = levelDef.id,
+            width = levelDef.width or 8,
+            height = levelDef.height or 8,
+            context = "menu|" .. tostring(levelDef.id),
+            meta = {
+                id = levelDef.id,
+                name = (subworldDef and subworldDef.name or "") .. " - " .. levelDef.name,
+                tier = levelDef.tier,
+                subworldId = subworldDef and subworldDef.id or "default",
+                accent = levelDef.color or { 0.35, 0.75, 1.0 }
+            }
+        })
+
+        local stateManager = World.get('stateManager')
+        if stateManager then
+            local scene = SubLevelScene:new(cfg)
+            stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
+        end
+    end)
+
+    if not ok then
+        print("[PauseMenu] Error launching sublevel: " .. tostring(err))
+    end
+end
+
+
 
 -- ============================================================================
 -- CONTROL DE ESTADO
@@ -91,7 +153,9 @@ end
 function PauseMenu.handleEscape()
     if not PauseMenu.state.isOpen then return end
 
-    if PauseMenu.state.view ~= "main" then
+    if PauseMenu.state.view == "sublevels_detail" then
+        PauseMenu.setView("sublevels")
+    elseif PauseMenu.state.view ~= "main" then
         PauseMenu.setView("main")
     else
         PauseMenu.close()
@@ -125,13 +189,17 @@ function PauseMenu.draw()
         PauseMenu.drawMainView(sw, sh, alpha)
     elseif PauseMenu.state.view == "audio_debug" then
         PauseMenu.drawAudioDebugView(sw, sh, alpha)
+    elseif PauseMenu.state.view == "sublevels" then
+        PauseMenu.drawSublevelsListView(sw, sh, alpha)
+    elseif PauseMenu.state.view == "sublevels_detail" then
+        PauseMenu.drawSublevelsDetailView(sw, sh, alpha)
     end
 end
 
 -- ─── VISTA PRINCIPAL ────────────────────────────────────────────────────────
 
 function PauseMenu.drawMainView(sw, sh, alpha)
-    local pw, ph = 380, 360
+    local pw, ph = 380, 420
     local px = math.floor((sw - pw) / 2)
     local py = math.floor((sh - ph) / 2)
 
@@ -150,18 +218,18 @@ function PauseMenu.drawMainView(sw, sh, alpha)
 
     -- Título
     love.graphics.setColor(0.9, 0.94, 1.0, alpha)
-    love.graphics.printf("PAUSA", px, py + 26, pw, "center")
+    love.graphics.printf("PAUSA", px, py + 24, pw, "center")
 
     -- Línea divisoria
     love.graphics.setColor(0.2, 0.4, 0.65, 0.4 * alpha)
-    love.graphics.line(px + 40, py + 56, px + pw - 40, py + 56)
+    love.graphics.line(px + 40, py + 54, px + pw - 40, py + 54)
 
     -- Botones principales
     local mx, my = love.mouse.getPosition()
     local btnW = pw - 60
-    local btnH = 44
-    local startY = py + 76
-    local gap = 14
+    local btnH = 42
+    local startY = py + 70
+    local gap = 12
 
     local buttons = {
         {
@@ -181,6 +249,12 @@ function PauseMenu.drawMainView(sw, sh, alpha)
             id = "audio_debug",
             label = "Depuración de Audio",
             color = {0.2, 0.65, 1.0},
+            enabled = true
+        },
+        {
+            id = "sublevels",
+            label = "Submundos",
+            color = {0.78, 0.42, 0.95},
             enabled = true
         },
         {
@@ -226,7 +300,7 @@ function PauseMenu.drawMainView(sw, sh, alpha)
         -- Texto
         local textColor = btn.enabled and (isHover and {1, 1, 1} or {0.9, 0.93, 0.98}) or {0.45, 0.5, 0.55}
         love.graphics.setColor(textColor[1], textColor[2], textColor[3], alpha)
-        love.graphics.printf(btn.label, bx, by + 14, btnW, "center")
+        love.graphics.printf(btn.label, bx, by + 13, btnW, "center")
 
         -- Badge de Próximamente
         if btn.badge then
@@ -244,6 +318,189 @@ function PauseMenu.drawMainView(sw, sh, alpha)
     -- Pie de panel
     love.graphics.setColor(0.4, 0.48, 0.58, 0.65 * alpha)
     love.graphics.printf("[ESC] Reanudar", px, py + ph - 24, pw, "center")
+end
+
+-- ─── VISTA DE SUBMUNDOS (LISTA DE SISTEMAS) ─────────────────────────────────
+
+function PauseMenu.drawSublevelsListView(sw, sh, alpha)
+    local buttons = {}
+    for _, world in ipairs(SUBWORLDS) do
+        table.insert(buttons, {
+            id = world.id,
+            label = world.name,
+            color = world.color or { 0.78, 0.42, 0.95 },
+            enabled = true,
+            world = world
+        })
+    end
+    table.insert(buttons, {
+        id = "back",
+        label = "Volver",
+        color = { 0.35, 0.55, 0.80 },
+        enabled = true
+    })
+
+    local pw = 380
+    local btnW = pw - 60
+    local btnH = 42
+    local gap = 12
+    local totalBtnH = #buttons * btnH + (#buttons - 1) * gap
+    local ph = 70 + totalBtnH + 34
+    local px = math.floor((sw - pw) / 2)
+    local py = math.floor((sh - ph) / 2)
+    local startY = py + 70
+
+    -- Sombra exterior
+    love.graphics.setColor(0, 0, 0, 0.45 * alpha)
+    love.graphics.rectangle("fill", px + 6, py + 6, pw, ph, 10, 10)
+
+    -- Fondo del panel
+    love.graphics.setColor(0.06, 0.08, 0.12, 0.95 * alpha)
+    love.graphics.rectangle("fill", px, py, pw, ph, 10, 10)
+
+    -- Borde sutil
+    love.graphics.setColor(0.55, 0.35, 0.9, 0.55 * alpha)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.rectangle("line", px, py, pw, ph, 10, 10)
+
+    -- Título
+    love.graphics.setColor(0.9, 0.94, 1.0, alpha)
+    love.graphics.printf("SUBMUNDOS", px, py + 24, pw, "center")
+
+    -- Línea divisoria
+    love.graphics.setColor(0.4, 0.3, 0.65, 0.4 * alpha)
+    love.graphics.line(px + 40, py + 54, px + pw - 40, py + 54)
+
+    -- Botones
+    local mx, my = love.mouse.getPosition()
+    for i, btn in ipairs(buttons) do
+        local bx = px + 30
+        local by = startY + (i - 1) * (btnH + gap)
+        local isHover = (mx >= bx and mx <= bx + btnW and my >= by and my <= by + btnH)
+
+        if isHover then
+            PauseMenu.state.hoveredButton = btn.id
+        end
+
+        -- Fondo del botón
+        if isHover then
+            love.graphics.setColor(btn.color[1] * 0.22, btn.color[2] * 0.22, btn.color[3] * 0.22, 0.9 * alpha)
+        else
+            love.graphics.setColor(0.09, 0.12, 0.18, 0.75 * alpha)
+        end
+        love.graphics.rectangle("fill", bx, by, btnW, btnH, 6, 6)
+
+        -- Borde del botón
+        if isHover then
+            love.graphics.setColor(btn.color[1], btn.color[2], btn.color[3], 0.9 * alpha)
+        else
+            love.graphics.setColor(btn.color[1] * 0.45, btn.color[2] * 0.45, btn.color[3] * 0.45, 0.45 * alpha)
+        end
+        love.graphics.setLineWidth(isHover and 1.8 or 1)
+        love.graphics.rectangle("line", bx, by, btnW, btnH, 6, 6)
+
+        -- Texto
+        local textColor = isHover and { 1, 1, 1 } or { 0.9, 0.93, 0.98 }
+        love.graphics.setColor(textColor[1], textColor[2], textColor[3], alpha)
+        love.graphics.printf(btn.label, bx, by + 13, btnW, "center")
+    end
+
+    -- Pie de panel
+    love.graphics.setColor(0.4, 0.48, 0.58, 0.65 * alpha)
+    love.graphics.printf("[ESC] Volver", px, py + ph - 24, pw, "center")
+end
+
+-- ─── VISTA DE NIVELES DEL SUBMUNDO ──────────────────────────────────────────
+
+function PauseMenu.drawSublevelsDetailView(sw, sh, alpha)
+    local world = PauseMenu.state.selectedSubworld or SUBWORLDS[1]
+    local levels = (world and world.levels) or {}
+    local buttons = {}
+    for _, lvl in ipairs(levels) do
+        table.insert(buttons, {
+            id = lvl.id,
+            label = lvl.name,
+            color = lvl.color or { 0.4, 0.7, 1.0 },
+            enabled = true,
+            level = lvl
+        })
+    end
+    table.insert(buttons, {
+        id = "back",
+        label = "Volver",
+        color = { 0.35, 0.55, 0.80 },
+        enabled = true
+    })
+
+    local pw = 380
+    local btnW = pw - 60
+    local btnH = 42
+    local gap = 12
+    local totalBtnH = #buttons * btnH + (#buttons - 1) * gap
+    local ph = 70 + totalBtnH + 34
+    local px = math.floor((sw - pw) / 2)
+    local py = math.floor((sh - ph) / 2)
+    local startY = py + 70
+
+    -- Sombra exterior
+    love.graphics.setColor(0, 0, 0, 0.45 * alpha)
+    love.graphics.rectangle("fill", px + 6, py + 6, pw, ph, 10, 10)
+
+    -- Fondo del panel
+    love.graphics.setColor(0.06, 0.08, 0.12, 0.95 * alpha)
+    love.graphics.rectangle("fill", px, py, pw, ph, 10, 10)
+
+    -- Borde sutil
+    love.graphics.setColor(0.55, 0.35, 0.9, 0.55 * alpha)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.rectangle("line", px, py, pw, ph, 10, 10)
+
+    -- Encabezado con el nombre del submundo
+    love.graphics.setColor(0.9, 0.94, 1.0, alpha)
+    local title = string.upper(world and world.name or "SUBNIVELES")
+    love.graphics.printf(title, px, py + 24, pw, "center")
+
+    -- Línea divisoria
+    love.graphics.setColor(0.4, 0.3, 0.65, 0.4 * alpha)
+    love.graphics.line(px + 40, py + 54, px + pw - 40, py + 54)
+
+    -- Botones
+    local mx, my = love.mouse.getPosition()
+    for i, btn in ipairs(buttons) do
+        local bx = px + 30
+        local by = startY + (i - 1) * (btnH + gap)
+        local isHover = (mx >= bx and mx <= bx + btnW and my >= by and my <= by + btnH)
+
+        if isHover then
+            PauseMenu.state.hoveredButton = btn.id
+        end
+
+        -- Fondo del botón
+        if isHover then
+            love.graphics.setColor(btn.color[1] * 0.22, btn.color[2] * 0.22, btn.color[3] * 0.22, 0.9 * alpha)
+        else
+            love.graphics.setColor(0.09, 0.12, 0.18, 0.75 * alpha)
+        end
+        love.graphics.rectangle("fill", bx, by, btnW, btnH, 6, 6)
+
+        -- Borde del botón
+        if isHover then
+            love.graphics.setColor(btn.color[1], btn.color[2], btn.color[3], 0.9 * alpha)
+        else
+            love.graphics.setColor(btn.color[1] * 0.45, btn.color[2] * 0.45, btn.color[3] * 0.45, 0.45 * alpha)
+        end
+        love.graphics.setLineWidth(isHover and 1.8 or 1)
+        love.graphics.rectangle("line", bx, by, btnW, btnH, 6, 6)
+
+        -- Texto
+        local textColor = isHover and { 1, 1, 1 } or { 0.9, 0.93, 0.98 }
+        love.graphics.setColor(textColor[1], textColor[2], textColor[3], alpha)
+        love.graphics.printf(btn.label, bx, by + 13, btnW, "center")
+    end
+
+    -- Pie de panel
+    love.graphics.setColor(0.4, 0.48, 0.58, 0.65 * alpha)
+    love.graphics.printf("[ESC] Volver", px, py + ph - 24, pw, "center")
 end
 
 -- ─── VISTA DE DEPURACIÓN DE AUDIO ───────────────────────────────────────────
@@ -434,13 +691,13 @@ function PauseMenu.mousepressed(x, y, button)
     local audio = getAudio()
 
     if PauseMenu.state.view == "main" then
-        local pw, ph = 380, 360
+        local pw, ph = 380, 420
         local px = math.floor((sw - pw) / 2)
         local py = math.floor((sh - ph) / 2)
         local btnW = pw - 60
-        local btnH = 44
-        local startY = py + 76
-        local gap = 14
+        local btnH = 42
+        local startY = py + 70
+        local gap = 12
 
         -- 1. Reanudar
         local b1y = startY
@@ -463,9 +720,16 @@ function PauseMenu.mousepressed(x, y, button)
             return true
         end
 
-        -- 4. Salir del Juego
+        -- 4. Submundos
         local b4y = startY + 3 * (btnH + gap)
         if x >= px + 30 and x <= px + 30 + btnW and y >= b4y and y <= b4y + btnH then
+            PauseMenu.setView("sublevels")
+            return true
+        end
+
+        -- 5. Salir del Juego
+        local b5y = startY + 4 * (btnH + gap)
+        if x >= px + 30 and x <= px + 30 + btnW and y >= b5y and y <= b5y + btnH then
             love.event.quit()
             return true
         end
@@ -542,6 +806,81 @@ function PauseMenu.mousepressed(x, y, button)
         if x >= ctrlX and x <= ctrlX + ctrlW and y >= backY and y <= backY + 30 then
             PauseMenu.setView("main")
             return true
+        end
+
+    elseif PauseMenu.state.view == "sublevels" then
+        local buttons = {}
+        for _, world in ipairs(SUBWORLDS) do
+            table.insert(buttons, {
+                id = world.id,
+                action = function()
+                    PauseMenu.state.selectedSubworld = world
+                    PauseMenu.setView("sublevels_detail")
+                end
+            })
+        end
+        table.insert(buttons, {
+            id = "back",
+            action = function()
+                PauseMenu.setView("main")
+            end
+        })
+
+        local pw = 380
+        local btnW = pw - 60
+        local btnH = 42
+        local gap = 12
+        local totalBtnH = #buttons * btnH + (#buttons - 1) * gap
+        local ph = 70 + totalBtnH + 34
+        local px = math.floor((sw - pw) / 2)
+        local py = math.floor((sh - ph) / 2)
+        local startY = py + 70
+
+        for i, btn in ipairs(buttons) do
+            local bx = px + 30
+            local by = startY + (i - 1) * (btnH + gap)
+            if x >= bx and x <= bx + btnW and y >= by and y <= by + btnH then
+                btn.action()
+                return true
+            end
+        end
+
+    elseif PauseMenu.state.view == "sublevels_detail" then
+        local world = PauseMenu.state.selectedSubworld or SUBWORLDS[1]
+        local levels = (world and world.levels) or {}
+        local buttons = {}
+        for _, level in ipairs(levels) do
+            table.insert(buttons, {
+                id = level.id,
+                action = function()
+                    launchSublevel(level, world)
+                end
+            })
+        end
+        table.insert(buttons, {
+            id = "back",
+            action = function()
+                PauseMenu.setView("sublevels")
+            end
+        })
+
+        local pw = 380
+        local btnW = pw - 60
+        local btnH = 42
+        local gap = 12
+        local totalBtnH = #buttons * btnH + (#buttons - 1) * gap
+        local ph = 70 + totalBtnH + 34
+        local px = math.floor((sw - pw) / 2)
+        local py = math.floor((sh - ph) / 2)
+        local startY = py + 70
+
+        for i, btn in ipairs(buttons) do
+            local bx = px + 30
+            local by = startY + (i - 1) * (btnH + gap)
+            if x >= bx and x <= bx + btnW and y >= by and y <= by + btnH then
+                btn.action()
+                return true
+            end
         end
     end
 

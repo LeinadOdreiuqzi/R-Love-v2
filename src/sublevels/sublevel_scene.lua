@@ -51,20 +51,65 @@ function SubLevelScene:enter(params)
         })
     end
 
-    -- Calcular punto de entrada al centro del subnivel si no está definido
-    do
-        local sizePixels = (MapConfig.chunk.size or 64) * (MapConfig.chunk.tileSize or 32)
-        local spacing = MapConfig.chunk.spacing or 0
-        local stride = (sizePixels + spacing) * (MapConfig.chunk.worldScale or 1)
-        local cx = math.floor((cfg.size and cfg.size.width or 8) / 2)
-        local cy = math.floor((cfg.size and cfg.size.height or 8) / 2)
-        cfg.entry = cfg.entry or {}
-        cfg.entry.x = cfg.entry.x or (cx * stride + stride * 0.5)
-        cfg.entry.y = cfg.entry.y or (cy * stride + stride * 0.5)
+    -- Calcular punto de entrada centrado y zoom dramático según el Tier
+    local entryX, entryY = 0, 0
+    local camX, camY = 0, 0
+    local targetZoom = 0.55
+    local tier = (cfg.meta and cfg.meta.tier) or 1
+    if tier == 1 then
+        entryX = 400
+        entryY = 480
+        camX = 150
+        camY = 180
+        targetZoom = 0.32
+    elseif tier == 2 then
+        entryX = 0
+        entryY = 1400
+        camX = 0
+        camY = 1400
+        targetZoom = 0.55
+    elseif tier == 3 then
+        entryX = 0
+        entryY = -600
+        camX = 0
+        camY = -600
+        targetZoom = 0.65
     end
+
+    cfg.entry = { x = entryX, y = entryY }
 
     -- Entrar al subnivel: solo manejo de contexto (sin tocar el mapa principal)
     SubLevelManager.enter(cfg)
+
+    -- Posicionar jugador y cámara exactamente en el punto de entrada
+    local player = World.get('player')
+    local camera = World.get('camera')
+    if player then
+        player.x = entryX
+        player.y = entryY
+        player.prevX = entryX
+        player.prevY = entryY
+        player.dx = 0
+        player.dy = 0
+        if player.body and player.body.setPosition then
+            player.body:setPosition(entryX, entryY)
+            player.body:setLinearVelocity(0, 0)
+        end
+    end
+    if camera then
+        camera.x = camX
+        camera.y = camY
+        camera:setPosition(camX, camY)
+        camera.zoom = targetZoom
+        camera.targetZoom = targetZoom
+        camera:updateFrustum()
+    end
+
+    -- Inicializar BackgroundManager para estrellas de fondo
+    local BackgroundManager = require 'src.shaders.background_manager'
+    if BackgroundManager and BackgroundManager.init then
+        BackgroundManager.init()
+    end
 
     -- Crear instancia de mundo del subnivel basada en archivo/config precreada
     self.world = SublevelWorld.new(cfg)
@@ -86,6 +131,12 @@ function SubLevelScene:update(dt)
     local camera = World.get('camera')
     local physicsManager = World.get('physics')
     local player = World.get('player')
+
+    -- Actualizar fondo galáctico y estrellas profundas
+    local BackgroundManager = require 'src.shaders.background_manager'
+    if BackgroundManager and BackgroundManager.update and camera then
+        BackgroundManager.update(dt, camera)
+    end
 
     -- Actualizar cámara
     if camera and camera.update then
@@ -120,6 +171,12 @@ function SubLevelScene:update(dt)
         end
     end
 
+    -- Actualizar motor celestial 2.5D (partículas y dinámicas orbitales)
+    local CelestialRenderer = require 'src.sublevels.celestial_renderer'
+    if CelestialRenderer and CelestialRenderer.update then
+        CelestialRenderer.update(dt)
+    end
+
     -- Actualizar instancia de mundo del subnivel
     if self.world and self.world.update then
         self.world:update(dt, player)
@@ -152,8 +209,28 @@ function SubLevelScene:draw()
     local camera = World.get('camera')
     local player = World.get('player')
 
-    -- Fondo limpio para la escena limitada
-    love.graphics.clear(0, 0, 0, 1)
+    -- Fondo espacial base
+    love.graphics.clear(0.012, 0.016, 0.025, 1)
+
+    -- Renderizar fondo galáctico profundo y estrellas de fondo antes de transformar cámara
+    local BackgroundManager = require 'src.shaders.background_manager'
+    if BackgroundManager and BackgroundManager.render and camera then
+        BackgroundManager.render(camera)
+    end
+    local MapRenderer = require 'src.maps.systems.map_renderer'
+    if MapRenderer then
+        if not MapRenderer._microStars or not MapRenderer._microStars.initialized then
+            MapRenderer.init()
+        end
+        MapRenderer.drawMicroStars(camera)
+        MapRenderer.drawSmallStars(camera)
+    end
+
+    -- Renderizar escenario cósmico multi-capa con falso 3D y parallax (Tier 1 Tau Ceti)
+    local CelestialRenderer = require 'src.sublevels.celestial_renderer'
+    if CelestialRenderer and CelestialRenderer.drawScenicBackground then
+        CelestialRenderer.drawScenicBackground(self.config, camera, player)
+    end
 
     -- Aplicar transformación de cámara
     if camera then camera:apply() end
@@ -194,15 +271,14 @@ function SubLevelScene:draw()
         EVAInventoryUI:draw(player.evaPlayer)
     end
 
-    -- Dibujar un indicador de subnivel sencillo
+    -- Indicador simple de subnivel
     local status = SubLevelManager.getStatus()
-    love.graphics.setColor(0.9, 0.95, 1.0, 0.95)
-    local label = "SUBNIVEL ACTIVO"
-    if status and status.current and status.current.type then
-        label = label .. " - " .. tostring(status.current.type)
+    local name = (status and status.current and status.current.meta and status.current.meta.name) or (status and status.current and status.current.type)
+    if name then
+        love.graphics.setColor(0.9, 0.95, 1.0, 0.75)
+        love.graphics.printf(tostring(name), 16, 16, love.graphics.getWidth() - 32, 'left')
+        love.graphics.setColor(1, 1, 1, 1)
     end
-    love.graphics.printf(label, 16, 16, love.graphics.getWidth() - 32, 'left')
-    love.graphics.setColor(1, 1, 1, 1)
 end
 
 function SubLevelScene:keypressed(key)
@@ -223,12 +299,18 @@ function SubLevelScene:keypressed(key)
         return true
     end
 
-    -- Recolección manual y bloqueo de herencia de fases
+    -- Recolección manual y balizas de salto
     if key == 'e' then
+        local CelestialRenderer = require 'src.sublevels.celestial_renderer'
+        local player = World.get('player')
+        local beacon = CelestialRenderer.checkBeaconInteraction(self.config, player)
+        if beacon and beacon.targetTier then
+            self:jumpToTier(beacon.targetTier)
+            return true
+        end
+
         local WorldItems = require 'src.item_systems.world_items'
         local collected = false
-        local player = World.get('player')
-
         if player and player.isInEVA and player.evaPlayer and player.evaPlayer.attemptPickup then
             -- En EVA: usar intento específico del EVA player
             player.evaPlayer:attemptPickup()
@@ -251,6 +333,79 @@ function SubLevelScene:keypressed(key)
         return true
     end
     return false
+end
+
+function SubLevelScene:jumpToTier(targetTier)
+    local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
+    local tierDef = TauCetiDef.tiers[targetTier]
+    if not tierDef then return end
+
+    local SublevelWorld = require 'src.sublevels.sublevel_world'
+    local World = require 'src.core.world'
+
+    self.config.type = tierDef.id
+    self.config.meta = {
+        id = tierDef.id,
+        name = "Tau Ceti - " .. tierDef.name,
+        tier = targetTier,
+        subworldId = "tau_ceti",
+        accent = tierDef.accentColor or { 0.35, 0.75, 1.0 }
+    }
+
+    local entryX, entryY = 0, 0
+    local camX, camY = 0, 0
+    local targetZoom = 0.55
+    if targetTier == 1 then
+        entryX = 400
+        entryY = 480
+        camX = 150
+        camY = 180
+        targetZoom = 0.32
+    elseif targetTier == 2 then
+        entryX = 0
+        entryY = 1400
+        camX = 0
+        camY = 1400
+        targetZoom = 0.55
+    elseif targetTier == 3 then
+        entryX = 0
+        entryY = -600
+        camX = 0
+        camY = -600
+        targetZoom = 0.65
+    end
+
+    self.config.entry = { x = entryX, y = entryY }
+
+    local player = World.get('player')
+    local camera = World.get('camera')
+    if player then
+        player.x = entryX
+        player.y = entryY
+        player.prevX = entryX
+        player.prevY = entryY
+        if player.body and player.body.setPosition then
+            player.body:setPosition(entryX, entryY)
+            player.body:setLinearVelocity(0, 0)
+        end
+        if player.dx then player.dx = 0 end
+        if player.dy then player.dy = 0 end
+    end
+    if camera then
+        camera.x = camX
+        camera.y = camY
+        camera:setPosition(camX, camY)
+        camera.zoom = targetZoom
+        camera.targetZoom = targetZoom
+        camera:updateFrustum()
+    end
+
+    self.world = SublevelWorld.new(self.config)
+
+    local ok, am = pcall(require, 'src.audio.audio_manager')
+    if ok and am and am.play then
+        pcall(function() am.play("ui_click", { pitch = 1.3, volume = 0.6 }) end)
+    end
 end
 
 function SubLevelScene:mousepressed(x, y, button)
