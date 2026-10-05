@@ -57,23 +57,23 @@ function SubLevelScene:enter(params)
     local targetZoom = 0.55
     local tier = (cfg.meta and cfg.meta.tier) or 1
     if tier == 1 then
-        entryX = 400
-        entryY = 480
-        camX = 150
-        camY = 180
-        targetZoom = 0.32
+        entryX = 0
+        entryY = 0
+        camX = 0
+        camY = 0
+        targetZoom = 0.45
     elseif tier == 2 then
         entryX = 0
-        entryY = 1400
+        entryY = 4900
         camX = 0
-        camY = 1400
-        targetZoom = 0.55
+        camY = 4900
+        targetZoom = 0.40
     elseif tier == 3 then
         entryX = 0
-        entryY = -600
+        entryY = 2900
         camX = 0
-        camY = -600
-        targetZoom = 0.65
+        camY = 2900
+        targetZoom = 0.45
     end
 
     cfg.entry = { x = entryX, y = entryY }
@@ -177,6 +177,31 @@ function SubLevelScene:update(dt)
         CelestialRenderer.update(dt)
     end
 
+    -- Simulación de peligro térmico coronal en Tier 2
+    local currentTier = (self.config and self.config.meta and self.config.meta.tier) or 1
+    if currentTier == 2 and player then
+        local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
+        local sunDef = TauCetiDef.tiers[2] and TauCetiDef.tiers[2].sun
+        if sunDef and sunDef.heatDamageDistance then
+            local px, py = player.x or 0, player.y or 0
+            local dist = math.sqrt((px - sunDef.x)^2 + (py - sunDef.y)^2)
+            if dist < sunDef.heatDamageDistance then
+                local danger = math.max(0.0, math.min(1.0, 1.0 - (dist - sunDef.radius) / (sunDef.heatDamageDistance - sunDef.radius)))
+                local dmg = (sunDef.heatDamageRate or 18) * danger * dt
+                -- Aplicar daño ambiental térmico directamente a los stats (escudos y casco)
+                -- para evitar disparar el sonido cinético de impacto de balas 60 veces por segundo
+                if player.stats and player.stats.takeDamage then
+                    local died = player.stats:takeDamage(dmg)
+                    if died and player.die then
+                        player:die()
+                    end
+                elseif player.takeDamage then
+                    player:takeDamage(dmg)
+                end
+            end
+        end
+    end
+
     -- Actualizar instancia de mundo del subnivel
     if self.world and self.world.update then
         self.world:update(dt, player)
@@ -259,6 +284,26 @@ function SubLevelScene:draw()
 
     -- Restaurar transformación
     if camera then camera:unapply() end
+
+    -- Efecto de viñeta de radiación térmica en pantalla (Tier 2)
+    local currentTier = (self.config and self.config.meta and self.config.meta.tier) or 1
+    if currentTier == 2 and player then
+        local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
+        local sunDef = TauCetiDef.tiers[2] and TauCetiDef.tiers[2].sun
+        if sunDef and sunDef.heatDamageDistance then
+            local px, py = player.x or 0, player.y or 0
+            local dist = math.sqrt((px - sunDef.x)^2 + (py - sunDef.y)^2)
+            if dist < sunDef.heatDamageDistance then
+                local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
+                local danger = math.max(0.0, math.min(1.0, 1.0 - (dist - sunDef.radius) / (sunDef.heatDamageDistance - sunDef.radius)))
+                local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 7.0)
+                love.graphics.setColor(1.0, 0.32, 0.08, danger * 0.40 * pulse)
+                love.graphics.setLineWidth(14)
+                love.graphics.rectangle("line", 0, 0, sw, sh)
+                love.graphics.setLineWidth(1)
+            end
+        end
+    end
 
     -- Dibujar HUD y UIs (inventario nave/EVA) para mantener funcionalidad completa
     local InventoryUI = require 'src.ui.inventory_ui'
@@ -356,23 +401,23 @@ function SubLevelScene:jumpToTier(targetTier)
     local camX, camY = 0, 0
     local targetZoom = 0.55
     if targetTier == 1 then
-        entryX = 400
-        entryY = 480
-        camX = 150
-        camY = 180
-        targetZoom = 0.32
+        entryX = 0
+        entryY = 0
+        camX = 0
+        camY = 0
+        targetZoom = 0.45
     elseif targetTier == 2 then
         entryX = 0
-        entryY = 1400
+        entryY = 4900
         camX = 0
-        camY = 1400
-        targetZoom = 0.55
+        camY = 4900
+        targetZoom = 0.40
     elseif targetTier == 3 then
         entryX = 0
-        entryY = -600
+        entryY = 2900
         camX = 0
-        camY = -600
-        targetZoom = 0.65
+        camY = 2900
+        targetZoom = 0.45
     end
 
     self.config.entry = { x = entryX, y = entryY }
@@ -404,7 +449,7 @@ function SubLevelScene:jumpToTier(targetTier)
 
     local ok, am = pcall(require, 'src.audio.audio_manager')
     if ok and am and am.play then
-        pcall(function() am.play("ui_click", { pitch = 1.3, volume = 0.6 }) end)
+        pcall(function() am.play("ui_click", { pitch = 1.3, volume = 0.20 }) end)
     end
 end
 

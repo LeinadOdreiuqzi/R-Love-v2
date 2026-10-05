@@ -110,26 +110,26 @@ local shaderCode = [[
             surfaceCol = mix(lowLands, mountainColor, mountain);
         }
 
-        // Casquetes polares glaciares
-        float polarDist = abs(p.y);
-        float iceMask = smoothstep(0.72, 0.88, polarDist + 0.08 * fbm(uv * 8.0));
+        // Casquetes polares glaciares realistas en los polos geográficos
+        vec3 poleDir = normalize(vec3(0.28, 0.96, 0.0));
+        float lat = abs(dot(normal, poleDir));
+        float iceMask = smoothstep(0.91, 0.98, lat + 0.04 * fbm(uv * 8.0));
         vec3 iceColor = vec3(0.92, 0.96, 1.0);
         surfaceCol = mix(surfaceCol, iceColor, iceMask);
 
         // ─── 3. CAPA DE NUBES DINÁMICAS ─────────────────────────────────────
         vec2 cloudUv = uv + vec2(u_time * 0.006, 0.0);
-        float cloudNoise = fbm(cloudUv * 6.5);
-        cloudNoise += 0.2 * fbm(cloudUv * 16.0);
-        float cloudDensity = smoothstep(0.48, 0.72, cloudNoise);
+        float cloudNoise = fbm(cloudUv * 5.5) + 0.22 * fbm(cloudUv * 12.0);
+        float cloudDensity = smoothstep(0.56, 0.82, cloudNoise);
 
         // Sombra de nubes sobre la superficie
         vec2 cloudShadowOffset = -light.xy * 0.015;
-        float cloudShadow = smoothstep(0.50, 0.75, fbm((cloudUv + cloudShadowOffset) * 6.5));
-        surfaceCol *= (1.0 - cloudShadow * 0.4);
+        float cloudShadow = smoothstep(0.56, 0.82, fbm((cloudUv + cloudShadowOffset) * 5.5));
+        surfaceCol *= (1.0 - cloudShadow * 0.35);
 
         // Combinación de nubes blancas sobre superficie
         vec3 cloudColor = vec3(0.96, 0.98, 1.0);
-        surfaceCol = mix(surfaceCol, cloudColor, cloudDensity * 0.88);
+        surfaceCol = mix(surfaceCol, cloudColor, cloudDensity * 0.85);
 
         // ─── 4. ILUMINACIÓN Y TERMINADOR DÍA / NOCHE ─────────────────────────
         float NdotL = dot(normal, light);
@@ -137,10 +137,10 @@ local shaderCode = [[
         
         // Brillo especular del sol sobre el agua
         float specularHighlight = 0.0;
-        if (isWater && (cloudDensity < 0.25)) {
+        if (isWater && (cloudDensity < 0.20)) {
             vec3 reflectDir = reflect(-light, normal);
             float RdotV = max(0.0, dot(reflectDir, view));
-            specularHighlight = pow(RdotV, 36.0) * u_specular * dayNight * (1.0 - iceMask);
+            specularHighlight = pow(RdotV, 32.0) * u_specular * dayNight * (1.0 - iceMask);
         }
 
         // Luz ambiental nocturna (silueta visible del planeta en la noche cósmica)
@@ -150,18 +150,15 @@ local shaderCode = [[
 
         // ─── 5. DISPERSIÓN ATMOSFÉRICA RAYLEIGH (LIMBO / FRESNEL) ───────────
         float fresnel = 1.0 - normal.z;
-        float rimGlow = pow(fresnel, 3.4);
+        float rimGlow = pow(fresnel, 4.2);
         
         // El resplandor es más brillante en la cara iluminada
         float rimSun = clamp(dot(normal.xy, light.xy) * 0.5 + 0.5, 0.15, 1.0);
-        vec3 rimColor = u_atmosphereColor * (rimGlow * rimSun * 2.2);
+        vec3 rimColor = u_atmosphereColor * (rimGlow * rimSun * 1.6);
         
         litColor += rimColor;
 
-        // Suavizado del borde del disco planetario (antialiasing)
-        float edgeAA = smoothstep(1.0, 0.992, r);
-
-        return vec4(litColor, edgeAA * color.a);
+        return vec4(litColor, color.a);
     }
 ]]
 
