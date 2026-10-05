@@ -293,7 +293,7 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         return false
     end
     
-    if not chunkInfo or not chunkInfo.visibleChunks or #chunkInfo.visibleChunks == 0 then
+    if not chunkInfo then
         return false
     end
     
@@ -321,33 +321,45 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
     local halfW = screenW * 0.5
     local halfH = screenH * 0.5
     local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
-    local maxStars = starConfig.maxStarsPerFrame or 5000
-    local margin = 120 -- Margen de seguridad para halos y flares sin pop-in
+    local maxStars = starConfig.maxStarsPerFrame or 6000
+    local margin = 350 -- Margen de seguridad generoso para evitar pop-in / parpadeo en bordes
+
+    local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+    local stride = sizePixels + (MapConfig.chunk.spacing or 0)
+    local strideScaled = chunkInfo.strideScaled or (stride * worldScale)
 
     local visibleCount = 0
 
-    -- Recorrer chunks visibles y aplicar frustum culling individual en O(1)
-    for _, chunkData in ipairs(chunkInfo.visibleChunks) do
-        local chunk = getChunkFunc(chunkData.chunkX, chunkData.chunkY)
-        if chunk and chunk.stars and type(chunk.stars) == "table" then
-            local stars = chunk.stars
-            for sIdx = 1, #stars do
-                local star = stars[sIdx]
-                local worldX, worldY = star.x or 0, star.y or 0
+    local function processChunk(chunkX, chunkY)
+        local chunk = getChunkFunc(chunkX, chunkY)
+        if not chunk then return false end
+        local stars = (chunk.objects and chunk.objects.stars) or chunk.stars
+        if not stars or type(stars) ~= "table" then return false end
+
+        local chunkBaseX = chunkX * strideScaled
+        local chunkBaseY = chunkY * strideScaled
+
+        for sIdx = 1, #stars do
+            local star = stars[sIdx]
+            local starType = star.type or 1
+            -- Solo estrellas principales (tipos 2-6; tipo 1 son microestrellas en BackgroundStarRenderer)
+            if starType > 1 then
+                local worldX = chunkBaseX + (star.x or 0) * worldScale
+                local worldY = chunkBaseY + (star.y or 0) * worldScale
                 local depth = star.depth or 0.5
                 local baseSizeWorld = (star.size or 1) * globalSizeScale
                 local screenRadius = (baseSizeWorld * worldScale) * camZoom
                 local quadSize = math.max(2, screenRadius * instancedSizeScale * 4.0)
                 local halfQuad = quadSize * 0.5
 
-                -- Proyección en pantalla con paralaje
+                -- Proyección en pantalla con paralaje idéntico al shader
                 local depthFactor = (1.0 - depth)
                 local parallaxX = worldX - camX * depthFactor * parallaxStrength
                 local parallaxY = worldY - camY * depthFactor * parallaxStrength
                 local screenX = (parallaxX - camX) * camZoom + halfW
                 local screenY = (parallaxY - camY) * camZoom + halfH
 
-                -- Comprobación AABB en viewport: solo incluir si el quad intersecta la pantalla
+                -- Comprobación AABB en viewport con margen amplio
                 if (screenX + halfQuad >= -margin) and (screenX - halfQuad <= screenW + margin) and
                    (screenY + halfQuad >= -margin) and (screenY - halfQuad <= screenH + margin) then
                     visibleCount = visibleCount + 1
@@ -366,19 +378,37 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
                     entry.baseSizeWorld = baseSizeWorld
                     entry.depth = depth
 
-                    if visibleCount >= maxStars then break end
+                    if visibleCount >= maxStars then return true end
                 end
             end
         end
-        if visibleCount >= maxStars then break end
+        return false
+    end
+
+    -- Recorrer chunks según formato visibleChunks o límites rectangulares startX..endX
+    if chunkInfo.visibleChunks and #chunkInfo.visibleChunks > 0 then
+        for _, chunkData in ipairs(chunkInfo.visibleChunks) do
+            if processChunk(chunkData.chunkX, chunkData.chunkY) then break end
+        end
+    elseif chunkInfo.startX and chunkInfo.endX and chunkInfo.startY and chunkInfo.endY then
+        for cy = chunkInfo.startY, chunkInfo.endY do
+            for cx = chunkInfo.startX, chunkInfo.endX do
+                if processChunk(cx, cy) then break end
+            end
+            if visibleCount >= maxStars then break end
+        end
+    else
+        return false
     end
 
     if visibleCount == 0 then
-        return false
+        return true, 0
     end
 
     -- Inicializar buffer para la cantidad exacta de estrellas visibles
     StarfieldInstanced.beginBuildStarData(visibleCount)
+    local TwinkleManager = require 'src.utils.twinkle_manager'
+    TwinkleManager.update(time, zoom)
 
     -- Escribir datos de las estrellas visibles directamente a ImageData (0 allocations)
     for i = 1, visibleCount do
@@ -386,8 +416,7 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         local entry = drawList[i - 1]
         local starType = star.type or 1
 
-        -- Twinkle precomputado compartido por tipo/fase con cache por banda temporal
-        TwinkleManager.update(time, zoom)
+        -- Twinkle precomputado compartido por tipo/fase
         local phaseBin = TwinkleManager.phaseBin(star.twinkle or 0)
         local twinkleIntensity = TwinkleManager.getTwinkle(starType, phaseBin)
 
@@ -443,24 +472,26 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     if starConfig and starConfig.useInstancedShader then
         local bufferBuilt, starCount = MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, starConfig)
         if bufferBuilt then
-            -- Dibujar todas las estrellas del buffer de una vez con batching
-            love.graphics.push()
-            love.graphics.origin()
-            if StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
-                local t0_draw = love.timer.getTime()
-                StarfieldInstanced.beginBatchDraw(starCount)
-                for i = 0, starCount - 1 do
-                    local info = MapRenderer._instancedDrawList and MapRenderer._instancedDrawList[i]
-                    if info then
-                        StarfieldInstanced.drawStarQuadRaw(i, info.x, info.y, info.s)
+            if starCount > 0 then
+                -- Dibujar todas las estrellas del buffer de una vez con batching (1 draw call)
+                love.graphics.push()
+                love.graphics.origin()
+                if StarfieldInstanced.getShader and StarfieldInstanced.getShader() then
+                    local t0_draw = love.timer.getTime()
+                    StarfieldInstanced.beginBatchDraw(starCount)
+                    for i = 0, starCount - 1 do
+                        local info = MapRenderer._instancedDrawList and MapRenderer._instancedDrawList[i]
+                        if info then
+                            StarfieldInstanced.drawStarQuadRaw(i, info.x, info.y, info.s)
+                        end
                     end
+                    StarfieldInstanced.endBatchDraw()
+                    MapRenderer._perf = MapRenderer._perf or {}
+                    MapRenderer._perf.instancedDrawMs = (love.timer.getTime() - t0_draw) * 1000.0
                 end
-                StarfieldInstanced.endBatchDraw()
-                MapRenderer._perf = MapRenderer._perf or {}
-                MapRenderer._perf.instancedDrawMs = (love.timer.getTime() - t0_draw) * 1000.0
+                love.graphics.pop()
             end
             
-            love.graphics.pop()
             -- Ajuste dinámico de presupuesto si excede tiempo objetivo
             local totalMs = (MapRenderer._perf and (MapRenderer._perf.instancedBuildMs or 0) + (MapRenderer._perf.instancedDrawMs or 0)) or 0
             if MapRenderer.adjustStarBudget then
