@@ -904,6 +904,9 @@ function PauseMenu.keypressed(key)
     if key == "escape" then
         PauseMenu.handleEscape()
         return true
+    elseif key == "p" then
+        PauseMenu.close()
+        return true
     end
 
     return true

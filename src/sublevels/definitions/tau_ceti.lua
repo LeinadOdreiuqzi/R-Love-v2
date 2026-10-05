@@ -30,46 +30,148 @@ local TauCeti = {
             },
             planets = {
                 {
+                    id = "tau_ceti_b",
                     name = "Tau Ceti b",
-                    orbitRadius = 650,
-                    phase = 3.65, -- Lado izquierdo posterior
-                    speed = 0.065,
+                    orbitRadius = 640,
+                    phase = 3.85,
+                    speed = 0.055,
                     size = 14,
-                    color = { 0.84, 0.48, 0.30 },
-                    atmosphere = { 0.92, 0.55, 0.35 },
-                    hasTrail = true
+                    type = "rocky",
+                    colors = {
+                        ocean = { 0.26, 0.22, 0.20 },      -- Basalto oscuro y cráteres
+                        land = { 0.58, 0.44, 0.32 },       -- Tierras altas calcinadas por el sol
+                        atmosphere = { 0.65, 0.45, 0.30 }  -- Velo mineral tenue
+                    },
+                    atmThickness = 0.03,
+                    specular = 0.1,
+                    rotSpeed = 0.012
                 },
                 {
+                    id = "tau_ceti_c",
                     name = "Tau Ceti c",
-                    orbitRadius = 1250,
-                    phase = 0.55, -- Lado derecho anterior
-                    speed = 0.040,
-                    size = 19,
-                    color = { 0.88, 0.74, 0.48 },
-                    atmosphere = { 0.85, 0.80, 0.60 },
-                    hasTrail = true
+                    orbitRadius = 1200,
+                    phase = 0.65,
+                    speed = 0.036,
+                    size = 18,
+                    type = "desert",
+                    colors = {
+                        ocean = { 0.60, 0.30, 0.16 },      -- Cañones y fallas de óxido férrico
+                        land = { 0.88, 0.62, 0.36 },       -- Dunas doradas y mesetas de arenisca
+                        atmosphere = { 0.92, 0.66, 0.42 }  -- Atmósfera desértica cálida
+                    },
+                    atmThickness = 0.11,
+                    specular = 0.2,
+                    rotSpeed = 0.020
                 },
                 {
-                    name = "Tau Ceti e",
-                    orbitRadius = 2300,
-                    phase = 3.35, -- Lado izquierdo medio
+                    id = "tau_ceti_d",
+                    name = "Tau Ceti d",
+                    orbitRadius = 2280,
+                    phase = 2.20,
                     speed = 0.022,
-                    size = 25,
-                    color = { 0.32, 0.70, 0.85 },
-                    atmosphere = { 0.40, 0.82, 0.98 },
-                    hasTrail = true
+                    size = 21,
+                    type = "ice",
+                    colors = {
+                        ocean = { 0.20, 0.44, 0.65 },      -- Fisuras oceánicas heladas
+                        land = { 0.85, 0.92, 0.98 },       -- Placas glaciares de nieve reflectante
+                        atmosphere = { 0.65, 0.84, 1.00 }  -- Corona de bruma criogénica
+                    },
+                    atmThickness = 0.19,
+                    specular = 1.8,
+                    rotSpeed = 0.015
                 },
                 {
-                    name = "Tau Ceti IV",
-                    orbitRadius = 3100,
-                    phase = 0.42, -- Lado derecho frontal prominente
-                    speed = 0.015,
+                    id = "tau_ceti_e",
+                    name = "Tau Ceti e (Gigante Gaseoso)",
+                    orbitRadius = 3200,
+                    phase = 0.42,
+                    speed = 0.014,
                     size = 46,
-                    color = { 0.28, 0.78, 1.00 },
-                    atmosphere = { 0.40, 0.85, 1.00 },
-                    hasRing = true,
-                    hasTrail = true,
-                    isTarget = true
+                    isGasGiant = true,
+                    isTarget = true,
+                    atmosphereThickness = 0.22,
+                    colors = {
+                        deep = { 0.05, 0.22, 0.38 },      -- Azul abisal profundo
+                        mid = { 0.16, 0.54, 0.78 },       -- Celeste cerúleo
+                        light = { 0.54, 0.86, 0.95 },     -- Celeste hielo brillante
+                        white = { 0.92, 0.98, 1.00 },     -- Blanco cirro polar
+                        atmosphere = { 0.30, 0.85, 1.00 } -- Resplandor Rayleigh celeste
+                    },
+                    rings = {
+                        tilt = -0.38,
+                        innerRatio = 1.25,
+                        outerRatio = 2.30,
+                        yFlatten = 0.25,
+                        color = { 0.80, 0.94, 1.00, 0.65 }
+                    },
+                    moons = {
+                        {
+                            id = "tau_ceti_iv",
+                            name = "Tau Ceti IV",
+                            orbitRadius = 66,
+                            speed = 0.28,
+                            phase = 0.85,
+                            size = 8.5,
+                            isTarget = true,
+                            colors = {
+                                ocean = { 0.08, 0.28, 0.62 },
+                                land = { 0.20, 0.62, 0.38 },
+                                atmosphere = { 0.40, 0.85, 1.00 }
+                            },
+                            atmThickness = 0.24,
+                            specular = 1.4,
+                            rotSpeed = 0.02
+                        },
+                        {
+                            id = "eos",
+                            name = "Luna Eos",
+                            orbitRadius = 112,
+                            speed = 0.18,
+                            phase = 3.45,
+                            size = 5.8,
+                            colors = {
+                                ocean = { 0.35, 0.10, 0.25 },
+                                land = { 0.85, 0.42, 0.62 },
+                                atmosphere = { 0.98, 0.55, 0.80 }
+                            },
+                            atmThickness = 0.16,
+                            specular = 0.2,
+                            rotSpeed = 0.015
+                        },
+                        {
+                            id = "celere",
+                            name = "Luna Célere",
+                            orbitRadius = 38,
+                            speed = 0.44,
+                            phase = 1.95,
+                            size = 3.2,
+                            colors = {
+                                ocean = { 0.12, 0.18, 0.28 },
+                                land = { 0.68, 0.78, 0.88 },
+                                atmosphere = { 0.60, 0.85, 1.00 }
+                            },
+                            atmThickness = 0.08,
+                            specular = 0.7,
+                            rotSpeed = 0.025
+                        }
+                    }
+                },
+                {
+                    id = "tau_ceti_f",
+                    name = "Tau Ceti f",
+                    orbitRadius = 4250,
+                    phase = 5.10,
+                    speed = 0.009,
+                    size = 15,
+                    type = "methane",
+                    colors = {
+                        ocean = { 0.16, 0.10, 0.28 },      -- Lagos de hidrocarburos densos
+                        land = { 0.48, 0.32, 0.62 },       -- Hielos de metano y tolinas violetas
+                        atmosphere = { 0.62, 0.42, 0.85 }  -- Resplandor violeta profundo
+                    },
+                    atmThickness = 0.14,
+                    specular = 0.5,
+                    rotSpeed = 0.010
                 }
             },
             asteroidBelt = {
@@ -96,6 +198,15 @@ local TauCeti = {
                     radius = 95,
                     targetTier = 3,
                     color = { 0.30, 0.85, 1.00 }
+                },
+                {
+                    id = "beacon_exit",
+                    name = "Portal Hiperespacial - Salida al Mapa Estelar (E)",
+                    x = -750,
+                    y = -450,
+                    radius = 85,
+                    isExit = true,
+                    color = { 0.55, 0.40, 0.95 }
                 }
             }
         },

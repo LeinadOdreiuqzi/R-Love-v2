@@ -69,6 +69,7 @@ end
 
 -- Función principal de ruido de Perlin
 function PerlinNoise.noise(x, y, z)
+    if not p[1] then PerlinNoise.init(0) end
     z = z or 0
     
     -- Encontrar las coordenadas de la unidad del cubo que contiene el punto

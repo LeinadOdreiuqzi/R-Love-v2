@@ -8,8 +8,6 @@ local PlanetSphereShader = {
 
 local shaderCode = [[
     extern float u_time;
-    extern float u_radius;
-    extern vec2 u_center;
     extern vec3 u_lightDir;
     extern vec2 u_uvOffset;
     extern float u_atmosphereThickness;
@@ -75,7 +73,7 @@ local shaderCode = [[
 
             vec3 haloColor = atmCol * (haloFade * dayFactor * 2.2);
             float alpha = clamp(haloFade * dayFactor * 1.5, 0.0, 1.0);
-            return vec4(haloColor, alpha);
+            return vec4(haloColor * color.rgb, alpha * color.a);
         }
 
         // ─── 2. SUPERFICIE SÓLIDA DEL PLANETA (r <= 1.0) ────────────────────
@@ -110,21 +108,22 @@ local shaderCode = [[
             surfaceCol = mix(lowLands, mountainColor, mountain);
         }
 
-        // Casquetes polares glaciares realistas en los polos geográficos
+        // Casquetes polares glaciares realistas en los polos geográficos (modulados por presencia atmosférica)
         vec3 poleDir = normalize(vec3(0.28, 0.96, 0.0));
         float lat = abs(dot(normal, poleDir));
-        float iceMask = smoothstep(0.91, 0.98, lat + 0.04 * fbm(uv * 8.0));
+        float iceMask = smoothstep(0.91, 0.98, lat + 0.04 * fbm(uv * 8.0)) * clamp(u_atmosphereThickness * 4.0, 0.0, 1.0);
         vec3 iceColor = vec3(0.92, 0.96, 1.0);
         surfaceCol = mix(surfaceCol, iceColor, iceMask);
 
-        // ─── 3. CAPA DE NUBES DINÁMICAS ─────────────────────────────────────
+        // ─── 3. CAPA DE NUBES DINÁMICAS (moduladas según grosor atmosférico) ───
         vec2 cloudUv = uv + vec2(u_time * 0.006, 0.0);
         float cloudNoise = fbm(cloudUv * 5.5) + 0.22 * fbm(cloudUv * 12.0);
-        float cloudDensity = smoothstep(0.56, 0.82, cloudNoise);
+        float cloudFactor = clamp(u_atmosphereThickness * 3.2, 0.0, 1.0);
+        float cloudDensity = smoothstep(0.56, 0.82, cloudNoise) * cloudFactor;
 
         // Sombra de nubes sobre la superficie
         vec2 cloudShadowOffset = -light.xy * 0.015;
-        float cloudShadow = smoothstep(0.56, 0.82, fbm((cloudUv + cloudShadowOffset) * 5.5));
+        float cloudShadow = smoothstep(0.56, 0.82, fbm((cloudUv + cloudShadowOffset) * 5.5)) * cloudFactor;
         surfaceCol *= (1.0 - cloudShadow * 0.35);
 
         // Combinación de nubes blancas sobre superficie
@@ -158,7 +157,7 @@ local shaderCode = [[
         
         litColor += rimColor;
 
-        return vec4(litColor, color.a);
+        return vec4(litColor * color.rgb, color.a);
     }
 ]]
 

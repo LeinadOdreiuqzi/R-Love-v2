@@ -15,6 +15,8 @@ local SublevelSpawns = require 'src.sublevels.spawns'
 local SublevelDecor = require 'src.sublevels.decor'
 local SublevelEntities = require 'src.sublevels.entities'
 local World = require 'src.core.world'
+local PauseMenu = require 'src.ui.pause_menu'
+local DebugRenderer = require 'src.utils.debug_renderer'
 
 local SubLevelScene = setmetatable({}, { __index = StateBase })
 SubLevelScene.__index = SubLevelScene
@@ -222,6 +224,13 @@ function SubLevelScene:update(dt)
         local activeEntity = player:getActiveEntity()
         camera:follow(activeEntity, dt)
     end
+    -- Pausa de simulación si el menú de pausa está abierto
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        PauseMenu.update(dt)
+        return
+    end
+
     -- Actualizar HUD para mantener todos los sistemas visibles
     if HUD and HUD.update then HUD.update(dt) end
 
@@ -305,78 +314,135 @@ function SubLevelScene:draw()
         end
     end
 
-    -- Dibujar HUD y UIs (inventario nave/EVA) para mantener funcionalidad completa
+    -- Dibujar HUD y UIs respetando estrictamente el flag global showHUD (alternable con 'L')
+    local GameState = require 'src.core.game_state'
+    local showHUD = (GameState and GameState.state and GameState.state.showHUD ~= false)
+
     local InventoryUI = require 'src.ui.inventory_ui'
     local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
     local inventoryOpen = (InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen()) or 
                          (EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen())
-    if HUD and HUD.draw then HUD.draw(inventoryOpen) end
-    if InventoryUI and InventoryUI.draw then InventoryUI:draw(player) end
-    if EVAInventoryUI and EVAInventoryUI.draw and player and player.isInEVA and player.evaPlayer then
-        EVAInventoryUI:draw(player.evaPlayer)
+
+    if showHUD then
+        if HUD and HUD.draw then HUD.draw(inventoryOpen) end
+
+        -- Indicador simple de subnivel (ocultable con el HUD)
+        local status = SubLevelManager.getStatus()
+        local name = (status and status.current and status.current.meta and status.current.meta.name) or (status and status.current and status.current.type)
+        if name then
+            love.graphics.setColor(0.9, 0.95, 1.0, 0.75)
+            love.graphics.printf(tostring(name), 16, 16, love.graphics.getWidth() - 32, 'left')
+            love.graphics.setColor(1, 1, 1, 1)
+        end
     end
 
-    -- Indicador simple de subnivel
-    local status = SubLevelManager.getStatus()
-    local name = (status and status.current and status.current.meta and status.current.meta.name) or (status and status.current and status.current.type)
-    if name then
-        love.graphics.setColor(0.9, 0.95, 1.0, 0.75)
-        love.graphics.printf(tostring(name), 16, 16, love.graphics.getWidth() - 32, 'left')
-        love.graphics.setColor(1, 1, 1, 1)
+    if InventoryUI and InventoryUI.draw and InventoryUI.isOpen and InventoryUI:isOpen() then
+        InventoryUI:draw(player)
+    end
+    if EVAInventoryUI and EVAInventoryUI.draw and player and player.isInEVA and player.evaPlayer then
+        if EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
+            EVAInventoryUI:draw(player.evaPlayer)
+        end
+    end
+
+    -- Overlays de depuración y rendimiento (F6 y F12)
+    local DebugRenderer = require 'src.utils.debug_renderer'
+    if DebugRenderer then
+        if GameState and GameState.biomeDebug and GameState.biomeDebug.enabled and DebugRenderer.drawBiomeDebugOverlay then
+            DebugRenderer.drawBiomeDebugOverlay()
+        end
+        if GameState and ((GameState.biomeDebug and GameState.biomeDebug.showPerformanceOverlay) or (GameState.advancedStats and GameState.advancedStats.enabled)) and DebugRenderer.drawPerformanceOverlay then
+            DebugRenderer.drawPerformanceOverlay()
+        end
+    end
+
+    -- Menú de Pausa (se renderiza con máxima prioridad sobre todo lo demás)
+    if PauseMenu.isOpen() then
+        PauseMenu.draw()
     end
 end
 
 function SubLevelScene:keypressed(key)
-    -- Controles de inventario y sistemas del jugador dentro del subnivel
     local InventoryUI = require 'src.ui.inventory_ui'
     local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
+    local PauseMenu = require 'src.ui.pause_menu'
     local player = World.get('player')
-    
+
+    -- Si el menú de pausa ya está abierto, delegar a PauseMenu
+    if PauseMenu.isOpen() then
+        return false
+    end
+
+    -- 'escape': Cerrar inventario activo si hay alguno abierto; de lo contrario, abrir menú de pausa
+    if key == 'escape' then
+        if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and player and player.isInEVA then
+            EVAInventoryUI:toggle(player.evaPlayer)
+            return true
+        end
+        if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
+            InventoryUI:toggle(player)
+            return true
+        end
+        PauseMenu.open()
+        return true
+    end
+
+    -- 'p': Alternar menú de pausa
+    if key == 'p' then
+        PauseMenu.toggle()
+        return true
+    end
+
+    -- 'q': Salir del subnivel y regresar al mapa principal
+    if key == 'q' then
+        SubLevelManager.exit()
+        if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
+        return true
+    end
+
+    -- 'tab': Alternar inventario nave/EVA
     if key == 'tab' and player then
         local inEVA = player.isInEVA
         if inEVA then
-            -- Alternar inventario EVA
             if EVAInventoryUI then EVAInventoryUI:toggle() end
         else
-            -- Alternar inventario de la nave
             if InventoryUI then InventoryUI:toggle() end
         end
         return true
     end
 
-    -- Recolección manual y balizas de salto
+    -- 'e': Recolección manual, balizas de salto y portales de salida
     if key == 'e' then
         local CelestialRenderer = require 'src.sublevels.celestial_renderer'
         local player = World.get('player')
         local beacon = CelestialRenderer.checkBeaconInteraction(self.config, player)
-        if beacon and beacon.targetTier then
-            self:jumpToTier(beacon.targetTier)
-            return true
+        if beacon then
+            if beacon.targetTier then
+                self:jumpToTier(beacon.targetTier)
+                return true
+            elseif beacon.isExit then
+                SubLevelManager.exit()
+                if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
+                return true
+            end
         end
 
         local WorldItems = require 'src.item_systems.world_items'
         local collected = false
         if player and player.isInEVA and player.evaPlayer and player.evaPlayer.attemptPickup then
-            -- En EVA: usar intento específico del EVA player
             player.evaPlayer:attemptPickup()
             collected = true
         else
-            -- En nave: intentar recolección manual centralizada
             if WorldItems and WorldItems.tryManualCollection then
                 collected = WorldItems.tryManualCollection() or false
             end
         end
 
-        -- Consumir la tecla para evitar que PhaseSystem maneje 'e' en subniveles
         return true
     end
 
-    if key == 'escape' or key == 'q' then
-        -- Salir del subnivel y regresar al mapa principal
-        SubLevelManager.exit()
-        if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
-        return true
-    end
+    -- Retornar false para cualquier otra tecla (como 'l' para ocultar HUD, F1-F12 para debugs, etc.)
+    -- para que InputManager procese todos los atajos globales normalmente
     return false
 end
 

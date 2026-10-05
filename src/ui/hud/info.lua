@@ -15,14 +15,14 @@ function HUD.drawUnifiedInfoPanel()
     love.graphics.rectangle("line", x, y, panelWidth, panelHeight)
     
     love.graphics.setColor(0.7, 0.9, 1, 1)
-    love.graphics.setFont(HUD.hudState.font)
+    if HUD.hudState.font then love.graphics.setFont(HUD.hudState.font) end
     love.graphics.print("ENHANCED SPACE EXPLORER", x + 10, y + 8)
     
     love.graphics.setColor(0.3, 0.5, 0.7, 0.8)
     love.graphics.line(x + 10, y + 28, x + panelWidth - 10, y + 28)
     
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(HUD.hudState.smallFont)
+    if HUD.hudState.smallFont then love.graphics.setFont(HUD.hudState.smallFont) end
     
     local posX = math.floor(HUD.player and HUD.player.x or 0)
     local posY = math.floor(HUD.player and HUD.player.y or 0)

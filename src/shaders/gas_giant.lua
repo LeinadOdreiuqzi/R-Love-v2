@@ -61,7 +61,7 @@ local shaderCode = [[
             float dayFactor = clamp(sunFacing * 0.55 + 0.45, 0.06, 1.0);
             vec3 haloColor = u_atmosphereColor * (haloFade * dayFactor * 2.4);
             float alpha = clamp(haloFade * dayFactor * 1.6, 0.0, 1.0);
-            return vec4(haloColor, alpha * color.a);
+            return vec4(haloColor * color.rgb, alpha * color.a);
         }
 
         // ─── 2. SUPERFICIE ATMOSFÉRICA DEL GIGANTE GASEOSO (r <= 1.0) ───────
@@ -122,7 +122,7 @@ local shaderCode = [[
         vec3 rimColor = u_atmosphereColor * (rimGlow * rimSun * 1.8);
         litColor += rimColor;
 
-        return vec4(litColor, color.a);
+        return vec4(litColor * color.rgb, color.a);
     }
 ]]
 

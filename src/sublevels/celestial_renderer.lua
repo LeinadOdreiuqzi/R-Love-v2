@@ -152,6 +152,154 @@ function CelestialRenderer.drawScenicBackground(sublevelConfig, camera, player)
     end
 end
 
+-- ─── PROCEDURAL SHADER RENDERER PARA PLANETAS TELÚRICOS (TIER 1) ───────────
+
+function CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, radius, scenicScale, t, sunScreenX, sunScreenY, depth)
+    local whiteImg = CelestialRenderer.whiteImage
+    local pShader = PlanetSphereShader.getShader()
+    local atmThick = p.atmThickness or 0.15
+    local pPad = radius * (1.0 + atmThick) * 1.08
+
+    local ldx = (sunScreenX - px)
+    local ldy = (sunScreenY - py)
+    local ldist = math.max(1.0, math.sqrt(ldx * ldx + ldy * ldy))
+    local lightDir = { ldx / ldist, ldy / ldist, 0.55 }
+
+    local colors = p.colors or {}
+    local oceanCol = colors.ocean or { 0.22, 0.20, 0.22 }
+    local landCol = colors.land or { 0.58, 0.52, 0.44 }
+    local atmCol = colors.atmosphere or { 0.50, 0.75, 1.00 }
+
+    if pShader and whiteImg then
+        love.graphics.setShader(pShader)
+        pShader:send("u_time", t)
+        pShader:send("u_lightDir", lightDir)
+        pShader:send("u_uvOffset", { t * (p.rotSpeed or 0.015), 0.0 })
+        pShader:send("u_atmosphereThickness", atmThick)
+        pShader:send("u_atmosphereColor", atmCol)
+        pShader:send("u_oceanColor", oceanCol)
+        pShader:send("u_landColor", landCol)
+        pShader:send("u_specular", p.specular or 1.0)
+
+        love.graphics.setColor(depth, depth, depth, 1.0)
+        love.graphics.draw(whiteImg, px - pPad, py - pPad, 0, pPad * 2, pPad * 2)
+        love.graphics.setShader()
+    else
+        love.graphics.setColor(landCol[1] * depth, landCol[2] * depth, landCol[3] * depth, 1.0)
+        love.graphics.circle("fill", px, py, radius, 36)
+
+        local shadowAngle = math.atan2(py - sunScreenY, px - sunScreenX)
+        love.graphics.setColor(0.010, 0.015, 0.025, 0.85)
+        love.graphics.arc("fill", px, py, radius + 0.5, shadowAngle - math.pi * 0.5, shadowAngle + math.pi * 0.5)
+    end
+end
+
+-- ─── RENDERER DEL SISTEMA JOVIANO: GIGANTE GASEOSO, ANILLOS Y LUNAS (TIER 1) ─
+
+function CelestialRenderer.drawGasGiantSystem(p, px, py, radius, scenicScale, t, sunScreenX, sunScreenY, depth)
+    local whiteImg = CelestialRenderer.whiteImage
+    local gasShader = GasGiantShader.getShader()
+    local gasR = radius
+    local gasPad = gasR * (1.0 + (p.atmosphereThickness or 0.22)) * 1.08
+
+    local ldx = (sunScreenX - px)
+    local ldy = (sunScreenY - py)
+    local ldist = math.max(1.0, math.sqrt(ldx * ldx + ldy * ldy))
+    local lightDir = { ldx / ldist, ldy / ldist, 0.55 }
+
+    local rings = p.rings
+    local tilt = (rings and rings.tilt) or -0.38
+    local yFlatten = (rings and rings.yFlatten) or 0.25
+    local inR = gasR * ((rings and rings.innerRatio) or 1.25)
+    local outR = gasR * ((rings and rings.outerRatio) or 2.30)
+    local rCol = (rings and rings.color) or { 0.80, 0.94, 1.00, 0.65 }
+
+    -- 1. Calcular órbitas e inclinación 3D para cada luna alrededor del gigante gaseoso
+    local moonData = {}
+    if p.moons then
+        local rotCos = math.cos(tilt)
+        local rotSin = math.sin(tilt)
+        for _, m in ipairs(p.moons) do
+            local mAngle = (m.phase or 0) + t * (m.speed or 0.25)
+            local mCos = math.cos(mAngle)
+            local mSin = math.sin(mAngle)
+            local mDist = m.orbitRadius * scenicScale
+
+            -- Proyección elíptica inclinada alineada con el plano de los anillos
+            local unrotX = mCos * mDist
+            local unrotY = mSin * mDist * yFlatten
+            local mx = px + (unrotX * rotCos - unrotY * rotSin)
+            local my = py + (unrotX * rotSin + unrotY * rotCos)
+            local mRadius = math.max(2.2, m.size * scenicScale * 0.75)
+
+            table.insert(moonData, {
+                moon = m,
+                x = mx,
+                y = my,
+                sinA = mSin,
+                radius = mRadius
+            })
+        end
+    end
+
+    -- 2. Anillos planetarios helados (Mitad posterior: detrás del gigante gaseoso)
+    if rings then
+        CelestialRenderer.drawRing(px, py, tilt, inR, outR, rCol, yFlatten, -1.0, scenicScale, t)
+    end
+
+    -- 3. Lunas en la mitad posterior (sinA < 0)
+    for _, md in ipairs(moonData) do
+        if md.sinA < 0 then
+            local distCenter = math.sqrt((md.x - px)^2 + (md.y - py)^2)
+            -- Dibujar sólo si no está ocultada por el disco sólido del gigante
+            if distCenter > gasR * 0.90 then
+                CelestialRenderer.drawProceduralTerrestrialPlanet(md.moon, md.x, md.y, md.radius, scenicScale, t, sunScreenX, sunScreenY, depth * 0.85)
+            end
+        end
+    end
+
+    -- 4. Globo esférico del gigante gaseoso
+    if gasShader and whiteImg then
+        love.graphics.setShader(gasShader)
+        gasShader:send("u_time", t)
+        gasShader:send("u_lightDir", lightDir)
+        gasShader:send("u_atmosphereThickness", p.atmosphereThickness or 0.22)
+        gasShader:send("u_atmosphereColor", p.colors.atmosphere)
+        gasShader:send("u_colorDeep", p.colors.deep)
+        gasShader:send("u_colorMid", p.colors.mid)
+        gasShader:send("u_colorLight", p.colors.light)
+        gasShader:send("u_colorWhite", p.colors.white)
+
+        love.graphics.setColor(depth, depth, depth, 1.0)
+        love.graphics.draw(whiteImg, px - gasPad, py - gasPad, 0, gasPad * 2, gasPad * 2)
+        love.graphics.setShader()
+    else
+        love.graphics.setColor(p.colors.mid[1] * depth, p.colors.mid[2] * depth, p.colors.mid[3] * depth, 1.0)
+        love.graphics.circle("fill", px, py, gasR, 48)
+    end
+
+    -- 5. Anillos planetarios helados (Mitad frontal: pasando sobre el gigante gaseoso)
+    if rings then
+        CelestialRenderer.drawRing(px, py, tilt, inR, outR, rCol, yFlatten, 1.0, scenicScale, t)
+    end
+
+    -- 6. Lunas en la mitad frontal (sinA >= 0)
+    for _, md in ipairs(moonData) do
+        if md.sinA >= 0 then
+            CelestialRenderer.drawProceduralTerrestrialPlanet(md.moon, md.x, md.y, md.radius, scenicScale, t, sunScreenX, sunScreenY, depth)
+
+            -- Si es Tau Ceti IV (luna objetivo hacia Tier 3), dibujar retículo indicador sutil
+            if md.moon.isTarget then
+                local ping = 0.4 + 0.35 * math.sin(t * 4.5)
+                love.graphics.setColor(0.30, 0.85, 1.00, ping * depth)
+                love.graphics.setLineWidth(1.4)
+                love.graphics.circle("line", md.x, md.y, md.radius + 3.5 + math.sin(t * 6.0) * 0.8)
+                love.graphics.setLineWidth(1.0)
+            end
+        end
+    end
+end
+
 -- ─── ESCENARIO DE FONDO TIER 1: VISTA DE CANTO DEL SISTEMA SOLAR ────────────
 
 function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh, t)
@@ -206,10 +354,13 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
             local px = sunScreenX + math.cos(curAngle) * orbitR
             local py = sunScreenY + sinA * orbitR * yComp
 
-            local depth = 0.65
-            local pSize = p.size * 0.42 * scenicScale
-            love.graphics.setColor(p.color[1] * depth, p.color[2] * depth, p.color[3] * depth, 0.75)
-            love.graphics.circle("fill", px, py, pSize)
+            local depth = 0.62 + 0.18 * (sinA * 0.5 + 0.5)
+            local pRadius = p.size * 0.55 * scenicScale
+            if p.isGasGiant then
+                CelestialRenderer.drawGasGiantSystem(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
+            else
+                CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
+            end
         end
     end
 
@@ -246,7 +397,7 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
         end
     end
 
-    -- ─── CAPA 6: PLANETAS ANTERIORES Y TAU CETI IV (sin >= 0) ──────────────────
+    -- ─── CAPA 6: PLANETAS ANTERIORES Y SISTEMA JOVIANO (sin >= 0) ──────────────
     for _, p in ipairs(def.planets) do
         local curAngle = (p.phase or 0) + t * p.speed
         local sinA = math.sin(curAngle)
@@ -255,44 +406,12 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
             local px = sunScreenX + math.cos(curAngle) * orbitR
             local py = sunScreenY + sinA * orbitR * yComp
 
-            if p.isTarget then
-                -- Tau Ceti IV con PlanetSphereShader en primer plano escénico
-                local pShader = PlanetSphereShader.getShader()
-                local pRadius = p.size * 0.72 * scenicScale
-                local pPad = pRadius * 1.28
-                if pShader and whiteImg then
-                    love.graphics.setShader(pShader)
-                    
-                    -- Dirección de luz dinámica apuntando a la estrella central
-                    local ldx = (sunScreenX - px)
-                    local ldy = (sunScreenY - py)
-                    local ldist = math.max(1.0, math.sqrt(ldx*ldx + ldy*ldy))
-                    
-                    pShader:send("u_time", t)
-                    pShader:send("u_lightDir", { ldx / ldist, ldy / ldist, 0.55 })
-                    pShader:send("u_uvOffset", { t * 0.015, 0.0 })
-                    pShader:send("u_atmosphereThickness", 0.26)
-                    pShader:send("u_atmosphereColor", p.atmosphere or { 0.40, 0.85, 1.00 })
-                    pShader:send("u_oceanColor", { 0.08, 0.28, 0.62 })
-                    pShader:send("u_landColor", { 0.20, 0.62, 0.38 })
-                    pShader:send("u_specular", 1.4)
-
-                    love.graphics.setColor(1, 1, 1, 1)
-                    love.graphics.draw(whiteImg, px - pPad, py - pPad, 0, pPad * 2, pPad * 2)
-                    love.graphics.setShader()
-                else
-                    love.graphics.setColor(p.color[1], p.color[2], p.color[3], 1.0)
-                    love.graphics.circle("fill", px, py, pRadius)
-                end
+            local depth = 0.85 + 0.15 * (sinA * 0.5 + 0.5)
+            local pRadius = p.size * 0.68 * scenicScale
+            if p.isGasGiant then
+                CelestialRenderer.drawGasGiantSystem(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
             else
-                local pRadius = p.size * 0.52 * scenicScale
-                love.graphics.setColor(p.color[1], p.color[2], p.color[3], 1.0)
-                love.graphics.circle("fill", px, py, pRadius)
-
-                -- Sombra del terminador orientada opuesta a la estrella
-                local shadowAngle = math.atan2(py - sunScreenY, px - sunScreenX)
-                love.graphics.setColor(0.010, 0.015, 0.025, 0.80)
-                love.graphics.arc("fill", px, py, pRadius + 0.5, shadowAngle - math.pi * 0.5, shadowAngle + math.pi * 0.5)
+                CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
             end
         end
     end
@@ -813,27 +932,42 @@ function CelestialRenderer.drawBeacons(beacons, player, t)
         love.graphics.setColor(col[1], col[2], col[3], (1.0 - radarR / b.radius) * 0.4)
         love.graphics.circle("line", b.x, b.y, radarR, 36)
 
-        -- 3. Estructura de la boya de navegación (rombo holográfico rotatorio)
-        love.graphics.push()
-        love.graphics.translate(b.x, b.y)
-        love.graphics.rotate(t * 0.8)
-        love.graphics.setColor(col[1], col[2], col[3], 0.85)
-        love.graphics.polygon("line", 0, -10, 10, 0, 0, 10, -10, 0)
-        love.graphics.pop()
+        -- 3. Estructura de la baliza / portal de salida
+        if b.isExit then
+            -- Portal Hiperespacial rotatorio con vórtice cuántico
+            love.graphics.push()
+            love.graphics.translate(b.x, b.y)
+            love.graphics.rotate(t * 1.2)
+            love.graphics.setColor(col[1], col[2], col[3], 0.75 * pulse)
+            love.graphics.circle("line", 0, 0, 22, 6)
+            love.graphics.rotate(-t * 2.4)
+            love.graphics.setColor(0.95, 0.85, 1.0, 0.90)
+            love.graphics.circle("line", 0, 0, 14, 6)
+            love.graphics.pop()
+        else
+            -- Estructura de la boya de navegación (rombo holográfico rotatorio)
+            love.graphics.push()
+            love.graphics.translate(b.x, b.y)
+            love.graphics.rotate(t * 0.8)
+            love.graphics.setColor(col[1], col[2], col[3], 0.85)
+            love.graphics.polygon("line", 0, -10, 10, 0, 0, 10, -10, 0)
+            love.graphics.pop()
+        end
 
         -- Núcleo de la baliza
         love.graphics.setColor(col[1], col[2], col[3], 0.95)
-        love.graphics.circle("fill", b.x, b.y, 4, 12)
+        love.graphics.circle("fill", b.x, b.y, b.isExit and 6 or 4, 16)
 
         -- Texto interactivo si el jugador está en rango
         local dist = math.sqrt((px - b.x)^2 + (py - b.y)^2)
         if dist <= b.radius * 1.6 then
+            local bannerW = b.isExit and 320 or 250
             love.graphics.setColor(0.08, 0.12, 0.18, 0.85)
-            love.graphics.rectangle("fill", b.x - 120, b.y - b.radius - 38, 240, 30, 4)
+            love.graphics.rectangle("fill", b.x - bannerW * 0.5, b.y - b.radius - 38, bannerW, 30, 4)
             love.graphics.setColor(col[1], col[2], col[3], 0.90)
-            love.graphics.rectangle("line", b.x - 120, b.y - b.radius - 38, 240, 30, 4)
+            love.graphics.rectangle("line", b.x - bannerW * 0.5, b.y - b.radius - 38, bannerW, 30, 4)
             love.graphics.setColor(1, 1, 1, 0.95)
-            love.graphics.printf("[E] " .. b.name, b.x - 118, b.y - b.radius - 30, 236, "center")
+            love.graphics.printf("[E] " .. b.name, b.x - bannerW * 0.5 + 4, b.y - b.radius - 30, bannerW - 8, "center")
         end
     end
 end

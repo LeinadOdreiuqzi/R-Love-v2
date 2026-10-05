@@ -56,11 +56,6 @@ function InputManager.keypressed(key)
         return
     end
 
-    -- 3. DELEGAR AL STATE MANAGER (Escenas activas: estaciones, subniveles)
-    if stateManager and stateManager.keypressed and stateManager:keypressed(key) then
-        return
-    end
-
     -- Intercepción de Menú de Pausa (Prioridad máxima si está abierto)
     local PauseMenu = require 'src.ui.pause_menu'
     if PauseMenu.isOpen() then
@@ -71,6 +66,11 @@ function InputManager.keypressed(key)
         if PauseMenu.keypressed and PauseMenu.keypressed(key) then
             return
         end
+        return
+    end
+
+    -- 3. DELEGAR AL STATE MANAGER (Escenas activas: estaciones, subniveles)
+    if stateManager and stateManager.keypressed and stateManager:keypressed(key) then
         return
     end
 
