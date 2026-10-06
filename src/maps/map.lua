@@ -91,8 +91,6 @@ function Map.init(seed)
     local phaseSuccess = pcall(function()
         local PhaseSystem = require 'src.gameplay.phase_system'
         PhaseSystem.init()
-        -- Registrar callback para expansión de fases
-        PhaseSystem.onPhaseExpanded = ChunkManager.onPhaseExpanded
     end)
     if not phaseSuccess then
         print("Warning: PhaseSystem not available")
@@ -464,8 +462,10 @@ end
 -- NUEVO: obtener chunk sin bloquear (no genera si falta)
 function Map.getChunkNonBlocking(chunkX, chunkY)
     if ChunkManager and ChunkManager.getChunk then
-        local px = (Map.lastPlayerPosition and Map.lastPlayerPosition.x) or 0
-        local py = (Map.lastPlayerPosition and Map.lastPlayerPosition.y) or 0
+        local World = package.loaded['src.core.world']
+        local player = World and World.get and World.get('player')
+        local px = (player and player.x) or (Map.lastPlayerPosition and Map.lastPlayerPosition.x) or 0
+        local py = (player and player.y) or (Map.lastPlayerPosition and Map.lastPlayerPosition.y) or 0
         return ChunkManager.getChunk(chunkX, chunkY, px, py)
     end
     -- Si no hay ChunkManager, devuelve el ya existente (si lo hay), pero no genera

@@ -140,11 +140,11 @@ void readStar(int idx,
     d2 = Texel(u_starData, texelCoord(x, y2, u_dataTexSize));
 }
 
-// Parallax consistente con tu renderer
+// Parallax consistente con el renderer (relativo a cámara, inmune a distancias infinitas)
 vec2 applyParallax(vec2 baseWorld, vec2 camera, float depth, float parallaxStrength) {
     float depthFactor = 1.0 - depth;
-    vec2 parallaxShift = camera * depthFactor * parallaxStrength;
-    return baseWorld - parallaxShift;
+    vec2 rel = baseWorld - camera;
+    return camera + rel * (1.0 + depthFactor * parallaxStrength);
 }
 
 // Mundo -> Pantalla como en isObjectVisible
@@ -354,8 +354,8 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     vec4 d0, d1, d2;
     readStar(idx, d0, d1, d2);
 
-    vec2 baseWorld = d0.xy;
-    float size = d0.z;
+    vec2 center = d0.xy;
+    float screenRadius = d0.z;
     float type = d0.w;
 
     float depth = d1.x;
@@ -365,16 +365,11 @@ vec4 effect(vec4 color, Image tex, vec2 texCoord, vec2 screenCoord)
     float pulseIntensity = d1.w;
 
     vec4 starColor = d2;
-    // Usamos intensidad horneada para pulso
 
-    vec2 world = applyParallax(baseWorld, u_camera, depth, float(u_parallaxStrength));
-    float worldRadius = size * float(u_worldScale);
-    float screenRadius = worldRadius * float(u_zoom);
     if (screenRadius <= 0.0) {
         discard;
     }
 
-    vec2 center = worldToScreen(world, u_camera, float(u_zoom), u_viewportSize);
     float dist = length(screenCoord - center);
     if (dist > screenRadius * 4.0) discard;
 
@@ -546,7 +541,7 @@ end
 
 function StarfieldInstanced.addStarToBatch(index, x, y, s)
     if not _batchActive or not starBatch then return end
-    s = math.max(2, (s or 64) * ((MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3))
+    s = math.max(4, s or 64)
     local half = s * 0.5
     local r = (index % 256) / 255.0
     local g = math.floor(index / 256) / 255.0
@@ -571,7 +566,7 @@ function StarfieldInstanced.drawStarQuadRaw(index, x, y, s)
     if _batchActive then
         StarfieldInstanced.addStarToBatch(index, x, y, s)
     else
-        s = math.max(2, (s or 64) * ((MapConfig.stars and MapConfig.stars.instancedSizeScale) or 1.3))
+        s = math.max(4, s or 64)
         local half = s * 0.5
         pcall(function() shader:send("aStarIndex", index) end)
         love.graphics.setColor(1, 1, 1, 1)
@@ -745,14 +740,15 @@ function StarfieldInstanced.beginBuildStarData(count)
 end
 
 -- OPTIMIZADO: escribir datos de estrella directamente sin crear tablas temporales (0 allocs)
-function StarfieldInstanced.writeStarDataDirect(idx, wx, wy, size, stype, depth, bright, tw, pulse, r, g, b, a)
+-- Almacena sx, sy y sRadius en espacio de pantalla en d0 para máxima estabilidad numérica
+function StarfieldInstanced.writeStarDataDirect(idx, sx, sy, sRadius, stype, depth, bright, tw, pulse, r, g, b, a)
     if starDataImageData then
-        starDataImageData:setPixel(idx, 0, wx or 0, wy or 0, size or 0, stype or 1)
+        starDataImageData:setPixel(idx, 0, sx or 0, sy or 0, sRadius or 0, stype or 1)
         starDataImageData:setPixel(idx, 1, depth or 0, bright or 1, tw or 1, pulse or 1)
         starDataImageData:setPixel(idx, 2, r or 1, g or 1, b or 1, a or 1)
         return
     end
-    StarfieldInstanced.writeStarDataAt(idx, {wx, wy, size, stype}, {depth, bright, tw, pulse}, {r, g, b, a})
+    StarfieldInstanced.writeStarDataAt(idx, {sx, sy, sRadius, stype}, {depth, bright, tw, pulse}, {r, g, b, a})
 end
 
 -- OPTIMIZADO: escribir 3 filas para una estrella en índice 'idx' (0-based)
@@ -957,13 +953,10 @@ function StarfieldInstanced.getCachedParallax(star, camera, parallaxStrength, ti
     if not cache or cache.cameraKey ~= cameraKey or (time - cache.lastUpdate) > 0.1 then
         local depth = star.depth or 0.5
         local depthFactor = 1.0 - depth
-        local parallaxShift = {
-            x = camera.x * depthFactor * parallaxStrength,
-            y = camera.y * depthFactor * parallaxStrength
-        }
-        
-        local worldX = (star.x or 0) - parallaxShift.x
-        local worldY = (star.y or 0) - parallaxShift.y
+        local relX = (star.x or 0) - camera.x
+        local relY = (star.y or 0) - camera.y
+        local worldX = camera.x + relX * (1.0 + depthFactor * parallaxStrength)
+        local worldY = camera.y + relY * (1.0 + depthFactor * parallaxStrength)
         
         effectsCache.parallax[starId] = {
             worldX = worldX,

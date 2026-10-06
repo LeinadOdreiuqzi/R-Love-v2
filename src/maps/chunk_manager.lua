@@ -379,6 +379,22 @@ function ChunkManager.isChunkInCurrentPhase(chunkX, chunkY)
 
     if not PhaseSystem then return true end  -- Sin límites si no hay PhaseSystem
     
+    -- Si el mapa está completamente liberado o el movimiento no está restringido, permitir cualquier chunk
+    if PhaseSystem.state and PhaseSystem.state.mapFullyUnlocked then return true end
+    if PhaseSystem.config and not PhaseSystem.config.restrictMovement then return true end
+
+    -- Si se alcanzó la fase máxima, permitir exploración infinita
+    if PhaseSystem.state and PhaseSystem.state.currentPhase >= (PhaseSystem.config and PhaseSystem.config.totalPhases or 11) then
+        return true
+    end
+
+    -- Si el jugador tiene hipervelocidad activa (modo test/viaje rápido), permitir cualquier chunk
+    local World = package.loaded['src.core.world']
+    local player = (World and World.get and World.get('player')) or (GameState and (GameState.player or (GameState.state and GameState.state.player)))
+    if player and player.hyperTravelEnabled then
+        return true
+    end
+
     -- Convertir coordenadas de chunk a coordenadas de mundo
     local sizePixels = (MapConfig and MapConfig.chunk and MapConfig.chunk.size or ChunkManager.config.chunkSize)
         * (MapConfig and MapConfig.chunk and MapConfig.chunk.tileSize or ChunkManager.config.tileSize)
@@ -397,8 +413,11 @@ end
 
 -- Callback cuando se expande una fase
 function ChunkManager.onPhaseExpanded(oldPhase, newPhase, newBounds)
-    print("ChunkManager: Phase expanded from " .. oldPhase .. " to " .. newPhase)
-    print("ChunkManager: New bounds - " .. newBounds.minX .. " to " .. newBounds.maxX)
+    newBounds = newBounds or (PhaseSystem and PhaseSystem.getCurrentPhaseBounds and PhaseSystem.getCurrentPhaseBounds()) or {}
+    print("ChunkManager: Phase expanded from " .. tostring(oldPhase) .. " to " .. tostring(newPhase))
+    if newBounds.minX and newBounds.maxX then
+        print("ChunkManager: New bounds - " .. newBounds.minX .. " to " .. newBounds.maxX)
+    end
     
     -- Aquí se puede implementar lógica adicional como:
     -- - Precargar chunks en los nuevos límites

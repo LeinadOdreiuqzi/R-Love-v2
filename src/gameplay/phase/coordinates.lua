@@ -39,6 +39,11 @@ function PhaseSystem.init()
     PhaseSystem.state.playerCanExpand = false
     PhaseSystem.state.playerAtBoundary = false
     PhaseSystem.state.expansionAvailable = false
+    PhaseSystem.state.mapFullyUnlocked = false
+    PhaseSystem.state.showUnlockPrompt = false
+    PhaseSystem.state.showExpansionPrompt = false
+    PhaseSystem.state.recentExpansion = false
+    PhaseSystem.config.restrictMovement = true
     
     print("Phase System initialized with " .. PhaseSystem.config.totalPhases .. " phases")
     print("Phase 1 bounds: " .. PhaseSystem.getBoundsString(1))

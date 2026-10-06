@@ -342,22 +342,23 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         for sIdx = 1, #stars do
             local star = stars[sIdx]
             local starType = star.type or 1
-            -- Solo estrellas principales (tipos 2-6; tipo 1 son microestrellas en BackgroundStarRenderer)
-            if starType > 1 then
+            if starType >= 1 then
                 local worldX = chunkBaseX + (star.x or 0) * worldScale
                 local worldY = chunkBaseY + (star.y or 0) * worldScale
                 local depth = star.depth or 0.5
                 local baseSizeWorld = (star.size or 1) * globalSizeScale
                 local screenRadius = (baseSizeWorld * worldScale) * camZoom
-                local quadSize = math.max(2, screenRadius * instancedSizeScale * 4.0)
+                local quadSize = math.max(4, screenRadius * instancedSizeScale * 4.0)
                 local halfQuad = quadSize * 0.5
 
-                -- Proyección en pantalla con paralaje idéntico al shader
+                -- Proyección en pantalla con paralaje relativo exacto (inmune a distancias infinitas)
                 local depthFactor = (1.0 - depth)
-                local parallaxX = worldX - camX * depthFactor * parallaxStrength
-                local parallaxY = worldY - camY * depthFactor * parallaxStrength
-                local screenX = (parallaxX - camX) * camZoom + halfW
-                local screenY = (parallaxY - camY) * camZoom + halfH
+                local relX = worldX - camX
+                local relY = worldY - camY
+                local parallaxRelX = relX * (1.0 + depthFactor * parallaxStrength)
+                local parallaxRelY = relY * (1.0 + depthFactor * parallaxStrength)
+                local screenX = parallaxRelX * camZoom + halfW
+                local screenY = parallaxRelY * camZoom + halfH
 
                 -- Comprobación AABB en viewport con margen amplio
                 if (screenX + halfQuad >= -margin) and (screenX - halfQuad <= screenW + margin) and
@@ -373,9 +374,7 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
                     entry.x = screenX
                     entry.y = screenY
                     entry.s = quadSize
-                    entry.worldX = worldX
-                    entry.worldY = worldY
-                    entry.baseSizeWorld = baseSizeWorld
+                    entry.screenRadius = screenRadius
                     entry.depth = depth
 
                     if visibleCount >= maxStars then return true end
@@ -432,7 +431,7 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
         local starIndex = i - 1
         StarfieldInstanced.writeStarDataDirect(
             starIndex,
-            entry.worldX, entry.worldY, entry.baseSizeWorld, starType,
+            entry.x, entry.y, entry.screenRadius, starType,
             entry.depth, brightnessNorm, twinkleIntensity, pulseIntensity,
             color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1
         )

@@ -44,8 +44,8 @@ function PhaseSystem.update(dt, playerX, playerY)
     
     -- Actualizar estado
     PhaseSystem.state.playerAtBoundary = atBoundary
-    PhaseSystem.state.playerCanExpand = nearBoundary and canUnlockNext and inCurrentPhase
-    PhaseSystem.state.expansionAvailable = canUnlockNext and nearBoundary
+    PhaseSystem.state.playerCanExpand = (nearBoundary or atBoundary) and canUnlockNext
+    PhaseSystem.state.expansionAvailable = canUnlockNext and (nearBoundary or atBoundary)
     
     -- Verificar si estamos en la última fase y cerca del borde
     if PhaseSystem.isAtFinalPhase() and nearBoundary and not PhaseSystem.state.mapFullyUnlocked then
@@ -71,67 +71,60 @@ function PhaseSystem.update(dt, playerX, playerY)
     end
     
     -- Manejar restricción de movimiento si está habilitada y el mapa no está liberado
-    if PhaseSystem.config.restrictMovement and atBoundary and not PhaseSystem.state.playerCanExpand and not PhaseSystem.state.mapFullyUnlocked then
-        -- El jugador está intentando salir de la fase sin poder expandir
+    if PhaseSystem.config.restrictMovement and atBoundary and not PhaseSystem.state.mapFullyUnlocked then
+        -- El jugador está intentando salir de la fase sin haber expandido
         -- Esto se manejará en el sistema de movimiento del jugador
         return "boundary_hit"
-    end
-    
-    -- Auto-expansión si el jugador está en la siguiente fase (fallback)
-    if not inCurrentPhase and canUnlockNext then
-        if PhaseSystem.isPositionInPhase(playerX, playerY, PhaseSystem.state.currentPhase + 1) then
-            print("PhaseSystem: Auto-expanding to next phase (player reached next area)")
-            PhaseSystem.expandToNextPhase()
-            return "auto_expanded"
-        end
     end
     
     return "normal"
 end
 
-
--- Expandir a la siguiente fase
-function PhaseSystem.expandToNextPhase()
-    if PhaseSystem.state.currentPhase >= PhaseSystem.config.totalPhases then
-        print("Cannot expand: Already at maximum phase (" .. PhaseSystem.config.totalPhases .. ")")
-        return false
-    end
-    
+-- Expandir a una fase objetivo específica
+function PhaseSystem.expandToPhase(targetPhase)
+    if not targetPhase or targetPhase <= PhaseSystem.state.currentPhase then return false end
+    targetPhase = math.min(targetPhase, PhaseSystem.config.totalPhases)
     local oldPhase = PhaseSystem.state.currentPhase
-    PhaseSystem.state.currentPhase = PhaseSystem.state.currentPhase + 1
-    PhaseSystem.state.maxUnlockedPhase = math.max(PhaseSystem.state.maxUnlockedPhase, PhaseSystem.state.currentPhase)
+    PhaseSystem.state.currentPhase = targetPhase
+    PhaseSystem.state.maxUnlockedPhase = math.max(PhaseSystem.state.maxUnlockedPhase, targetPhase)
     PhaseSystem.state.playerCanExpand = false
     
     -- Activar feedback visual de expansión
     PhaseSystem.state.recentExpansion = true
     PhaseSystem.state.expansionTimer = PhaseSystem.state.expansionDuration
-    PhaseSystem.state.lastExpandedPhase = PhaseSystem.state.currentPhase
+    PhaseSystem.state.lastExpandedPhase = targetPhase
     
     print("=== PHASE EXPANSION ===")
-    print("Expanded from Phase " .. oldPhase .. " to Phase " .. PhaseSystem.state.currentPhase)
-    print("New bounds: " .. PhaseSystem.getBoundsString(PhaseSystem.state.currentPhase))
+    print("Expanded from Phase " .. oldPhase .. " to Phase " .. targetPhase)
+    print("New bounds: " .. PhaseSystem.getBoundsString(targetPhase))
+    
+    local newBounds = PhaseSystem.getCurrentPhaseBounds()
     
     -- Notificar a otros sistemas sobre la expansión
-    PhaseSystem.onPhaseExpanded(oldPhase, PhaseSystem.state.currentPhase)
+    PhaseSystem.onPhaseExpanded(oldPhase, targetPhase, newBounds)
     
     return true
 end
 
+-- Expandir a la siguiente fase
+function PhaseSystem.expandToNextPhase()
+    return PhaseSystem.expandToPhase(PhaseSystem.state.currentPhase + 1)
+end
+
 -- Callback cuando se expande una fase (para que otros sistemas reaccionen)
-function PhaseSystem.onPhaseExpanded(oldPhase, newPhase)
-    -- Este método puede ser usado por otros sistemas para reaccionar a la expansión
-    -- Por ejemplo, el ChunkManager podría cargar más chunks
+function PhaseSystem.onPhaseExpanded(oldPhase, newPhase, newBounds)
+    newBounds = newBounds or PhaseSystem.getCurrentPhaseBounds()
     
     -- Notificar al sistema de chunks si existe
     local ChunkManager = require 'src.maps.chunk_manager'
     if ChunkManager and ChunkManager.onPhaseExpanded then
-        ChunkManager.onPhaseExpanded(oldPhase, newPhase, PhaseSystem.getCurrentPhaseBounds())
+        ChunkManager.onPhaseExpanded(oldPhase, newPhase, newBounds)
     end
     
     -- Notificar al mapa principal
     local Map = require 'src.maps.map'
     if Map and Map.onPhaseExpanded then
-        Map.onPhaseExpanded(oldPhase, newPhase, PhaseSystem.getCurrentPhaseBounds())
+        Map.onPhaseExpanded(oldPhase, newPhase, newBounds)
     end
 end
 
@@ -147,7 +140,7 @@ function PhaseSystem.handleInput(key)
         if PhaseSystem.shouldShowUnlockPrompt() then
             return PhaseSystem.handleUnlockInput(key)
         -- Prioridad 2: Expandir a la siguiente fase si es posible
-        elseif PhaseSystem.state.playerCanExpand then
+        elseif PhaseSystem.state.playerCanExpand or PhaseSystem.state.expansionAvailable then
             return PhaseSystem.expandToNextPhase()
         end
     end
@@ -191,10 +184,10 @@ function PhaseSystem.getHUDInfo()
         status = "Exploring" -- Cambiar a un mensaje neutro para evitar spam
     elseif PhaseSystem.state.showUnlockPrompt then
         status = "PRESS E TO UNLOCK FULL MAP!"
-    elseif PhaseSystem.state.playerAtBoundary then
-        status = "At boundary"
     elseif PhaseSystem.state.playerCanExpand then
         status = "Can expand (Press E)"
+    elseif PhaseSystem.state.playerAtBoundary then
+        status = "At boundary"
     elseif PhaseSystem.state.expansionAvailable then
         status = "Near boundary"
     end
