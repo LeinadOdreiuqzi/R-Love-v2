@@ -16,6 +16,7 @@ local ChunkManager = require 'src.maps.chunk_manager'
 local FullscreenManager = require 'src.utils.fullscreen_manager'
 local DebugRenderer = require 'src.utils.debug_renderer'
 local WorldItems = require 'src.item_systems.world_items'
+local AudioManager = require 'src.audio.audio_manager'
 
 function GameLoop.update(dt)
     local state = GameState.state
@@ -25,6 +26,11 @@ function GameLoop.update(dt)
     if state.isLoading then
         LoadingScreen.update(dt)
         return
+    end
+
+    -- Actualizar subsistema de audio
+    if AudioManager and AudioManager.update then
+        AudioManager.update(dt)
     end
     
     if not state.loaded then return end

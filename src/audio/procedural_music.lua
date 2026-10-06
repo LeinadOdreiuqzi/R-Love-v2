@@ -768,22 +768,19 @@ local Instruments = {
         local progress = t / duration
 
         local attack = math.min(1.0, t / 0.0025)
-        local pluckFlesh = math.sin(TWO_PI * 160.0 * t) * math.exp(-t * 260.0) * 0.18
-        local pluckNail = math.sin(TWO_PI * 2200.0 * t) * math.exp(-t * 650.0) * 0.05
+        local pluckFlesh = (t < 0.035) and (math.sin(TWO_PI * 160.0 * t) * math.exp(-t * 260.0) * 0.18) or 0
+        local pluckNail = (t < 0.015) and (math.sin(TWO_PI * 2200.0 * t) * math.exp(-t * 650.0) * 0.05) or 0
 
         local w1 = TWO_PI * baseFreq * t
-        local w2 = TWO_PI * (baseFreq * 2.0008) * t
-        local w3 = TWO_PI * (baseFreq * 3.002) * t
-
-        local prompt = math.exp(-t * 14.0)
+        local prompt = (t < 0.45) and math.exp(-t * 14.0) or 0
         local sustain = math.exp(-progress * 2.2)
-        local release = math.max(0, 1.0 - math.max(0, (progress - 0.88) / 0.12))
+        local release = (progress > 0.88) and math.max(0, 1.0 - (progress - 0.88) / 0.12) or 1.0
 
         local h1 = math.sin(w1) * sustain
-        local h2 = math.sin(w2) * 0.28 * (sustain * 0.7 + prompt * 0.3)
-        local h3 = math.sin(w3) * 0.10 * prompt
+        local h2 = math.sin(w1 * 2.0008) * 0.28 * (sustain * 0.7 + prompt * 0.3)
+        local h3 = (prompt > 0.001) and (math.sin(w1 * 3.002) * 0.10 * prompt) or 0
 
-        local body = math.sin(TWO_PI * (baseFreq * 0.5) * t) * 0.09 * sustain
+        local body = math.sin(w1 * 0.5) * 0.09 * sustain
 
         local stringSound = (h1 + h2 + h3 + body) * attack * release
         local sample = (stringSound + pluckFlesh + pluckNail) * 0.62

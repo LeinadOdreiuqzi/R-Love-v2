@@ -4,9 +4,9 @@ local ShaderManager = require 'src.shaders.shader_manager'
 -- Configuración
 LoadingScreen.config = {
     -- Tiempos
-    minLoadTime = 2.0,          -- Tiempo mínimo de carga (para que se vea la animación)
+    minLoadTime = 0.8,          -- Tiempo mínimo de carga suave (elimina esperas artificiales)
     fadeInTime = 0.3,           -- Tiempo de fade in
-    fadeOutTime = 0.5,          -- Tiempo de fade out
+    fadeOutTime = 0.4,          -- Tiempo de fade out
     
     -- Colores del tema espacial
     colors = {
@@ -81,19 +81,20 @@ LoadingScreen.state = {
 -- Iterador de carga
 LoadingScreen.loadIterator = nil
 
--- Pasos de carga del juego
+-- Pasos de carga del juego (12 pasos perfectamente sincronizados, suma = 1.00)
 LoadingScreen.gameLoadSteps = {
-    {id = "init", name = "Initializing Systems", weight = 0.05},
-    {id = "seed", name = "Processing Seed", weight = 0.05},
-    {id = "perlin", name = "Generating Noise Maps", weight = 0.1},
-    {id = "biomes", name = "Creating Biome Distribution", weight = 0.15},
-    {id = "coordinates", name = "Setting Up Coordinate System", weight = 0.05},
-    {id = "chunks", name = "Initializing Chunk Manager", weight = 0.1},
-    {id = "renderer", name = "Preparing Renderer", weight = 0.05},
-    {id = "initial_chunks", name = "Generating Initial Area", weight = 0.25},
-    {id = "player", name = "Creating Player", weight = 0.05},
-    {id = "hud", name = "Loading Interface", weight = 0.05},
-    {id = "finalize", name = "Finalizing World", weight = 0.1}
+    {id = "init", name = "Initializing Core Systems", weight = 0.04},
+    {id = "seed", name = "Processing Seed & Universe", weight = 0.04},
+    {id = "perlin", name = "Generating Noise Patterns", weight = 0.08},
+    {id = "biomes", name = "Calculating Biome Distribution", weight = 0.12},
+    {id = "coordinates", name = "Setting Up Coordinates & Camera", weight = 0.04},
+    {id = "chunks", name = "Initializing Chunk Manager", weight = 0.08},
+    {id = "renderer", name = "Preparing Renderer & Shaders", weight = 0.05},
+    {id = "initial_chunks", name = "Generating Initial Sector Chunks", weight = 0.25},
+    {id = "player", name = "Creating Player & Test Ships", weight = 0.08},
+    {id = "game_systems", name = "Starting Audio & Game Systems", weight = 0.10},
+    {id = "hud", name = "Loading Interface & HUD", weight = 0.05},
+    {id = "finalize", name = "Finalizing Universe Generation", weight = 0.07}
 }
 
 -- Inicializar la pantalla de carga
@@ -261,6 +262,12 @@ end
 function LoadingScreen.update(dt)
     if not LoadingScreen.state.active then return false end
     
+    -- Actualizar subsistema de audio para recoger generación en segundo plano
+    local AudioManager = require 'src.audio.audio_manager'
+    if AudioManager and AudioManager.update then
+        AudioManager.update(dt)
+    end
+
     -- Procesar tareas asíncronas
     LoadingScreen.processAsyncTasks(dt)
     
@@ -281,12 +288,11 @@ function LoadingScreen.update(dt)
             end
         end
     elseif LoadingScreen.state.fadeState == "loading" then
-        -- Continuar ejecutando los pasos de carga
-        -- Ejecutar múltiples pasos por frame para carga más fluida
-        for i = 1, 2 do  -- Ejecutar 2 pasos por frame
-            if LoadingScreen.loadIterator then
-                LoadingScreen.resumeLoading()
-            end
+        -- Continuar ejecutando pasos respetando el presupuesto de tiempo por frame (12ms) para 60 FPS estables
+        local frameStartTime = love.timer.getTime()
+        local maxBudget = 0.012
+        while LoadingScreen.loadIterator and (love.timer.getTime() - frameStartTime) < maxBudget do
+            LoadingScreen.resumeLoading()
         end
     elseif LoadingScreen.state.fadeState == "out" then
         LoadingScreen.state.fadeAlpha = math.max(0, LoadingScreen.state.fadeAlpha - dt / LoadingScreen.config.fadeOutTime)
@@ -407,17 +413,75 @@ function LoadingScreen.draw()
     -- Dibujar nebulosas
     LoadingScreen.drawNebulae(alpha)
     
-    -- Dibujar anillo de carga
-    LoadingScreen.drawLoadingRing(width/2, height/2, alpha)
+    -- ========================================================================
+    -- CÁLCULO DE COORDENADAS RELATIVAS Y RESPONSIVAS (CERO COLISIONES DE TEXTO)
+    -- ========================================================================
+    local cx = math.floor(width / 2)
+    local ringRadius = 75
+    local cy = math.floor(height * 0.40)
     
-    -- Dibujar texto e información
-    LoadingScreen.drawText(width/2, height/2, alpha)
+    -- 1. Título principal situado arriba del anillo con respiro vertical
+    local titleY = math.max(28, cy - ringRadius - 82)
     
-    -- Dibujar barra de progreso
-    LoadingScreen.drawProgressBar(width/2, height * 0.7, alpha)
+    -- 2. Anillo de carga
+    LoadingScreen.drawLoadingRing(cx, cy, ringRadius, alpha)
     
-    -- Dibujar tip
-    LoadingScreen.drawTip(width/2, height * 0.85, alpha)
+    -- 3. Porcentaje centrado matemáticamente dentro del anillo
+    local pFont = LoadingScreen.fonts.progress
+    love.graphics.setFont(pFont)
+    love.graphics.setColor(LoadingScreen.config.colors.accent[1],
+                          LoadingScreen.config.colors.accent[2],
+                          LoadingScreen.config.colors.accent[3],
+                          alpha)
+    local percentage = math.floor(LoadingScreen.state.progress * 100)
+    local pctH = pFont:getHeight()
+    love.graphics.printf(percentage .. "%", cx - 80, cy - math.floor(pctH / 2), 160, "center")
+    
+    -- 4. Título ("GENERATING UNIVERSE")
+    love.graphics.setFont(LoadingScreen.fonts.title)
+    love.graphics.setColor(LoadingScreen.config.colors.text[1],
+                          LoadingScreen.config.colors.text[2],
+                          LoadingScreen.config.colors.text[3],
+                          alpha)
+    love.graphics.printf("GENERATING UNIVERSE", 0, titleY, width, "center")
+    
+    -- Subtítulo fino bajo el título principal
+    love.graphics.setFont(LoadingScreen.fonts.small)
+    love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
+                          LoadingScreen.config.colors.textDim[2],
+                          LoadingScreen.config.colors.textDim[3],
+                          0.65 * alpha)
+    love.graphics.printf("PROCEDURAL GALAXY ENGINE", 0, titleY + LoadingScreen.fonts.title:getHeight() + 4, width, "center")
+
+    -- 5. Textos de paso actual y substep bajo el anillo
+    local stepY = cy + ringRadius + 26
+    love.graphics.setFont(LoadingScreen.fonts.step)
+    love.graphics.setColor(LoadingScreen.config.colors.primary[1],
+                          LoadingScreen.config.colors.primary[2],
+                          LoadingScreen.config.colors.primary[3],
+                          alpha)
+    love.graphics.printf(LoadingScreen.state.currentStep, 0, stepY, width, "center")
+    
+    local subStepY = stepY + LoadingScreen.fonts.step:getHeight() + 6
+    if LoadingScreen.state.subStep and LoadingScreen.state.subStep ~= "" then
+        love.graphics.setFont(LoadingScreen.fonts.small)
+        love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
+                              LoadingScreen.config.colors.textDim[2],
+                              LoadingScreen.config.colors.textDim[3],
+                              0.85 * alpha)
+        love.graphics.printf(LoadingScreen.state.subStep, 0, subStepY, width, "center")
+    end
+
+    -- 6. Barra de progreso situada con distancia garantizada respecto al substep
+    local barWidth = math.min(480, math.floor(width * 0.65))
+    local barHeight = 8
+    local barY = math.max(subStepY + LoadingScreen.fonts.small:getHeight() + 24, math.floor(height * 0.68))
+    LoadingScreen.drawProgressBar(cx, barY, barWidth, barHeight, alpha)
+
+    -- 7. Tip contenedor glassmorphic
+    local stepCounterY = barY + barHeight + 12
+    local tipY = math.max(stepCounterY + LoadingScreen.fonts.small:getHeight() + 22, math.floor(height * 0.85))
+    LoadingScreen.drawTip(cx, tipY, alpha)
     
     -- Restaurar estado
     love.graphics.pop()
@@ -481,9 +545,10 @@ function LoadingScreen.drawNebulae(alpha)
 end
 
 -- Dibujar anillo de carga
-function LoadingScreen.drawLoadingRing(x, y, alpha)
+function LoadingScreen.drawLoadingRing(x, y, radius, alpha)
     local ring = LoadingScreen.state.loadingRing
-    local radius = 80
+    radius = radius or 80
+    alpha = alpha or 1.0
     
     love.graphics.push()
     love.graphics.translate(x, y)
@@ -493,7 +558,6 @@ function LoadingScreen.drawLoadingRing(x, y, alpha)
     -- Dibujar segmentos
     for i, segment in ipairs(ring.segments) do
         local angle = segment.angle
-        local nextAngle = ring.segments[i % #ring.segments + 1].angle
         
         -- Color del segmento
         if segment.active then
@@ -538,107 +602,113 @@ function LoadingScreen.drawLoadingRing(x, y, alpha)
     love.graphics.pop()
 end
 
--- Dibujar texto
+-- Compatibilidad: el texto ahora se dibuja de forma responsiva y coordinada en LoadingScreen.draw
 function LoadingScreen.drawText(x, y, alpha)
-    -- Título
-    love.graphics.setFont(LoadingScreen.fonts.title)
-    love.graphics.setColor(LoadingScreen.config.colors.text[1],
-                          LoadingScreen.config.colors.text[2],
-                          LoadingScreen.config.colors.text[3],
-                          alpha)
-    love.graphics.printf("GENERATING UNIVERSE", 0, y - 200, love.graphics.getWidth(), "center")
-    
-    -- Paso actual
-    love.graphics.setFont(LoadingScreen.fonts.step)
-    love.graphics.setColor(LoadingScreen.config.colors.primary[1],
-                          LoadingScreen.config.colors.primary[2],
-                          LoadingScreen.config.colors.primary[3],
-                          alpha)
-    love.graphics.printf(LoadingScreen.state.currentStep, 0, y + 130, love.graphics.getWidth(), "center")
-    
-    -- Substep si existe
-    if LoadingScreen.state.subStep and LoadingScreen.state.subStep ~= "" then
-        love.graphics.setFont(LoadingScreen.fonts.small)
-        love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                              LoadingScreen.config.colors.textDim[2],
-                              LoadingScreen.config.colors.textDim[3],
-                              alpha)
-        love.graphics.printf(LoadingScreen.state.subStep, 0, y + 155, love.graphics.getWidth(), "center")
-    end
-    
-    -- Porcentaje
-    love.graphics.setFont(LoadingScreen.fonts.progress)
-    love.graphics.setColor(LoadingScreen.config.colors.accent[1],
-                          LoadingScreen.config.colors.accent[2],
-                          LoadingScreen.config.colors.accent[3],
-                          alpha)
-    local percentage = math.floor(LoadingScreen.state.progress * 100)
-    love.graphics.printf(percentage .. "%", x - 50, y - 10, 100, "center")
+    -- Integrado en LoadingScreen.draw para evitar colisiones
 end
 
--- Dibujar barra de progreso
-function LoadingScreen.drawProgressBar(x, y, alpha)
-    local barWidth = 400
-    local barHeight = 6
-    local cornerRadius = 3
+-- Dibujar barra de progreso con hitos reales acumulativos
+function LoadingScreen.drawProgressBar(x, y, barWidth, barHeight, alpha)
+    barWidth = barWidth or 420
+    barHeight = barHeight or 8
+    local cornerRadius = 4
+    alpha = alpha or 1.0
     
     -- Fondo de la barra
     love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
                           LoadingScreen.config.colors.textDim[2],
                           LoadingScreen.config.colors.textDim[3],
-                          0.3 * alpha)
+                          0.25 * alpha)
     love.graphics.rectangle("fill", x - barWidth/2, y - barHeight/2, barWidth, barHeight, cornerRadius)
     
-    -- Barra de progreso
+    -- Barra de progreso con gradiente continuo
     local progress = LoadingScreen.state.progress
     if progress > 0 then
-        -- Gradiente de color
         local r = LoadingScreen.config.colors.secondary[1] * (1 - progress) + LoadingScreen.config.colors.accent[1] * progress
         local g = LoadingScreen.config.colors.secondary[2] * (1 - progress) + LoadingScreen.config.colors.accent[2] * progress
         local b = LoadingScreen.config.colors.secondary[3] * (1 - progress) + LoadingScreen.config.colors.accent[3] * progress
         
         love.graphics.setColor(r, g, b, alpha)
-        love.graphics.rectangle("fill", x - barWidth/2, y - barHeight/2, barWidth * progress, barHeight, cornerRadius)
+        local fillW = math.max(cornerRadius * 2, barWidth * progress)
+        love.graphics.rectangle("fill", x - barWidth/2, y - barHeight/2, fillW, barHeight, cornerRadius)
         
-        -- Brillo en el borde
-        love.graphics.setColor(1, 1, 1, 0.5 * alpha)
-        love.graphics.rectangle("fill", x - barWidth/2 + barWidth * progress - 2, y - barHeight/2, 2, barHeight)
+        -- Brillo en el borde delantero
+        love.graphics.setColor(1, 1, 1, 0.65 * alpha)
+        love.graphics.rectangle("fill", x - barWidth/2 + fillW - 2, y - barHeight/2, 2, barHeight)
     end
     
-    -- Indicadores de pasos
-    love.graphics.setColor(LoadingScreen.config.colors.text[1],
-                          LoadingScreen.config.colors.text[2],
-                          LoadingScreen.config.colors.text[3],
-                          0.5 * alpha)
+    -- Indicadores de hitos acumulados a lo largo de la barra
+    local cumWeight = 0
     for i, step in ipairs(LoadingScreen.gameLoadSteps) do
-        local stepX = x - barWidth/2 + barWidth * step.weight * (i - 1) / LoadingScreen.state.totalSteps
-        if i <= LoadingScreen.state.stepsCompleted then
+        local dotX = (x - barWidth/2) + barWidth * cumWeight
+        local isCompleted = (i <= LoadingScreen.state.stepsCompleted)
+        local isCurrent = (i == LoadingScreen.state.currentStepIndex)
+        
+        if isCompleted then
             love.graphics.setColor(LoadingScreen.config.colors.accent[1],
                                   LoadingScreen.config.colors.accent[2],
                                   LoadingScreen.config.colors.accent[3],
+                                  0.95 * alpha)
+            love.graphics.circle("fill", dotX, y, 3)
+        elseif isCurrent then
+            love.graphics.setColor(LoadingScreen.config.colors.primary[1],
+                                  LoadingScreen.config.colors.primary[2],
+                                  LoadingScreen.config.colors.primary[3],
                                   alpha)
+            love.graphics.circle("fill", dotX, y, 4.5)
+            love.graphics.setColor(1, 1, 1, 0.75 * alpha)
+            love.graphics.circle("line", dotX, y, 5.5)
+        else
+            love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
+                                  LoadingScreen.config.colors.textDim[2],
+                                  LoadingScreen.config.colors.textDim[3],
+                                  0.35 * alpha)
+            love.graphics.circle("fill", dotX, y, 2)
         end
-        love.graphics.circle("fill", stepX, y, 3)
+        cumWeight = cumWeight + step.weight
     end
     
-    -- Texto de progreso
+    -- Texto de paso ("Step X of Y") situado holgadamente debajo de la barra
     love.graphics.setFont(LoadingScreen.fonts.small)
     love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
                           LoadingScreen.config.colors.textDim[2],
                           LoadingScreen.config.colors.textDim[3],
-                          alpha)
+                          0.85 * alpha)
     local stepText = string.format("Step %d of %d", LoadingScreen.state.currentStepIndex, LoadingScreen.state.totalSteps)
-    love.graphics.printf(stepText, 0, y + 15, love.graphics.getWidth(), "center")
+    love.graphics.printf(stepText, 0, y + barHeight/2 + 10, love.graphics.getWidth(), "center")
 end
 
--- Dibujar tip
-function LoadingScreen.drawTip(x, y, alpha)
-    love.graphics.setFont(LoadingScreen.fonts.tips)
-    love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                          LoadingScreen.config.colors.textDim[2],
-                          LoadingScreen.config.colors.textDim[3],
-                          alpha * 0.8)
-    love.graphics.printf("TIP: " .. LoadingScreen.currentTip, 100, y, love.graphics.getWidth() - 200, "center")
+-- Dibujar tip en contenedor glassmorphic con estilo premium
+function LoadingScreen.drawTip(cx, cy, alpha)
+    local tipText = "TIP: " .. tostring(LoadingScreen.currentTip)
+    local font = LoadingScreen.fonts.tips
+    local screenW = love.graphics.getWidth()
+    local textW = font:getWidth(tipText)
+    local boxW = math.min(screenW - 60, math.max(380, textW + 44))
+    local boxH = 34
+    local boxX = cx - boxW / 2
+    local boxY = cy - boxH / 2
+    alpha = alpha or 1.0
+
+    -- Fondo translúcido glassmorphic
+    love.graphics.setColor(0.04, 0.06, 0.12, 0.70 * alpha)
+    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8, 8)
+
+    -- Borde sutil cian
+    love.graphics.setColor(LoadingScreen.config.colors.primary[1],
+                          LoadingScreen.config.colors.primary[2],
+                          LoadingScreen.config.colors.primary[3],
+                          0.25 * alpha)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 8, 8)
+
+    -- Texto del Tip centrado en la caja
+    love.graphics.setFont(font)
+    love.graphics.setColor(LoadingScreen.config.colors.text[1],
+                          LoadingScreen.config.colors.text[2],
+                          LoadingScreen.config.colors.text[3],
+                          0.88 * alpha)
+    love.graphics.printf(tipText, boxX + 16, boxY + (boxH - font:getHeight()) / 2, boxW - 32, "center")
 end
 
 -- Gestión de carga asíncrona

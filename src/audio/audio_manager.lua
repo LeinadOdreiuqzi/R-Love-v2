@@ -25,7 +25,11 @@ AudioManager.state = {
         "assets/audio/",
         "assets/sounds/",
         "assets/music/"
-    }
+    },
+    asyncThread = nil,
+    asyncChannelIn = nil,
+    asyncChannelOut = nil,
+    pendingMusic = nil
 }
 
 -- Muestreo de audio por defecto
@@ -385,6 +389,73 @@ local function getOrCreateVoicePool(name)
 end
 
 -- ============================================================================
+-- ============================================================================
+-- SÍNTESIS ASÍNCRONA EN SEGUNDO PLANO (LOVE.THREAD)
+-- ============================================================================
+
+local MUSIC_THREAD_CODE = [[
+    require('love.sound')
+    require('love.timer')
+    local chIn, chOut = ...
+    while true do
+        local req = chIn:demand()
+        if not req or req.action == "quit" then break end
+        
+        local ok, errOrData = pcall(function()
+            local ProceduralMusic = require('src.audio.procedural_music')
+            local genMap = {
+                track_8 = ProceduralMusic.generateAngelicFountain,
+                celestial_spring = ProceduralMusic.generateAngelicFountain,
+                track_7 = ProceduralMusic.generateCarouselWaltz,
+                carousel_waltz = ProceduralMusic.generateCarouselWaltz,
+                track_6 = ProceduralMusic.generateAstralPulse,
+                space_ambient = ProceduralMusic.generateAstralPulse,
+                astral_pulse = ProceduralMusic.generateAstralPulse,
+                track_5 = ProceduralMusic.generateCavernGroove,
+                cavern_groove = ProceduralMusic.generateCavernGroove,
+                track_4 = ProceduralMusic.generateAncientSanctuary,
+                ancient_sanctuary = ProceduralMusic.generateAncientSanctuary,
+                secret_sanctuary = ProceduralMusic.generateAncientSanctuary,
+                rises_the_moon = ProceduralMusic.generateLunarWaltz,
+                lunar_waltz = ProceduralMusic.generateLunarWaltz,
+            }
+            local gen = genMap[req.name]
+            if gen then
+                return gen()
+            else
+                error("No procedural generator found for: " .. tostring(req.name))
+            end
+        end)
+        
+        if ok and errOrData then
+            chOut:push({ success = true, name = req.name, soundData = errOrData, id = req.id })
+        else
+            chOut:push({ success = false, name = req.name, error = tostring(errOrData), id = req.id })
+        end
+    end
+]]
+
+local function initAsyncThread()
+    if AudioManager.state.asyncThread then return true end
+    if not love.thread or not love.thread.newThread then return false end
+    
+    local ok, thread, chIn, chOut = pcall(function()
+        local th = love.thread.newThread(MUSIC_THREAD_CODE)
+        local cIn = love.thread.newChannel()
+        local cOut = love.thread.newChannel()
+        th:start(cIn, cOut)
+        return th, cIn, cOut
+    end)
+    if ok and thread then
+        AudioManager.state.asyncThread = thread
+        AudioManager.state.asyncChannelIn = chIn
+        AudioManager.state.asyncChannelOut = chOut
+        return true
+    end
+    return false
+end
+
+-- ============================================================================
 -- API PÚBLICA DE AUDIOMANAGER
 -- ============================================================================
 
@@ -403,15 +474,50 @@ function AudioManager.init()
         getOrCreateVoicePool(sfx)
     end
 
-    -- Arrancar música/drone ambiental espacial en segundo plano
-    AudioManager.playMusic("space_ambient", { loop = true, volume = 0.35 })
-
     AudioManager.state.initialized = true
     print("✓ AudioManager initialized with " .. #preloadList .. " synthesized sound effects")
 end
 
 function AudioManager.update(dt)
-    -- En caso de lógica de fading dinámico o atenuación espacial
+    -- 1. Procesar finalización de pistas de música sintetizadas en segundo plano
+    if AudioManager.state.asyncChannelOut then
+        local msg = AudioManager.state.asyncChannelOut:pop()
+        if msg then
+            if msg.success and msg.soundData then
+                local ok, src = pcall(function()
+                    return love.audio.newSource(msg.soundData, "static")
+                end)
+                if ok and src then
+                    AudioManager.state.sfxSources[msg.name] = {
+                        sources = { src },
+                        nextIndex = 1
+                    }
+                    
+                    local pending = AudioManager.state.pendingMusic
+                    if pending and pending.name == msg.name then
+                        AudioManager.state.pendingMusic = nil
+                        local volume = (pending.options.volume or 1.0) * AudioManager.config.masterVolume * AudioManager.config.musicVolume
+                        local loop = (pending.options.loop ~= false)
+                        
+                        pcall(function()
+                            src:stop()
+                            src:seek(0)
+                            src:setLooping(loop)
+                            src:setVolume(AudioManager.config.muted and 0 or volume)
+                            src:play()
+                        end)
+                        AudioManager.state.currentMusic = src
+                        AudioManager.state.currentMusicName = msg.name
+                        print(string.format("✓ Background synthesized music '%s' started playback seamlessly", msg.name))
+                    end
+                else
+                    print("[AudioManager] Failed to create Audio Source from background SoundData")
+                end
+            else
+                print("[AudioManager] Background synthesis failed:", tostring(msg.error))
+            end
+        end
+    end
 end
 
 --[[
@@ -449,7 +555,7 @@ end
 --[[
     Reproduce música de fondo
     @param name: nombre de la pista
-    @param options: { loop = true, volume = 1.0 }
+    @param options: { loop = true, volume = 1.0, async = false, restart = false }
 --]]
 function AudioManager.playMusic(name, options)
     if not love.audio then return nil end
@@ -471,7 +577,7 @@ function AudioManager.playMusic(name, options)
 
     AudioManager.stopMusic()
 
-    -- Intentar buscar archivo o sintetizar ambiental
+    -- 1. Intentar buscar archivo de audio físico en disco (assets/audio)
     local filePath = findAudioFile(name)
     local musicSource = nil
     if filePath then
@@ -479,6 +585,32 @@ function AudioManager.playMusic(name, options)
         if ok then musicSource = src end
     end
 
+    -- 2. Si ya está sintetizado en la cache de voces
+    if not musicSource then
+        local pool = AudioManager.state.sfxSources[name]
+        if pool and #pool.sources > 0 then
+            musicSource = pool.sources[1]
+        end
+    end
+
+    -- 3. Si no existe en cache y se solicita de forma asíncrona
+    if not musicSource and options.async then
+        if initAsyncThread() then
+            AudioManager.state.pendingMusic = {
+                name = name,
+                options = options,
+                id = os.clock()
+            }
+            AudioManager.state.asyncChannelIn:push({
+                name = name,
+                id = AudioManager.state.pendingMusic.id
+            })
+            print(string.format("[AudioManager] Synthesizing '%s' asynchronously in background thread...", name))
+            return nil
+        end
+    end
+
+    -- 4. Fallback a síntesis síncrona
     if not musicSource then
         local pool = getOrCreateVoicePool(name)
         if pool and #pool.sources > 0 then
@@ -505,6 +637,7 @@ function AudioManager.playMusic(name, options)
 end
 
 function AudioManager.stopMusic()
+    AudioManager.state.pendingMusic = nil
     if AudioManager.state.currentMusic then
         pcall(function()
             AudioManager.state.currentMusic:stop()
