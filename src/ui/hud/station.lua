@@ -203,4 +203,95 @@ function HUD.drawStationHint()
     love.graphics.print(stateText, px + (maxWidth - stateWidth) * 0.5, py + promptHeight + infoHeight + 8)
 end
 
+-- Actualizar aviso de abordaje de nave (cuando el jugador está en EVA cerca de una nave)
+function HUD.updateBoardingHint(dt)
+    local cfg = HUD.hudState.boardingHint
+    if not cfg or not cfg.enabled then return end
+
+    local now = love.timer.getTime()
+    if now - (cfg.lastScan or 0) < (cfg.scanInterval or 0.1) then return end
+    cfg.lastScan = now
+
+    cfg.show = false
+    cfg.ship = nil
+    cfg.distance = math.huge
+
+    if not HUD.player or not HUD.player.isInEVA or not HUD.player.evaPlayer then
+        return
+    end
+
+    local canEnter, targetShip = HUD.player.evaPlayer:canEnterShip()
+    if canEnter and targetShip then
+        cfg.show = true
+        cfg.ship = targetShip
+        local dx = HUD.player.evaPlayer.x - targetShip.x
+        local dy = HUD.player.evaPlayer.y - targetShip.y
+        cfg.distance = math.sqrt(dx * dx + dy * dy)
+    end
+end
+
+-- Dibujar aviso de abordaje de nave en pantalla
+function HUD.drawBoardingHint()
+    local cfg = HUD.hudState.boardingHint
+    if not cfg or not cfg.show or not cfg.ship then return end
+
+    local ship = cfg.ship
+    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+    local t = love.timer.getTime()
+    local pulse = 0.7 + 0.3 * math.sin(t * 6)
+
+    local mainFont = HUD.hudState.font or love.graphics.getFont()
+    local smallFont = HUD.hudState.smallFont or mainFont
+
+    local shipType = ship.shipType or "EXPLORER"
+    local shipName = ship.shipName or ("Nave #" .. (ship.shipId or 1))
+
+    -- Colores temáticos según la clase de nave a abordar
+    local themeColor = {0.2, 0.8, 1.0}
+    if shipType == "FIGHTER" then
+        themeColor = {1.0, 0.35, 0.2}
+    elseif shipType == "CARGO" then
+        themeColor = {0.95, 0.75, 0.15}
+    end
+
+    local prompt = "[E] ABORDAR " .. shipName:upper()
+    local healthPct = (ship.stats and ship.stats.health) and math.floor(ship.stats.health.currentHealth) or 100
+    local subText = string.format("Clase: %s | Casco: %d%% | Combustible: %d",
+        shipType, healthPct, (ship.stats and ship.stats.fuel) and math.floor(ship.stats.fuel.currentFuel) or 0)
+
+    love.graphics.setFont(mainFont)
+    local promptW = mainFont:getWidth(prompt)
+    local promptH = mainFont:getHeight()
+
+    love.graphics.setFont(smallFont)
+    local subW = smallFont:getWidth(subText)
+    local subH = smallFont:getHeight()
+
+    local maxW = math.max(promptW, subW)
+    local totalH = promptH + subH + 12
+
+    local px = (w - maxW) * 0.5
+    local py = h - totalH - 45
+
+    -- Fondo translúcido con esquinas redondeadas
+    love.graphics.setColor(0.04, 0.06, 0.10, 0.85)
+    love.graphics.rectangle("fill", px - 20, py - 8, maxW + 40, totalH + 16, 6, 6)
+
+    -- Borde pulsante temático
+    love.graphics.setColor(themeColor[1], themeColor[2], themeColor[3], 0.85 * pulse)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", px - 20, py - 8, maxW + 40, totalH + 16, 6, 6)
+    love.graphics.setLineWidth(1)
+
+    -- Texto principal
+    love.graphics.setFont(mainFont)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.print(prompt, px + (maxW - promptW) * 0.5, py)
+
+    -- Subtexto de estadísticas
+    love.graphics.setFont(smallFont)
+    love.graphics.setColor(themeColor[1], themeColor[2], themeColor[3], 0.95)
+    love.graphics.print(subText, px + (maxW - subW) * 0.5, py + promptH + 4)
+end
+
 return HUD

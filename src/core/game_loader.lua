@@ -109,17 +109,25 @@ local function loadWorld(updateProgress)
         updateProgress("player", "Creating player entity and test ships...")
         local playerX, playerY = 0, 0
         local player = Naves:new(playerX, playerY, "EXPLORER")
+        player.isPiloted = true
+        player.isAbandoned = false
         
         World.set('player', player)
         World.addEntity(player)
         
         local fighterShip = Naves:new(playerX + 500, playerY, "FIGHTER")
+        fighterShip.isPiloted = false
+        fighterShip.isAbandoned = true
+        fighterShip.driftAngularSpeed = 0.04
         World.addEntity(fighterShip)
         
         local cargoShip = Naves:new(playerX - 500, playerY, "CARGO")
+        cargoShip.isPiloted = false
+        cargoShip.isAbandoned = true
+        cargoShip.driftAngularSpeed = -0.025
         World.addEntity(cargoShip)
         
-        print("[TESTING] Naves creadas para testing de persistencia:")
+        print("[TESTING] Naves creadas para testing de persistencia y jugabilidad:")
         print("  Player (Explorer): ID", player.shipId, "en (0, 0)")
         print("  Fighter: ID", fighterShip.shipId, "en (500, 0)")
         print("  Cargo: ID", cargoShip.shipId, "en (-500, 0)")

@@ -53,7 +53,7 @@ function EVAPlayer:new(x, y, shipRef)
     
     -- Reference to the ship
     evaPlayer.ship = shipRef
-    evaPlayer.interactionRange = 30  -- Distancia para interactuar con la nave
+    evaPlayer.interactionRange = 45  -- Radio base de interacción con naves
     
     -- Load sprite
     evaPlayer:loadSprite()
@@ -235,11 +235,67 @@ function EVAPlayer:updateMovement(dt)
     end
 end
 
-function EVAPlayer:canEnterShip()
-    if not self.ship then return false end
-    
-    local distance = math.sqrt((self.x - self.ship.x)^2 + (self.y - self.ship.y)^2)
-    return distance <= self.interactionRange
+-- Obtiene la nave abordable más cercana dentro del radio de interacción
+function EVAPlayer:getNearbyBoardableShip()
+    local Naves = package.loaded['src.entities.naves']
+    if not Naves then
+        pcall(function() Naves = require 'src.entities.naves' end)
+    end
+
+    local bestShip = nil
+    local bestDist = math.huge
+
+    if Naves and Naves.getAllShips then
+        local allShips = Naves.getAllShips()
+        for _, ship in ipairs(allShips) do
+            if ship and ship.x and ship.y then
+                local dx = self.x - ship.x
+                local dy = self.y - ship.y
+                local dist = math.sqrt(dx * dx + dy * dy)
+                
+                -- Radio del casco de la nave + margen de interacción
+                local shipRadius = (ship.size or 14) * (ship.worldScale or 1)
+                local maxAllowedDist = shipRadius + (self.interactionRange or 45)
+
+                if dist <= maxAllowedDist and dist < bestDist then
+                    bestDist = dist
+                    bestShip = ship
+                end
+            end
+        end
+    end
+
+    -- Fallback si no hay lista global: verificar self.ship
+    if not bestShip and self.ship and self.ship.x and self.ship.y then
+        local dx = self.x - self.ship.x
+        local dy = self.y - self.ship.y
+        local dist = math.sqrt(dx * dx + dy * dy)
+        local shipRadius = (self.ship.size or 14) * (self.ship.worldScale or 1)
+        local maxAllowedDist = shipRadius + (self.interactionRange or 45)
+        if dist <= maxAllowedDist then
+            bestShip = self.ship
+            bestDist = dist
+        end
+    end
+
+    return bestShip, bestDist
+end
+
+function EVAPlayer:canEnterShip(targetShip)
+    if targetShip and targetShip.x and targetShip.y then
+        local dx = self.x - targetShip.x
+        local dy = self.y - targetShip.y
+        local dist = math.sqrt(dx * dx + dy * dy)
+        local shipRadius = (targetShip.size or 14) * (targetShip.worldScale or 1)
+        local maxAllowedDist = shipRadius + (self.interactionRange or 45)
+        return dist <= maxAllowedDist, targetShip
+    end
+
+    local ship, dist = self:getNearbyBoardableShip()
+    if ship then
+        return true, ship
+    end
+    return false, nil
 end
 
 -- Guardar estado para interpolación (llamado por Naves:savePreviousState)

@@ -46,6 +46,10 @@ function HUD.draw(inventoryOpen)
         HUD.drawStationHint()
     end
     
+    if HUD.hudState.boardingHint and HUD.hudState.boardingHint.enabled and HUD.drawBoardingHint then
+        HUD.drawBoardingHint()
+    end
+    
     if HUD.hudState.phaseVisualsEnabled then
         HUD.drawPhaseVisualFeedback()
     end

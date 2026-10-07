@@ -227,6 +227,15 @@ function InputManager.handleInteraction(World, HUD, Map)
         return 
     end
 
+    -- 0. Abordaje de nave cercana en modo EVA (Prioridad máxima en EVA)
+    if player.isInEVA and player.evaPlayer then
+        local canEnter, targetShip = player.evaPlayer:canEnterShip()
+        if canEnter and targetShip then
+            player:exitEVA(targetShip)
+            return
+        end
+    end
+
     -- 1. Manejo de expansión de fases (PhaseSystem)
     local PhaseSystem = package.loaded['src.gameplay.phase_system']
     if PhaseSystem and PhaseSystem.handleInput then

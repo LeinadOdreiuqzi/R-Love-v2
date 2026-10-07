@@ -44,6 +44,15 @@ HUD.hudState = {
     scanMargin = 1,
     screenX = 0,
     screenY = 0
+  },
+
+  boardingHint = {
+    enabled = true,
+    show = false,
+    ship = nil,
+    distance = math.huge,
+    scanInterval = 0.1,
+    lastScan = 0
   }
 }
 

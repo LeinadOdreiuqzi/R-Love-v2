@@ -76,6 +76,10 @@ function HUD.update(dt)
     if HUD.hudState.stationHint and HUD.hudState.stationHint.enabled then
         HUD.updateStationHint(dt)
     end
+
+    if HUD.hudState.boardingHint and HUD.hudState.boardingHint.enabled and HUD.updateBoardingHint then
+        HUD.updateBoardingHint(dt)
+    end
 end
 
 -- Actualizar datos en cache

@@ -91,6 +91,18 @@ function GameLoop.update(dt)
             end
         end
 
+        -- Actualizar entidades secundarias del mundo (naves abandonadas, derelicts, etc.)
+        local entities = World.getEntities()
+        if entities then
+            for i = 1, #entities do
+                local ent = entities[i]
+                if ent and ent ~= player and type(ent.update) == "function" then
+                    if ent.savePreviousState then ent:savePreviousState() end
+                    pcall(function() ent:update(physics.fixed_dt) end)
+                end
+            end
+        end
+
         if WorldItems and WorldItems.update then
             WorldItems.update(physics.fixed_dt)
         end
@@ -166,7 +178,19 @@ function GameLoop.draw()
         DebugRenderer.drawBiomeRegionDebug()
     end
     
+    -- 1. Dibujar entidades en el mundo que no sean el jugador principal (naves abandonadas, derelicts)
+    local entities = World.getEntities()
     local player = World.get('player')
+    if entities then
+        for i = 1, #entities do
+            local ent = entities[i]
+            if ent and ent ~= player and type(ent.draw) == "function" then
+                pcall(function() ent:draw() end)
+            end
+        end
+    end
+
+    -- 2. Dibujar entidad del jugador principal
     if player then player:draw() end
     
     local playerX, playerY = 0, 0

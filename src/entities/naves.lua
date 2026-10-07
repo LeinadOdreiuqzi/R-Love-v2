@@ -19,6 +19,7 @@ end
 local SHIP_TYPES = {
     EXPLORER = {
         name = "Explorer",
+        size = 14,
         maxFuel = 1000,
         maxHealth = 100,
         maxShield = 50,
@@ -30,6 +31,7 @@ local SHIP_TYPES = {
     },
     FIGHTER = {
         name = "Fighter",
+        size = 13,
         maxFuel = 600,
         maxHealth = 80,
         maxShield = 30,
@@ -41,6 +43,7 @@ local SHIP_TYPES = {
     },
     CARGO = {
         name = "Cargo",
+        size = 20,
         maxFuel = 1500,
         maxHealth = 150,
         maxShield = 80,
@@ -136,7 +139,9 @@ function Naves:new(x, y, shipType)
     player.worldScale = Map.tileSize / 64 
     
     -- Ship dimensions and sprite
-    player.size = 12  -- Base size for collision/effects
+    player.size = shipConfig.size or 14  -- Tamaño según tipo de nave
+    player.isPiloted = false             -- Controlado por el jugador o inactivo
+    player.isAbandoned = true            -- Por defecto abandonada hasta que se asigne piloto
     player.sprite = nil
     player.spriteScale = 1.0  -- Scale factor for the sprite
     player.spriteOffsetX = 0  -- Offset for centering
@@ -187,6 +192,7 @@ function Naves:new(x, y, shipType)
     -- Registrar nave en el sistema
     shipRegistry[player.shipId] = {
         id = player.shipId,
+        ship = player,
         type = shipType,
         name = player.shipName,
         position = {x = x or 0, y = y or 0},
@@ -225,23 +231,26 @@ function Naves.getShipRegistry()
 end
 
 function Naves.getShipById(shipId)
-    return shipRegistry[shipId]
+    for _, ship in ipairs(allShips) do
+        if ship.shipId == shipId then
+            return ship
+        end
+    end
+    return nil
 end
 
 function Naves.getAllShips()
-    local ships = {}
-    for id, ship in pairs(shipRegistry) do
-        table.insert(ships, ship)
-    end
-    return ships
+    return allShips
 end
 
 function Naves.getNearbyShips(x, y, radius)
     local nearbyShips = {}
     radius = radius or 500
     
-    for id, ship in pairs(shipRegistry) do
-        local distance = math.sqrt((ship.position.x - x)^2 + (ship.position.y - y)^2)
+    for _, ship in ipairs(allShips) do
+        local sx = ship.x or 0
+        local sy = ship.y or 0
+        local distance = math.sqrt((sx - x)^2 + (sy - y)^2)
         if distance <= radius then
             table.insert(nearbyShips, {
                 ship = ship,
@@ -261,30 +270,75 @@ end
 
 function Naves.removeShip(shipId)
     shipRegistry[shipId] = nil
+    for i = #allShips, 1, -1 do
+        if allShips[i].shipId == shipId then
+            table.remove(allShips, i)
+            break
+        end
+    end
 end
 
 function Naves:loadSprite()
-    -- Try to load the ship sprite
-    local spritePath = "assets/images/nave.png"
+    -- Solo la clase EXPLORER utiliza sprite (si está disponible); FIGHTER y CARGO usan diseño geométrico especializado
+    if self.shipType ~= "EXPLORER" then
+        self.sprite = nil
+        return
+    end
+
+    local spritePaths = { "assets/images/Nave.png", "assets/images/nave.png" }
+    local loaded = nil
+    local finalPath = nil
+
+    for _, path in ipairs(spritePaths) do
+        local success, result = pcall(function()
+            return love.graphics.newImage(path)
+        end)
+        if success and result then
+            loaded = result
+            finalPath = path
+            break
+        end
+    end
     
-    -- Check if file exists and load it
-    local success, result = pcall(function()
-        return love.graphics.newImage(spritePath)
-    end)
-    
-    if success and result then
-        self.sprite = result
-        -- Calculate sprite dimensions and offsets for centering
+    if loaded then
+        self.sprite = loaded
         local spriteWidth = self.sprite:getWidth()
         local spriteHeight = self.sprite:getHeight()
         self.spriteOffsetX = spriteWidth / 2
         self.spriteOffsetY = spriteHeight / 2
-        print("Ship sprite loaded successfully: " .. spritePath)
-        print("Sprite dimensions: " .. spriteWidth .. "x" .. spriteHeight)
+        print("Ship sprite loaded successfully: " .. finalPath)
     else
-        print("Warning: Could not load ship sprite from " .. spritePath)
-        print("Using fallback geometric drawing")
         self.sprite = nil
+    end
+end
+
+function Naves:updatePassivePhysics(dt)
+    -- Fricción inercial en el espacio exterior
+    local dragFactor = math.pow(self.drag or 0.94, dt * 60)
+    self.dx = (self.dx or 0) * dragFactor
+    self.dy = (self.dy or 0) * dragFactor
+
+    local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
+    if speed < 0.5 then
+        self.dx = 0
+        self.dy = 0
+    end
+
+    -- Actualizar posición física
+    self.x = self.x + self.dx * dt * 60
+    self.y = self.y + self.dy * dt * 60
+
+    -- Suave deriva rotacional para naves abandonadas / a la deriva
+    if self.driftAngularSpeed then
+        self.rotation = (self.rotation or 0) + self.driftAngularSpeed * dt
+    end
+
+    -- Desvanecer brillo del motor
+    self.engineGlow = math.max(0, (self.engineGlow or 0) - dt * 3)
+
+    -- Actualizar proyectiles remanentes
+    if self.updateProjectiles then
+        self:updateProjectiles(dt)
     end
 end
 
@@ -293,6 +347,15 @@ function Naves:update(dt)
     self:updateShipRegistry()
     -- Ensure we have a valid delta time
     dt = math.min(dt or 1/60, 1/30)
+    
+    local World = getWorld()
+    local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
+
+    -- Si esta nave no está siendo controlada por el jugador, solo actualizar física inercial pasiva
+    if not isPlayer then
+        self:updatePassivePhysics(dt)
+        return
+    end
     
     -- Handle EVA controls first
     self:handleEVAControls()
@@ -685,15 +748,322 @@ function Naves:savePreviousState()
     end
 end
 
+function Naves:drawThrusterFlame(offsetX, offsetY, width, color)
+    local intensity = self.engineGlow or 1.0
+    local time = love.timer.getTime()
+    local pulse = 0.85 + 0.15 * math.sin(time * 16)
+    local wiggle = math.sin(time * 24) * 0.08
+    local length = width * 2.2 * pulse * intensity
+
+    love.graphics.push()
+    love.graphics.translate(offsetX, offsetY)
+    love.graphics.rotate(wiggle)
+
+    -- Capa exterior de fuego
+    love.graphics.setColor(color[1], color[2], color[3], 0.45 * intensity * pulse)
+    love.graphics.polygon("fill",
+        -width * 0.6, 0,
+        0, length,
+        width * 0.6, 0
+    )
+
+    -- Capa media brillante
+    love.graphics.setColor(math.min(1, color[1] * 1.2), math.min(1, color[2] * 1.2), math.min(1, color[3] * 1.2), 0.75 * intensity * pulse)
+    love.graphics.polygon("fill",
+        -width * 0.35, 0,
+        0, length * 0.65,
+        width * 0.35, 0
+    )
+
+    -- Núcleo blanco caliente
+    love.graphics.setColor(1.0, 1.0, 1.0, 0.9 * intensity * pulse)
+    love.graphics.polygon("fill",
+        -width * 0.18, 0,
+        0, length * 0.35,
+        width * 0.18, 0
+    )
+
+    love.graphics.pop()
+end
+
+function Naves:drawFighterShape(size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+
+    -- Sombra
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.push()
+    love.graphics.translate(3, 3)
+    love.graphics.polygon("fill",
+        0, -size * 1.8,
+        -size * 1.4, size * 0.6,
+        -size * 0.5, size * 1.0,
+        0, size * 0.4,
+        size * 0.5, size * 1.0,
+        size * 1.4, size * 0.6
+    )
+    love.graphics.pop()
+
+    -- Paleta (Grafito militar + carmesí de asalto)
+    local cBody = isAbandoned and {0.14, 0.16, 0.19, alpha} or {0.18, 0.21, 0.26, alpha}
+    local cAccent = isAbandoned and {0.55, 0.18, 0.20, alpha} or {0.92, 0.16, 0.22, alpha}
+    local cMetal = isAbandoned and {0.25, 0.27, 0.30, alpha} or {0.40, 0.44, 0.50, alpha}
+    local cGlass = isAbandoned and {0.35, 0.25, 0.10, alpha * 0.7} or {1.0, 0.68, 0.12, 0.95}
+
+    -- 1. Alas principales (Forma en flecha agresiva)
+    love.graphics.setColor(cBody[1], cBody[2], cBody[3], cBody[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.2,
+        -size * 1.45, size * 0.55,
+        -size * 0.9, size * 0.85,
+        0, size * 0.3,
+        size * 0.9, size * 0.85,
+        size * 1.45, size * 0.55
+    )
+
+    -- 2. Paneles de acento carmesí en los bordes de ataque de las alas
+    love.graphics.setColor(cAccent[1], cAccent[2], cAccent[3], cAccent[4])
+    -- Borde ala izquierda
+    love.graphics.polygon("fill",
+        -size * 0.3, -size * 0.4,
+        -size * 1.45, size * 0.55,
+        -size * 1.25, size * 0.55,
+        -size * 0.2, -size * 0.2
+    )
+    -- Borde ala derecha
+    love.graphics.polygon("fill",
+        size * 0.3, -size * 0.4,
+        size * 1.45, size * 0.55,
+        size * 1.25, size * 0.55,
+        size * 0.2, -size * 0.2
+    )
+
+    -- 3. Fuselaje central y morro afilado
+    love.graphics.setColor(cMetal[1], cMetal[2], cMetal[3], cMetal[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.8,
+        -size * 0.45, -size * 0.2,
+        -size * 0.45, size * 0.9,
+        0, size * 0.6,
+        size * 0.45, size * 0.9,
+        size * 0.45, -size * 0.2
+    )
+
+    -- 4. Toberas gemelas reforzadas (Twin Engines)
+    love.graphics.setColor(0.10, 0.11, 0.13, alpha)
+    love.graphics.rectangle("fill", -size * 0.6, size * 0.8, size * 0.35, size * 0.35, 1, 1)
+    love.graphics.rectangle("fill", size * 0.25, size * 0.8, size * 0.35, size * 0.35, 1, 1)
+
+    -- 5. Cockpit angular ámbar de combate
+    love.graphics.setColor(cGlass[1], cGlass[2], cGlass[3], cGlass[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.3,
+        -size * 0.22, -size * 0.45,
+        0, -size * 0.25,
+        size * 0.22, -size * 0.45
+    )
+
+    -- 6. Luces / Balizas tácticas
+    if isAbandoned then
+        local blink = 0.3 + 0.7 * math.abs(math.sin(time * 3.0))
+        love.graphics.setColor(1.0, 0.15, 0.2, blink)
+        love.graphics.circle("fill", -size * 1.4, size * 0.55, 2.0)
+        love.graphics.circle("fill", size * 1.4, size * 0.55, 2.0)
+    else
+        love.graphics.setColor(1.0, 0.1, 0.1, 0.9)
+        love.graphics.circle("fill", -size * 1.4, size * 0.55, 1.8)
+        love.graphics.setColor(0.1, 1.0, 0.2, 0.9)
+        love.graphics.circle("fill", size * 1.4, size * 0.55, 1.8)
+
+        if self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+            self:drawThrusterFlame(-size * 0.42, size * 1.15, size * 0.45, {1.0, 0.35, 0.1})
+            self:drawThrusterFlame(size * 0.42, size * 1.15, size * 0.45, {1.0, 0.35, 0.1})
+        end
+    end
+end
+
+function Naves:drawCargoShape(size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+
+    -- Sombra
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.push()
+    love.graphics.translate(4, 4)
+    love.graphics.rectangle("fill", -size * 1.3, -size * 1.2, size * 2.6, size * 2.3, 4, 4)
+    love.graphics.pop()
+
+    -- Paleta (Titanio industrial + amarillo de maquinaria + visor esmeralda)
+    local cHull = isAbandoned and {0.20, 0.22, 0.26, alpha} or {0.28, 0.32, 0.38, alpha}
+    local cArmor = isAbandoned and {0.30, 0.33, 0.38, alpha} or {0.42, 0.46, 0.54, alpha}
+    local cYellow = isAbandoned and {0.55, 0.42, 0.15, alpha} or {0.94, 0.72, 0.14, alpha}
+    local cGlass = isAbandoned and {0.15, 0.30, 0.25, alpha * 0.7} or {0.18, 0.90, 0.65, 0.95}
+
+    -- 1. Casco principal blindado (Octogonal ancho)
+    love.graphics.setColor(cHull[1], cHull[2], cHull[3], cHull[4])
+    love.graphics.polygon("fill",
+        -size * 0.8, -size * 1.3,
+        size * 0.8, -size * 1.3,
+        size * 1.35, -size * 0.6,
+        size * 1.35, size * 0.8,
+        size * 0.9, size * 1.15,
+        -size * 0.9, size * 1.15,
+        -size * 1.35, size * 0.8,
+        -size * 1.35, -size * 0.6
+    )
+
+    -- 2. Contenedores de carga laterales reforzados
+    love.graphics.setColor(cArmor[1], cArmor[2], cArmor[3], cArmor[4])
+    love.graphics.rectangle("fill", -size * 1.25, -size * 0.5, size * 0.55, size * 1.2, 2, 2)
+    love.graphics.rectangle("fill", size * 0.70, -size * 0.5, size * 0.55, size * 1.2, 2, 2)
+
+    -- 3. Bandas industriales en bahías de carga
+    love.graphics.setColor(cYellow[1], cYellow[2], cYellow[3], cYellow[4])
+    love.graphics.rectangle("fill", -size * 1.2, -size * 0.4, size * 0.45, size * 0.2)
+    love.graphics.rectangle("fill", -size * 1.2, size * 0.3, size * 0.45, size * 0.2)
+    love.graphics.rectangle("fill", size * 0.75, -size * 0.4, size * 0.45, size * 0.2)
+    love.graphics.rectangle("fill", size * 0.75, size * 0.3, size * 0.45, size * 0.2)
+
+    -- 4. Proa blindada reforzada (Ariete pesado)
+    love.graphics.setColor(cYellow[1], cYellow[2], cYellow[3], cYellow[4])
+    love.graphics.polygon("fill",
+        -size * 0.65, -size * 1.25,
+        size * 0.65, -size * 1.25,
+        size * 0.45, -size * 0.95,
+        -size * 0.45, -size * 0.95
+    )
+
+    -- 5. Puente de mando blindado (Visor verde esmeralda)
+    love.graphics.setColor(cGlass[1], cGlass[2], cGlass[3], cGlass[4])
+    love.graphics.rectangle("fill", -size * 0.35, -size * 0.9, size * 0.7, size * 0.25, 2, 2)
+
+    -- 6. Bloque de 3 propulsores pesados
+    love.graphics.setColor(0.12, 0.13, 0.16, alpha)
+    love.graphics.rectangle("fill", -size * 0.85, size * 1.1, size * 0.4, size * 0.25, 1, 1)
+    love.graphics.rectangle("fill", -size * 0.2, size * 1.15, size * 0.4, size * 0.30, 1, 1)
+    love.graphics.rectangle("fill", size * 0.45, size * 1.1, size * 0.4, size * 0.25, 1, 1)
+
+    -- 7. Balizas / Luces
+    if isAbandoned then
+        local blink = 0.3 + 0.7 * math.abs(math.sin(time * 2.0))
+        love.graphics.setColor(1.0, 0.75, 0.1, blink)
+        love.graphics.circle("fill", -size * 1.25, -size * 0.5, 2.5)
+        love.graphics.circle("fill", size * 1.25, -size * 0.5, 2.5)
+        love.graphics.circle("fill", -size * 1.25, size * 0.7, 2.5)
+        love.graphics.circle("fill", size * 1.25, size * 0.7, 2.5)
+    else
+        if self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+            self:drawThrusterFlame(-size * 0.65, size * 1.35, size * 0.45, {0.2, 0.7, 1.0})
+            self:drawThrusterFlame(0, size * 1.45, size * 0.55, {0.2, 0.85, 1.0})
+            self:drawThrusterFlame(size * 0.65, size * 1.35, size * 0.45, {0.2, 0.7, 1.0})
+        end
+    end
+end
+
+function Naves:drawExplorerShape(size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+
+    -- Sombra
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.push()
+    love.graphics.translate(3, 3)
+    love.graphics.polygon("fill",
+        0, -size * 1.6,
+        -size * 1.1, size * 0.9,
+        0, size * 0.5,
+        size * 1.1, size * 0.9
+    )
+    love.graphics.pop()
+
+    -- Paleta (Cobalto espacial + detalles plateados + visor cian)
+    local cBody = isAbandoned and {0.12, 0.22, 0.38, alpha} or {0.14, 0.36, 0.72, alpha}
+    local cWing = isAbandoned and {0.22, 0.28, 0.36, alpha} or {0.32, 0.52, 0.85, alpha}
+    local cAccent = isAbandoned and {0.40, 0.55, 0.65, alpha} or {0.80, 0.90, 1.0, alpha}
+    local cGlass = isAbandoned and {0.15, 0.35, 0.45, alpha * 0.7} or {0.30, 0.85, 1.0, 0.95}
+
+    -- 1. Alas delta
+    love.graphics.setColor(cWing[1], cWing[2], cWing[3], cWing[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.0,
+        -size * 1.15, size * 0.85,
+        0, size * 0.45,
+        size * 1.15, size * 0.85
+    )
+
+    -- 2. Fuselaje principal
+    love.graphics.setColor(cBody[1], cBody[2], cBody[3], cBody[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.6,
+        -size * 0.4, size * 0.8,
+        0, size * 0.6,
+        size * 0.4, size * 0.8
+    )
+
+    -- 3. Detalles de contorno
+    love.graphics.setColor(cAccent[1], cAccent[2], cAccent[3], cAccent[4])
+    love.graphics.polygon("line",
+        0, -size * 1.6,
+        -size * 0.4, size * 0.8,
+        0, size * 0.6,
+        size * 0.4, size * 0.8
+    )
+
+    -- 4. Cockpit cian
+    love.graphics.setColor(cGlass[1], cGlass[2], cGlass[3], cGlass[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.1,
+        -size * 0.2, -size * 0.2,
+        0, -size * 0.05,
+        size * 0.2, -size * 0.2
+    )
+
+    -- 5. Propulsor central
+    love.graphics.setColor(0.12, 0.14, 0.18, alpha)
+    love.graphics.rectangle("fill", -size * 0.25, size * 0.75, size * 0.5, size * 0.3, 1, 1)
+
+    -- 6. Balizas / Luces
+    if isAbandoned then
+        local blink = 0.3 + 0.7 * math.abs(math.sin(time * 2.2))
+        love.graphics.setColor(0.2, 0.7, 1.0, blink)
+        love.graphics.circle("fill", 0, -size * 0.1, 2.5)
+    else
+        if self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+            self:drawThrusterFlame(0, size * 1.05, size * 0.6, {0.3, 0.75, 1.0})
+        end
+    end
+end
+
+function Naves:drawGeometricShip(isAbandoned)
+    local size = self.size * (self.worldScale or 1)
+    local shipType = self.shipType or "EXPLORER"
+    
+    if shipType == "FIGHTER" then
+        self:drawFighterShape(size, isAbandoned)
+    elseif shipType == "CARGO" then
+        self:drawCargoShape(size, isAbandoned)
+    else
+        self:drawExplorerShape(size, isAbandoned)
+    end
+end
+
 function Naves:draw()
-    -- If in EVA mode, draw both the abandoned ship and the EVA player
+    local World = getWorld()
+    local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
+
+    -- Si no es la nave controlada actualmente por el jugador, dibujarla en estado inactivo / abandonada
+    if not isPlayer then
+        self:drawAbandonedShip()
+        return
+    end
+
+    -- Si está en modo EVA, dibujar la nave nodriza abandonada y al astronauta
     if self.isInEVA then
         self:drawAbandonedShip()
         self:drawEVA()
         return
     end
     
-    local World = getWorld()
     local alpha = World and World.get('interpolationAlpha') or 1.0
     local MathUtil = require 'src.utils.math_util'
     
@@ -702,212 +1072,85 @@ function Naves:draw()
     local renderY = MathUtil.lerp(self.prevY or self.y, self.y, alpha)
     local renderRot = MathUtil.lerpAngle(self.prevRotation or self.rotation, self.rotation, alpha)
 
-    -- Save the current graphics state
     love.graphics.push()
-    
-    -- Move to player position (interpolated)
     love.graphics.translate(renderX, renderY)
-    
-    -- Rotate around the center (interpolated)
     love.graphics.rotate(renderRot)
     
-    -- Save the current color
     local r, g, b, a = love.graphics.getColor()
     
-    -- Draw shadow first
-    if self.sprite then
-        love.graphics.setColor(0, 0, 0, 0.3)
-        love.graphics.push()
-        love.graphics.translate(3, 3)  -- Shadow offset
-        love.graphics.draw(self.sprite, 
-                          -self.spriteOffsetX * self.spriteScale, 
-                          -self.spriteOffsetY * self.spriteScale, 
-                          0, 
-                          self.spriteScale, 
-                          self.spriteScale)
-        love.graphics.pop()
-    else
-        -- Fallback shadow for geometric ship
+    -- Escudo visual activo
+    local shieldPercentage = self.stats and self.stats:getShieldPercentage() or 0
+    if shieldPercentage > 0 then
+        local shieldAlpha = 0.25 + (shieldPercentage / 100) * 0.45
+        local shieldRadius = (self.size * (self.worldScale or 1)) * 1.9
+        
+        love.graphics.setColor(0.2, 0.6, 1.0, shieldAlpha)
+        love.graphics.circle("line", 0, 0, shieldRadius, 24)
+        
+        if self.stats.shield and self.stats.shield.isRegenerating then
+            local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 8)
+            love.graphics.setColor(0.2, 0.8, 1.0, pulse * 0.3)
+            love.graphics.circle("line", 0, 0, shieldRadius * 1.08, 24)
+        end
+    end
+    
+    -- Dibujar la nave según sprite (Explorer) o geometría especializada (Fighter, Cargo, Explorer fallback)
+    if self.sprite and self.shipType == "EXPLORER" then
         love.graphics.setColor(0, 0, 0, 0.3)
         love.graphics.push()
         love.graphics.translate(3, 3)
-        love.graphics.polygon("fill", 
-            self.size * 1.5, 0,
-            -self.size, -self.size,
-            -self.size, self.size
-        )
-        love.graphics.pop()
-    end
-    
-    -- Shield visual effect
-    local shieldPercentage = self.stats:getShieldPercentage()
-    if shieldPercentage > 0 then
-        local shieldAlpha = 0.3 + (shieldPercentage / 100) * 0.4
-        local shieldRadius = self.sprite and 
-                           (math.max(self.spriteOffsetX, self.spriteOffsetY) * self.spriteScale * 1.2) or 
-                           (self.size * 1.8)
-        
-        love.graphics.setColor(0.2, 0.6, 1.0, shieldAlpha)
-        love.graphics.circle("line", 0, 0, shieldRadius, 16)
-        
-        if self.stats.shield.isRegenerating then
-            local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 8)
-            love.graphics.setColor(0.2, 0.8, 1.0, pulse * 0.3)
-            love.graphics.circle("line", 0, 0, shieldRadius * 1.1, 20)
-        end
-    end
-    
-    -- Draw the main ship
-    if self.sprite then
-        -- SPRITE VERSION
-        -- Apply color tinting based on fuel level
-        local fuelPercentage = self.stats:getFuelPercentage()
-        if fuelPercentage < 25 then
-            love.graphics.setColor(1.0, 0.6, 0.4, 1.0)  -- Reddish tint when low fuel
-        elseif fuelPercentage < 50 then
-            love.graphics.setColor(1.0, 1.0, 0.6, 1.0)  -- Yellowish tint when medium fuel
-        else
-            love.graphics.setColor(1.0, 1.0, 1.0, 1.0)  -- Normal color
-        end
-        
-        -- Draw the sprite centered
         love.graphics.draw(self.sprite, 
                           -self.spriteOffsetX * self.spriteScale, 
                           -self.spriteOffsetY * self.spriteScale, 
                           0, 
                           self.spriteScale, 
                           self.spriteScale)
-    else
-        -- FALLBACK GEOMETRIC VERSION (if sprite fails to load)
-        local size = self.size * self.worldScale
-        
-        -- Main body color changes based on fuel level
-        local fuelPercentage = self.stats:getFuelPercentage()
-        local bodyColor = {0.15, 0.4, 0.8}
+        love.graphics.pop()
+
+        local fuelPercentage = self.stats and self.stats:getFuelPercentage() or 100
         if fuelPercentage < 25 then
-            bodyColor = {0.6, 0.3, 0.1}  -- Brown when low fuel
+            love.graphics.setColor(1.0, 0.6, 0.4, 1.0)
         elseif fuelPercentage < 50 then
-            bodyColor = {0.6, 0.6, 0.1}  -- Yellow when medium fuel
+            love.graphics.setColor(1.0, 1.0, 0.6, 1.0)
+        else
+            love.graphics.setColor(1.0, 1.0, 1.0, 1.0)
         end
         
-        -- Main body
-        love.graphics.setColor(bodyColor[1], bodyColor[2], bodyColor[3], 1.0)
-        love.graphics.polygon("fill", 
-            size * 1.5, 0,        -- Front point
-            -size, -size,         -- Back left point
-            -size * 0.5, 0,       -- Back center
-            -size, size           -- Back right point
-        )
-        
-        -- Cockpit window
-        love.graphics.setColor(0.3, 0.7, 1.0, 0.9)
-        love.graphics.polygon("fill",
-            size * 1.2, 0,
-            size * 0.3, -size * 0.3,
-            size * 0.3, size * 0.3
-        )
-        
-        -- Ship highlight (top edge)
-        love.graphics.setColor(0.4, 0.7, 1.0, 0.8)
-        love.graphics.polygon("fill",
-            size * 1.5, 0,
-            -size, -size,
-            -size * 0.7, -size * 0.7,
-            size * 1.2, 0
-        )
-    end
-    
-    -- Engine glow when moving forward (works with both sprite and geometric)
-    if self.engineGlow > 0 and self.stats:canMove() then
-        local intensity = self.engineGlow
-        local thrusterY = self.sprite and (self.spriteOffsetY * self.spriteScale * 0.9) or (self.size * 1.2)
-        local thrusterWidth = self.sprite and (self.spriteOffsetX * self.spriteScale * 0.4) or (self.size * 0.7)
-        local glowLength = thrusterY * 0.8  -- Length of the glow effect
-        
-        -- Save the current transformation
-        love.graphics.push()
-        
-        -- Move to the thruster position (bottom center of the ship)
-        love.graphics.translate(0, thrusterY)
-        
-        -- Add some dynamic movement to the glow
-        local time = love.timer.getTime()
-        local pulse = 0.9 + 0.1 * math.sin(time * 5)  -- Pulsing effect
-        local wiggle = math.sin(time * 8) * 0.1  -- Side-to-side movement
-        
-        love.graphics.push()
-        love.graphics.translate(wiggle * 5, 0)  -- Apply wiggle
-        
-        -- Outer glow (wider and more transparent)
-        love.graphics.setColor(1.0, 0.5, 0.1, intensity * 0.3 * pulse)
-        love.graphics.polygon("fill",
-            -thrusterWidth * 1.2, 0,
-            wiggle * 10, glowLength * 2.5 * (0.9 + 0.2 * math.sin(time * 4)),
-            thrusterWidth * 1.2, 0
-        )
-        
-        -- Middle glow
-        love.graphics.setColor(1.0, 0.6, 0.2, intensity * 0.6 * pulse)
-        love.graphics.polygon("fill",
-            -thrusterWidth * 0.8, 0,
-            wiggle * 5, glowLength * 1.8 * (0.95 + 0.1 * math.sin(time * 3)),
-            thrusterWidth * 0.8, 0
-        )
-        
-        -- Inner bright glow
-        love.graphics.setColor(1.0, 0.8, 0.4, intensity * 0.9 * pulse)
-        love.graphics.polygon("fill",
-            -thrusterWidth * 0.5, 0,
-            0, glowLength * 1.2 * (1 + 0.05 * math.sin(time * 2)),
-            thrusterWidth * 0.5, 0
-        )
-        
-        -- Core (brightest part at the base)
-        love.graphics.setColor(1.0, 1.0, 0.8, intensity * pulse)
-        love.graphics.rectangle("fill", 
-            -thrusterWidth * 0.3 + wiggle * 2, 
-            -thrusterWidth * 0.3, 
-            thrusterWidth * 0.6, 
-            thrusterWidth * 0.6
-        )
-        
-        love.graphics.pop()  -- Pop the wiggle transformation
-        love.graphics.pop()  -- Pop the thruster position
-        
-        -- Navigation lights (only if using sprite)
-        if self.sprite then
-            local blinkPhase = love.timer.getTime() * 3
-            if math.sin(blinkPhase) > 0 then
-                local lightOffset = self.spriteOffsetX * self.spriteScale * 0.6
-                
-                -- Red light on left side (port)
-                love.graphics.setColor(1, 0, 0, 1)
-                love.graphics.circle("fill", -lightOffset, 0, 2)
-                
-                -- Green light on right side (starboard)
-                love.graphics.setColor(0, 1, 0, 1)
-                love.graphics.circle("fill", lightOffset, 0, 2)
-            end
+        love.graphics.draw(self.sprite, 
+                          -self.spriteOffsetX * self.spriteScale, 
+                          -self.spriteOffsetY * self.spriteScale, 
+                          0, 
+                          self.spriteScale, 
+                          self.spriteScale)
+                          
+        if self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+            self:drawThrusterFlame(0, self.spriteOffsetY * self.spriteScale * 0.85, self.size * 0.8, {1.0, 0.55, 0.1})
         end
+
+        local blinkPhase = love.timer.getTime() * 3
+        if math.sin(blinkPhase) > 0 then
+            local lightOffset = self.spriteOffsetX * self.spriteScale * 0.6
+            love.graphics.setColor(1, 0, 0, 1)
+            love.graphics.circle("fill", -lightOffset, 0, 2)
+            love.graphics.setColor(0, 1, 0, 1)
+            love.graphics.circle("fill", lightOffset, 0, 2)
+        end
+    else
+        self:drawGeometricShip(false)
     end
     
-    -- Low fuel warning
-    local fuelPercentage = self.stats:getFuelPercentage()
+    -- Aviso de combustible crítico
+    local fuelPercentage = self.stats and self.stats:getFuelPercentage() or 100
     if fuelPercentage < 15 and math.sin(love.timer.getTime() * 6) > 0 then
         love.graphics.setColor(1, 0, 0, 0.8)
-        local warningRadius = self.sprite and 
-                             (math.max(self.spriteOffsetX, self.spriteOffsetY) * self.spriteScale * 1.5) or 
-                             (self.size * 2.5)
-        love.graphics.circle("line", 0, 0, warningRadius, 12)
+        local warningRadius = (self.size * (self.worldScale or 1)) * 2.2
+        love.graphics.circle("line", 0, 0, warningRadius, 16)
     end
     
-    -- Restore the color
     love.graphics.setColor(r, g, b, a)
-    
-    -- Restore the graphics state
     love.graphics.pop()
     
-    -- Dibujar proyectiles (fuera de la transformación de la nave, pero encapsulado)
+    -- Dibujar proyectiles de la nave
     love.graphics.push("all")
     self:drawProjectiles()
     love.graphics.pop()
@@ -1144,15 +1387,21 @@ function Naves:enterEVA()
     return true
 end
 
-function Naves:exitEVA()
+function Naves:exitEVA(targetShip)
     if not self.isInEVA or not self.evaPlayer then return false end
-    
-    -- Return player to ship position
-    self.x = self.evaPlayer.x
-    self.y = self.evaPlayer.y
-    
-    -- Keep EVA player but change state
-    self.isInEVA = false
+
+    -- Si no se especifica targetShip, buscar la nave abordable más cercana
+    if not targetShip then
+        local canEnter, nearbyShip = self.evaPlayer:canEnterShip()
+        if canEnter and nearbyShip then
+            targetShip = nearbyShip
+        else
+            targetShip = self.evaPlayer.ship or self
+        end
+    end
+
+    local World = getWorld()
+    local audio = World and (World.getAudio and World.getAudio() or World.get('audio'))
 
     -- Cerrar inventario EVA si estuviera abierto al volver a la nave
     if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() then
@@ -1162,13 +1411,78 @@ function Naves:exitEVA()
             EVAInventoryUI:toggle()
         end
     end
-    
-    print("Player returned to ship")
+
+    -- CASO 1: Re-entrar a la misma nave de la que se salió
+    if targetShip == self then
+        self.isInEVA = false
+        self.isPiloted = true
+        self.isAbandoned = false
+        self.evaPlayer.ship = self
+        self.evaKeyPressed = true
+        
+        if audio and audio.play then
+            pcall(function() audio.play("item_equip", { volume = 0.75, pitch = 1.1 }) end)
+        end
+
+        print(string.format("[EVA] Re-entrada a la nave: %s (ID %d)", self.shipName, self.shipId))
+        return true
+    end
+
+    -- CASO 2: Abordar una nueva nave (Boarding & Ship Switch)
+    print(string.format("[BOARDING] Abordando nueva nave: %s (ID %d) desde %s (ID %d)",
+        targetShip.shipName, targetShip.shipId, self.shipName, self.shipId))
+
+    -- 1. Desactivar y abandonar la nave anterior (permanece en su posición real en el espacio)
+    self.isPiloted = false
+    self.isAbandoned = true
+    self.isInEVA = false
+    self.evaKeyPressed = false
+    self.dx = (self.dx or 0) * 0.4
+    self.dy = (self.dy or 0) * 0.4
+
+    -- 2. Activar la nave abordada
+    targetShip.isPiloted = true
+    targetShip.isAbandoned = false
+    targetShip.isInEVA = false
+    targetShip.driftAngularSpeed = 0 -- Frenar deriva rotacional pasiva
+    targetShip.evaKeyPressed = true
+
+    -- 3. Conectar el astronauta EVA a la nueva nave
+    if not targetShip.evaPlayer then
+        targetShip.evaPlayer = self.evaPlayer
+    end
+    targetShip.evaPlayer.ship = targetShip
+    targetShip.evaPlayer.stats = targetShip.stats
+
+    -- 4. Actualizar el World context (nueva entidad activa del jugador)
+    if World and World.set then
+        World.set('player', targetShip)
+    end
+
+    -- 5. Actualizar la cámara para que siga suavemente a la nueva nave
+    local camera = World and (World.getCamera and World.getCamera() or World.get('camera'))
+    if camera and type(camera.follow) == "function" then
+        pcall(function() camera:follow(targetShip, 0) end)
+    end
+
+    -- 6. Actualizar las referencias del HUD
+    local HUD = package.loaded['src.ui.hud.core']
+    if HUD and HUD.updateReferences then
+        pcall(function() HUD.updateReferences(World) end)
+    end
+
+    -- 7. Efecto de audio de compuerta presurizada / abordaje
+    if audio and audio.play then
+        pcall(function() audio.play("item_equip", { volume = 0.85, pitch = 0.95 }) end)
+    end
+
+    print(string.format("✓ [BOARDING] ¡Abordaje exitoso! Ahora pilotas: %s (%s)",
+        targetShip.shipName, targetShip.shipType))
     return true
 end
 
 function Naves:handleEVAControls()
-    -- Check for S+E combination to exit ship
+    -- Combinación S+E para salir de la nave a modo EVA
     if not self.isInEVA then
         local sPressed = love.keyboard.isDown('s')
         local ePressed = love.keyboard.isDown('e')
@@ -1180,12 +1494,15 @@ function Naves:handleEVAControls()
             self.evaKeyPressed = false
         end
     else
-        -- Check for E to enter ship (only if near ship)
+        -- Tecla E para abordar la nave cercana (propia o abandonada)
         local ePressed = love.keyboard.isDown('e')
         
-        if ePressed and not self.evaKeyPressed and self.evaPlayer:canEnterShip() then
-            self.evaKeyPressed = true
-            self:exitEVA()
+        if ePressed and not self.evaKeyPressed then
+            local canEnter, targetShip = self.evaPlayer:canEnterShip()
+            if canEnter and targetShip then
+                self.evaKeyPressed = true
+                self:exitEVA(targetShip)
+            end
         elseif not ePressed then
             self.evaKeyPressed = false
         end
@@ -1213,23 +1530,26 @@ function Naves:getActiveEntity()
 end
 
 function Naves:drawAbandonedShip()
-    -- Draw the ship as abandoned (dimmed and without effects)
+    local World = getWorld()
+    local alpha = World and World.get('interpolationAlpha') or 1.0
+    local MathUtil = require 'src.utils.math_util'
+
+    -- Interpolación de posición y rotación para naves a la deriva / abandonadas
+    local renderX = MathUtil.lerp(self.prevX or self.x, self.x, alpha)
+    local renderY = MathUtil.lerp(self.prevY or self.y, self.y, alpha)
+    local renderRot = MathUtil.lerpAngle(self.prevRotation or self.rotation, self.rotation, alpha)
+
     love.graphics.push()
+    love.graphics.translate(renderX, renderY)
+    love.graphics.rotate(renderRot)
     
-    -- Move to ship position
-    love.graphics.translate(self.x, self.y)
-    
-    -- Rotate around the center
-    love.graphics.rotate(self.rotation)
-    
-    -- Save the current color
     local r, g, b, a = love.graphics.getColor()
     
-    -- Draw shadow first
-    if self.sprite then
+    -- Si tiene sprite y es EXPLORER:
+    if self.sprite and self.shipType == "EXPLORER" then
         love.graphics.setColor(0, 0, 0, 0.2)
         love.graphics.push()
-        love.graphics.translate(3, 3)  -- Shadow offset
+        love.graphics.translate(3, 3)
         love.graphics.draw(self.sprite, 
                           -self.spriteOffsetX * self.spriteScale, 
                           -self.spriteOffsetY * self.spriteScale, 
@@ -1237,101 +1557,50 @@ function Naves:drawAbandonedShip()
                           self.spriteScale, 
                           self.spriteScale)
         love.graphics.pop()
-    end
-    
-    -- Draw the main ship (dimmed)
-    if self.sprite then
-        -- Dimmed sprite version
-        love.graphics.setColor(0.5, 0.5, 0.5, 0.8)  -- Dimmed color
-        
-        -- Draw the sprite centered
+
+        love.graphics.setColor(0.5, 0.55, 0.65, 0.85)
         love.graphics.draw(self.sprite, 
                           -self.spriteOffsetX * self.spriteScale, 
                           -self.spriteOffsetY * self.spriteScale, 
                           0, 
                           self.spriteScale, 
                           self.spriteScale)
+
+        local blink = 0.3 + 0.7 * math.abs(math.sin(love.timer.getTime() * 2.5))
+        love.graphics.setColor(0.2, 0.6, 1.0, blink)
+        love.graphics.circle("fill", 0, -self.spriteOffsetY * 0.3, 2.5)
     else
-        -- FALLBACK GEOMETRIC VERSION (dimmed)
-        local size = self.size * self.worldScale
-        
-        -- Main body (dimmed)
-        love.graphics.setColor(0.1, 0.2, 0.4, 0.8)
-        love.graphics.polygon("fill", 
-            size * 1.5, 0,        -- Front point
-            -size, -size,         -- Back left point
-            -size * 0.5, 0,       -- Back center
-            -size, size           -- Back right point
-        )
-        
-        -- Cockpit window (dimmed)
-        love.graphics.setColor(0.1, 0.3, 0.5, 0.6)
-        love.graphics.polygon("fill",
-            size * 1.2, 0,
-            size * 0.3, -size * 0.3,
-            size * 0.3, size * 0.3
-        )
+        -- Dibujado geométrico dedicado según clase (FIGHTER, CARGO, EXPLORER) en modo abandonado
+        self:drawGeometricShip(true)
     end
     
-    -- Indicador visual sutil (sin texto)
-    
-    -- Restore the color
     love.graphics.setColor(r, g, b, a)
-    
-    -- Restore the graphics state
     love.graphics.pop()
 end
 
--- Funciones estáticas para gestión de naves
-function Naves.getAllShips()
-    return allShips
-end
-
-function Naves.getShipById(shipId)
-    for _, ship in ipairs(allShips) do
-        if ship.shipId == shipId then
-            return ship
-        end
+function Naves.boardShip(targetShip, pilotEntity)
+    if not targetShip then return false end
+    local World = getWorld()
+    local currentPlayer = World and (World.getPlayer and World.getPlayer() or World.get('player'))
+    
+    if currentPlayer and currentPlayer.exitEVA then
+        return currentPlayer:exitEVA(targetShip)
     end
-    return nil
-end
-
-function Naves.getShipRegistry()
-    return shipRegistry
+    return false
 end
 
 function Naves.switchToShip(targetShip, currentShip)
-    if not targetShip or not currentShip then
-        print("[SHIP SWITCH] Error: Invalid ships provided")
+    if not targetShip then
+        print("[SHIP SWITCH] Error: Invalid target ship provided")
         return false
     end
     
-    -- Guardar estado de la nave actual
-    local currentState = currentShip:saveShipState()
-    print("[SHIP SWITCH] Saved state for ship", currentShip.shipId, "(", currentShip.shipName, ")")
-    
-    -- Cargar estado de la nave objetivo
-    local targetState = targetShip:saveShipState()
-    print("[SHIP SWITCH] Switching to ship", targetShip.shipId, "(", targetShip.shipName, ")")
-    
-    -- Transferir posición de cámara/jugador
-    targetShip.x = currentShip.x
-    targetShip.y = currentShip.y
-    
-    print("[SHIP SWITCH] Ship switch completed successfully")
-    print("  From:", currentShip.shipName, "(Type:", currentShip.shipType, ")")
-    print("  To:", targetShip.shipName, "(Type:", targetShip.shipType, ")")
-    
-    -- Mostrar inventario de la nueva nave para verificar persistencia
-    if targetShip.inventory and targetShip.inventory.items then
-        local itemCount = 0
-        for slot, item in pairs(targetShip.inventory.items) do
-            if item then itemCount = itemCount + 1 end
-        end
-        print("  Inventory items:", itemCount)
+    local World = getWorld()
+    currentShip = currentShip or (World and (World.getPlayer and World.getPlayer() or World.get('player')))
+    if currentShip and currentShip.exitEVA then
+        return currentShip:exitEVA(targetShip)
     end
-    
-    return true
+    return false
 end
 
 --[[
