@@ -35,6 +35,14 @@ local SOUNDTRACKS = {
 -- Lista de submundos y sus subniveles
 local SUBWORLDS = {
     {
+        id = "stations_debug",
+        name = "Estaciones (Debug)",
+        color = { 0.25, 0.85, 0.95 },
+        levels = {
+            { id = "stations_gallery_all", name = "Todas las Estaciones", tier = "debug_all", width = 16, height = 16, color = { 0.25, 0.85, 0.95 } }
+        }
+    },
+    {
         id = "tau_ceti",
         name = "Tau Ceti",
         color = { 0.78, 0.42, 0.95 },

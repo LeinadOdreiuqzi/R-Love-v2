@@ -58,7 +58,15 @@ function SubLevelScene:enter(params)
     local camX, camY = 0, 0
     local targetZoom = 0.55
     local tier = (cfg.meta and cfg.meta.tier) or 1
-    if tier == 1 then
+    if cfg.meta and cfg.meta.subworldId == "stations_debug" then
+        local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
+        StationsDebugWorld.init(cfg)
+        entryX = -1400
+        entryY = 440
+        camX = entryX
+        camY = entryY - 120
+        targetZoom = 0.55
+    elseif tier == 1 then
         entryX = 0
         entryY = 0
         camX = 0
@@ -209,6 +217,12 @@ function SubLevelScene:update(dt)
         self.world:update(dt, player)
     end
 
+    -- Actualizar submundo de depuración de estaciones si está activo
+    if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+        local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
+        StationsDebugWorld.update(dt, player)
+    end
+
     -- Actualizar módulos del subnivel
     if SublevelSpawns and SublevelSpawns.update then SublevelSpawns.update(dt, self.world, player) end
     if SublevelDecor and SublevelDecor.update then SublevelDecor.update(dt, self.world, player) end
@@ -291,6 +305,12 @@ function SubLevelScene:draw()
     -- Grilla de debug (F4) dentro del subnivel
     if DebugGrid and DebugGrid.draw then DebugGrid.draw(camera) end
 
+    -- Dibujar estaciones espaciales en el submundo de depuración
+    if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+        local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
+        StationsDebugWorld.draw(camera, player)
+    end
+
     -- Restaurar transformación
     if camera then camera:unapply() end
 
@@ -334,6 +354,12 @@ function SubLevelScene:draw()
             love.graphics.printf(tostring(name), 16, 16, love.graphics.getWidth() - 32, 'left')
             love.graphics.setColor(1, 1, 1, 1)
         end
+
+        -- Dibujar HUD de controles de depuración de estaciones
+        if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+            local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
+            StationsDebugWorld.drawHUD()
+        end
     end
 
     if InventoryUI and InventoryUI.draw and InventoryUI.isOpen and InventoryUI:isOpen() then
@@ -371,6 +397,15 @@ function SubLevelScene:keypressed(key)
     -- Si el menú de pausa ya está abierto, delegar a PauseMenu
     if PauseMenu.isOpen() then
         return false
+    end
+
+    -- Atajos específicos del submundo de depuración de estaciones (1-9 teletransporte, 0 origen, R rotación)
+    if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+        local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
+        local camera = World.get('camera')
+        if StationsDebugWorld.keypressed(key, player, camera) then
+            return true
+        end
     end
 
     -- 'escape': Cerrar inventario activo si hay alguno abierto; de lo contrario, abrir menú de pausa
