@@ -41,7 +41,7 @@ HUD.hudState = {
     enterRadiusFactor = 1.25,
     scanInterval = 0.25,
     lastScan = 0,
-    scanMargin = 1,
+    scanMargin = 1600,
     screenX = 0,
     screenY = 0
   },

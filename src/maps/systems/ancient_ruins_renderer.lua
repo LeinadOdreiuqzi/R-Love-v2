@@ -216,15 +216,17 @@ function AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
     
     local chunkSize = MapConfig.chunk.size
     local tileSize = MapConfig.chunk.tileSize
-    local worldScale = MapConfig.chunk.worldScale
+    local worldScale = MapConfig.chunk.worldScale or 1.0
+    local spacing = MapConfig.chunk.spacing or 0
     local config = AncientRuinsRenderer.config.placeholders
     
-    -- Calcular coordenadas base del chunk en el mundo
-    local chunkWorldX = chunkX * chunkSize * tileSize * worldScale
-    local chunkWorldY = chunkY * chunkSize * tileSize * worldScale
+    -- Calcular STRIDE respetando spacing y worldScale
+    local STRIDE = (chunkSize * tileSize + spacing)
+    local chunkWorldX = chunkX * STRIDE * worldScale
+    local chunkWorldY = chunkY * STRIDE * worldScale
     
-    -- Calcular el tamaño del bioma (aproximadamente el tamaño del chunk)
-    local biomeSize = chunkSize * tileSize * worldScale
+    -- Calcular el tamaño del bioma (aproximadamente el tamaño del chunk en mundo)
+    local biomeSize = STRIDE * worldScale
     
     -- Determinar el tamaño de la estación basado en probabilidades
     local sizeType = AncientRuinsRenderer.selectStationSize(rng)
@@ -235,11 +237,15 @@ function AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
     local damageState = AncientRuinsRenderer.selectDamageState(chunkX, chunkY)
     local complexType = baseType .. "_" .. damageState
     
-    -- Posición central del chunk para la estación
-    local localX = (chunkSize * tileSize) * 0.5
-    local localY = (chunkSize * tileSize) * 0.5
+    -- Posición central del chunk para la estación escalada correctamente por worldScale
+    local localX = (chunkSize * tileSize) * 0.5 * worldScale
+    local localY = (chunkSize * tileSize) * 0.5 * worldScale
     local worldX = chunkWorldX + localX
     local worldY = chunkWorldY + localY
+    local seed = (chunkX * 1000 + chunkY)
+    
+    -- Pre-obtener efectos de daño cacheados
+    local damageEffects = AncientRuinsRenderer.getDamageEffects(damageState, seed)
     
     -- Crear el único placeholder para este bioma
     local placeholder = {
@@ -255,8 +261,8 @@ function AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
         pulsePhase = rng:random() * math.pi * 2,
         chunkX = chunkX,
         chunkY = chunkY,
-        -- Semilla determinista para efectos consistentes
-        seed = (chunkX * 1000 + chunkY)
+        seed = seed,
+        damageEffects = damageEffects
     }
     
     table.insert(chunk.ancientRuinsPlaceholders, placeholder)
@@ -330,14 +336,66 @@ function AncientRuinsRenderer.selectDamageState(chunkX, chunkY)
     return "damaged"  -- fallback
 end
 
--- Función para obtener efectos de daño según el estado
+local damageEffectsCache = {}
+local debrisPolygonsCache = {}
+local debrisPolygonsCache12 = {}
+
+local function getRuinsDebrisPolygons(seed)
+    local s = seed or 0
+    if debrisPolygonsCache[s] then return debrisPolygonsCache[s] end
+    local list = {}
+    for i = 1, 6 do
+        local angle = (i / 6) * 2 * math.pi + s * 0.1
+        local distance = 1.2 + (i % 3) * 0.2
+        local fragX = math.cos(angle) * distance
+        local fragY = math.sin(angle) * distance
+        local fragSize = 0.05 + (i % 2) * 0.03
+        table.insert(list, {
+            fragX - fragSize,       fragY - fragSize * 0.5,
+            fragX + fragSize * 0.7, fragY - fragSize * 0.3,
+            fragX + fragSize * 0.5, fragY + fragSize,
+            fragX - fragSize * 0.8, fragY + fragSize * 0.4
+        })
+    end
+    debrisPolygonsCache[s] = list
+    return list
+end
+
+local function getRuinsDebrisPolygons12(seed)
+    local s = seed or 0
+    if debrisPolygonsCache12[s] then return debrisPolygonsCache12[s] end
+    local list = {}
+    for i = 1, 12 do
+        local angle = (i / 12) * 2 * math.pi + s * 0.3
+        local distance = 0.8 + (i % 4) * 0.3
+        local fragX = math.cos(angle) * distance
+        local fragY = math.sin(angle) * distance
+        local fragSize = 0.02 + (i % 3) * 0.015
+        table.insert(list, {
+            fragX - fragSize,       fragY - fragSize * 0.7,
+            fragX + fragSize * 0.8, fragY - fragSize * 0.4,
+            fragX + fragSize * 0.6, fragY + fragSize * 0.9,
+            fragX - fragSize * 0.9, fragY + fragSize * 0.5
+        })
+    end
+    debrisPolygonsCache12[s] = list
+    return list
+end
+
+-- Función para obtener efectos de daño según el estado (con cache de coordenadas y factores)
 function AncientRuinsRenderer.getDamageEffects(damageState, seed)
+    local cacheKey = tostring(damageState) .. "_" .. tostring(seed or 0)
+    if damageEffectsCache[cacheKey] then
+        return damageEffectsCache[cacheKey]
+    end
+
     local effects = {
         alphaMultiplier = 1.0,
         sizeMultiplier = 1.0,
         fragmentCount = 0,
         glowReduction = 1.0,
-        structuralIntegrity = 1.0
+        structuralIntegrity = 1.0,
+        fragments = {}
     }
     
     if damageState == "operational" then
@@ -348,64 +406,83 @@ function AncientRuinsRenderer.getDamageEffects(damageState, seed)
     elseif damageState == "damaged" then
         effects.alphaMultiplier = 0.8
         effects.sizeMultiplier = 0.9
-        effects.fragmentCount = 3 + (seed % 3)
+        effects.fragmentCount = 3 + ((seed or 0) % 3)
         effects.glowReduction = 0.6
         effects.structuralIntegrity = 0.7
     elseif damageState == "ruins" then
         effects.alphaMultiplier = 0.5
         effects.sizeMultiplier = 0.7
-        effects.fragmentCount = 8 + (seed % 5)
+        effects.fragmentCount = 8 + ((seed or 0) % 5)
         effects.glowReduction = 0.3
         effects.structuralIntegrity = 0.3
     end
     
+    -- Pre-calcular offsets trigonométricos para evitar trigonometría por cuadro
+    for i = 1, effects.fragmentCount do
+        local angle = (i / effects.fragmentCount) * 2 * math.pi + (seed or 0) * 0.3
+        local distRatio = 0.6 + (i % 4) * 0.2
+        local sizeRatio = 0.02 + (i % 3) * 0.015
+        local alphaRatio = (0.7 + (i % 3) * 0.1)
+        table.insert(effects.fragments, {
+            cosOffset = math.cos(angle) * distRatio,
+            sinOffset = math.sin(angle) * distRatio,
+            sizeRatio = sizeRatio,
+            alphaRatio = alphaRatio
+        })
+    end
+
+    damageEffectsCache[cacheKey] = effects
     return effects
 end
 
--- Función para renderizar fragmentos de daño
+-- Función para renderizar fragmentos de daño (optimizada: sin cálculos trigonométricos repetidos)
 function AncientRuinsRenderer.renderDamageFragments(screenX, screenY, size, damageEffects, alpha, seed)
-    if damageEffects.fragmentCount <= 0 then
+    if not damageEffects or not damageEffects.fragments or #damageEffects.fragments == 0 then
         return
     end
     
     love.graphics.push()
     love.graphics.translate(screenX, screenY)
     
-    -- Obtener color base actual
     local baseR, baseG, baseB, baseA = love.graphics.getColor()
+    local colorR = baseR * 0.8
+    local colorG = baseG * 0.8
+    local colorB = baseB * 0.8
+    local baseAlpha = alpha * damageEffects.alphaMultiplier
     
-    -- Renderizar fragmentos dispersos
-    for i = 1, damageEffects.fragmentCount do
-        local angle = (i / damageEffects.fragmentCount) * 2 * math.pi + (seed or 0) * 0.3
-        local distance = size * (0.6 + (i % 4) * 0.2)
-        local fragX = math.cos(angle) * distance
-        local fragY = math.sin(angle) * distance
-        local fragSize = size * (0.02 + (i % 3) * 0.015)
+    for _, frag in ipairs(damageEffects.fragments) do
+        local fragX = frag.cosOffset * size
+        local fragY = frag.sinOffset * size
+        local fragSize = frag.sizeRatio * size
+        local fragAlpha = baseAlpha * frag.alphaRatio
         
-        -- Aplicar variación de color para fragmentos
-        local fragAlpha = alpha * damageEffects.alphaMultiplier * (0.7 + (i % 3) * 0.1)
-        love.graphics.setColor(baseR * 0.8, baseG * 0.8, baseB * 0.8, fragAlpha)
-        
-        -- Renderizar fragmento como círculo pequeño
+        love.graphics.setColor(colorR, colorG, colorB, fragAlpha)
         love.graphics.circle("fill", fragX, fragY, fragSize, math.max(4, math.floor(fragSize * 2)))
     end
     
-    -- Restaurar color original
     love.graphics.setColor(baseR, baseG, baseB, baseA)
     love.graphics.pop()
 end
 
--- Función para renderizar placeholders de ancient ruins
+-- Función para renderizar placeholders de ancient ruins con culling extendido
 function AncientRuinsRenderer.renderPlaceholders(chunkInfo, camera, getChunkFunc)
     local rendered = 0
     local config = AncientRuinsRenderer.config
     
-    for chunkY = chunkInfo.startY, chunkInfo.endY do
-        for chunkX = chunkInfo.startX, chunkInfo.endX do
+    -- Margen ampliado de chunks: las megaestaciones y ruinas tienen radios de hasta 2000+ px,
+    -- pudiendo abarcar hasta 2 chunks fuera de su chunk de origen.
+    local marginChunks = 2
+    local startY = (chunkInfo.startY or 0) - marginChunks
+    local endY = (chunkInfo.endY or 0) + marginChunks
+    local startX = (chunkInfo.startX or 0) - marginChunks
+    local endX = (chunkInfo.endX or 0) + marginChunks
+
+    for chunkY = startY, endY do
+        for chunkX = startX, endX do
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.ancientRuinsPlaceholders then
                 for _, placeholder in ipairs(chunk.ancientRuinsPlaceholders) do
-                    -- Verificar si el placeholder está visible
+                    -- Verificar si el placeholder está visible (con margen holgado)
                     if AncientRuinsRenderer.isPlaceholderVisible(placeholder, camera) then
                         local lod = AncientRuinsRenderer.calculateLOD(placeholder, camera)
                         AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
@@ -419,16 +496,22 @@ function AncientRuinsRenderer.renderPlaceholders(chunkInfo, camera, getChunkFunc
     return rendered
 end
 
--- Verificar si un placeholder está visible en pantalla
+-- Verificar si un placeholder está visible en pantalla (margen ampliado para megaestructuras)
 function AncientRuinsRenderer.isPlaceholderVisible(placeholder, camera)
     local screenX, screenY = camera:worldToScreen(placeholder.x, placeholder.y)
-    local screenSize = placeholder.size * (camera.zoom or 1)
+    local zoom = camera.zoom or 1
+    local screenSize = placeholder.size * zoom
     
-    -- Margen para objetos parcialmente visibles
-    local margin = screenSize + 50
+    -- Margen holgado para megaestructuras:
+    -- Módulos, anillos, escombros y resplandores exteriores se extienden
+    -- hasta 2.0x el tamaño nominal más un margen de pantalla.
+    local margin = screenSize * 2.0 + 250
     
-    return screenX > -margin and screenX < love.graphics.getWidth() + margin and
-           screenY > -margin and screenY < love.graphics.getHeight() + margin
+    local screenW = love.graphics.getWidth()
+    local screenH = love.graphics.getHeight()
+    
+    return screenX > -margin and screenX < screenW + margin and
+           screenY > -margin and screenY < screenH + margin
 end
 
 -- Calcular nivel de LOD basado en distancia
@@ -1403,20 +1486,14 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
             love.graphics.line(startX, startY, endX, endY)
         end
         
-        -- Fragmentos de escombros adicionales
-        for i = 1, 12 do
-            local angle = (i / 12) * 2 * math.pi + seed * 0.3
-            local distance = finalSize * (0.8 + (i % 4) * 0.3)
-            local fragX = math.cos(angle) * distance
-            local fragY = math.sin(angle) * distance
-            local fragSize = finalSize * (0.02 + (i % 3) * 0.015)
-            
-            -- Fragmentos irregulares
-            love.graphics.polygon("fill", 
-                fragX - fragSize, fragY - fragSize * 0.7,
-                fragX + fragSize * 0.8, fragY - fragSize * 0.4,
-                fragX + fragSize * 0.6, fragY + fragSize * 0.9,
-                fragX - fragSize * 0.9, fragY + fragSize * 0.5
+        -- Fragmentos de escombros adicionales (cacheados)
+        local debris12 = getRuinsDebrisPolygons12(seed)
+        for _, poly in ipairs(debris12) do
+            love.graphics.polygon("fill",
+                poly[1] * finalSize, poly[2] * finalSize,
+                poly[3] * finalSize, poly[4] * finalSize,
+                poly[5] * finalSize, poly[6] * finalSize,
+                poly[7] * finalSize, poly[8] * finalSize
             )
         end
         
@@ -1455,18 +1532,14 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         -- Restaurar color
         love.graphics.setColor(love.graphics.getColor())
         
-        -- Fragmentos flotantes cerca
-        for i = 1, 6 do
-            local angle = (i / 6) * 2 * math.pi + seed * 0.1
-            local distance = finalSize * (1.2 + (i % 3) * 0.2)
-            local fragX = math.cos(angle) * distance
-            local fragY = math.sin(angle) * distance
-            local fragSize = finalSize * (0.05 + (i % 2) * 0.03)
+        -- Fragmentos flotantes cerca (cacheados)
+        local debris6 = getRuinsDebrisPolygons(seed)
+        for _, poly in ipairs(debris6) do
             love.graphics.polygon("fill", 
-                fragX - fragSize, fragY - fragSize * 0.5,
-                fragX + fragSize * 0.7, fragY - fragSize * 0.3,
-                fragX + fragSize * 0.5, fragY + fragSize,
-                fragX - fragSize * 0.8, fragY + fragSize * 0.4
+                poly[1] * finalSize, poly[2] * finalSize,
+                poly[3] * finalSize, poly[4] * finalSize,
+                poly[5] * finalSize, poly[6] * finalSize,
+                poly[7] * finalSize, poly[8] * finalSize
             )
         end
         

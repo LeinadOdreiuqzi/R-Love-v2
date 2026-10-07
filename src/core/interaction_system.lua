@@ -81,7 +81,7 @@ function InteractionSystem.tryEnterStationOrSublevel()
     if activeEntity.x and activeEntity.y then
         local biomeInfo = BiomeSystem.getPlayerBiomeInfo(activeEntity.x, activeEntity.y)
         if biomeInfo and biomeInfo.type == BiomeSystem.BiomeType.ANCIENT_RUINS then
-            local bounds = Map.getVisibleChunkBounds(camera, 800)
+            local bounds = Map.getVisibleChunkBounds(camera, 1600)
             local closest, minDist
             for cy = bounds.startY, bounds.endY do
                 for cx = bounds.startX, bounds.endX do
