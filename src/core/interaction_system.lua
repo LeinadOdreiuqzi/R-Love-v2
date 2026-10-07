@@ -88,7 +88,9 @@ function InteractionSystem.tryEnterStationOrSublevel()
                     local chunk = Map.getChunkNonBlocking(cx, cy)
                     if chunk and chunk.ancientRuinsPlaceholders then
                         for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
-                            local dx, dy = ph.x - activeEntity.x, ph.y - activeEntity.y
+                            local targetX = (ph.dockingBay and ph.dockingBay.worldX) or ph.x
+                            local targetY = (ph.dockingBay and ph.dockingBay.worldY) or ph.y
+                            local dx, dy = targetX - activeEntity.x, targetY - activeEntity.y
                             local dist = math.sqrt(dx*dx + dy*dy)
                             if not minDist or dist < minDist then
                                 closest, minDist = ph, dist

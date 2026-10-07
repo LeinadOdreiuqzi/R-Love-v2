@@ -246,8 +246,51 @@ function AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
     
     -- Pre-obtener efectos de daño cacheados
     local damageEffects = AncientRuinsRenderer.getDamageEffects(damageState, seed)
+
+    -- Calcular ubicación y dimensiones de la Bahía de Atraque (Docking Bay)
+    local dockAngle = (seed * 0.47) % (math.pi * 2)
+    local dockDistRatio = 0.90
+    if baseType == "modular" then
+        dockDistRatio = 0.60
+    elseif baseType == "elongated" then
+        dockDistRatio = 0.75
+    end
+    local dockDist = stationSize * dockDistRatio
+    local dockWorldX = worldX + math.cos(dockAngle) * dockDist
+    local dockWorldY = worldY + math.sin(dockAngle) * dockDist
+    local dockRadius = math.max(65, stationSize * 0.12)
+
+    local dockingBay = {
+        angle = dockAngle,
+        distRatio = dockDistRatio,
+        worldX = dockWorldX,
+        worldY = dockWorldY,
+        radius = dockRadius,
+        width = math.max(48, stationSize * 0.10),
+        height = math.max(32, stationSize * 0.06),
+        name = "DOCK-01"
+    }
+
+    -- Precomputar campo de escombros orbitales (placas de blindaje a la deriva)
+    local orbitalDebris = {}
+    local debrisCount = (damageState == "ruins" and 10) or (damageState == "damaged" and 7) or 4
+    for i = 1, debrisCount do
+        local dAngle = (i / debrisCount) * 2 * math.pi + (seed % 19) * 0.22
+        local dDistRatio = 1.15 + ((i * 7) % 5) * 0.06
+        local dWidth = math.max(16, stationSize * (0.04 + (i % 3) * 0.02))
+        local dHeight = math.max(8, stationSize * (0.02 + (i % 2) * 0.015))
+        local rotSpeed = ((i % 2 == 0) and 1 or -1) * (0.03 + (i % 4) * 0.015)
+        table.insert(orbitalDebris, {
+            baseAngle = dAngle,
+            distRatio = dDistRatio,
+            width = dWidth,
+            height = dHeight,
+            baseRot = (i * 1.3),
+            rotSpeed = rotSpeed
+        })
+    end
     
-    -- Crear el único placeholder para este bioma
+    -- Crear el placeholder para este bioma con dockingBay y orbitalDebris
     local placeholder = {
         type = "ancient_placeholder",
         stationSize = sizeType,  -- "large", "medium", o "small"
@@ -262,7 +305,9 @@ function AncientRuinsRenderer.generatePlaceholders(chunk, chunkX, chunkY, rng)
         chunkX = chunkX,
         chunkY = chunkY,
         seed = seed,
-        damageEffects = damageEffects
+        damageEffects = damageEffects,
+        dockingBay = dockingBay,
+        orbitalDebris = orbitalDebris
     }
     
     table.insert(chunk.ancientRuinsPlaceholders, placeholder)
@@ -537,8 +582,10 @@ end
 
 -- Función para calcular variaciones de perspectiva 3D avanzadas
 local function calculateAdvanced3DEffects(placeholder, camera, perspectiveData)
-    local dx = placeholder.x - camera.x
-    local dy = placeholder.y - camera.y
+    local camX = (camera and camera.x) or 0
+    local camY = (camera and camera.y) or 0
+    local dx = placeholder.x - camX
+    local dy = placeholder.y - camY
     local distance = math.sqrt(dx * dx + dy * dy)
     
     -- Simular orientación 3D basada en posición relativa
@@ -599,8 +646,151 @@ local function calculateVolumeEffects(placeholder, screenX, screenY, screenSize,
     return volumeEffects
 end
 
+-- Renderizar campo de escombros orbitales y placas de blindaje a la deriva
+function AncientRuinsRenderer.renderOrbitalDebrisField(placeholder, screenX, screenY, finalSize, camera, alpha, time, lod)
+    local debris = placeholder.orbitalDebris
+    if not debris or #debris == 0 or (lod and lod > 3) then return end
+
+    local baseColor = {0.28, 0.33, 0.40, alpha * 0.85}
+    if placeholder.complexType and placeholder.complexType:find("ruins") then
+        baseColor = {0.20, 0.22, 0.26, alpha * 0.75}
+    end
+
+    love.graphics.push("all")
+    love.graphics.translate(screenX, screenY)
+
+    local is25D = placeholder.complexType and (placeholder.complexType:find("ring") or placeholder.complexType:find("modular"))
+    local yFlatten = is25D and 0.62 or 1.0
+
+    for _, deb in ipairs(debris) do
+        local curAngle = deb.baseAngle + time * (deb.rotSpeed or 0.02)
+        local dist = finalSize * (deb.distRatio or 1.2)
+        local dx = math.cos(curAngle) * dist
+        local dy = math.sin(curAngle) * dist * yFlatten
+        local rot = (deb.baseRot or 0) + time * (deb.rotSpeed or 0.02) * 1.5
+
+        local dw = math.max(6, finalSize * 0.035 * (deb.width / (placeholder.size * 0.05 or 1)))
+        local dh = math.max(3, finalSize * 0.018 * (deb.height / (placeholder.size * 0.025 or 1)))
+
+        love.graphics.push()
+        love.graphics.translate(dx, dy)
+        love.graphics.rotate(rot)
+
+        -- Placa de blindaje trapezoidal facetada (Fragmento de megaestructura)
+        local dPts = {
+            -dw * 0.50, -dh * 0.40,
+             dw * 0.42, -dh * 0.50,
+             dw * 0.50,  dh * 0.38,
+            -dw * 0.36,  dh * 0.50
+        }
+        love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], baseColor[4])
+        love.graphics.polygon("fill", dPts)
+
+        -- Borde de aleación de titanio con brillo de bisel
+        love.graphics.setColor(baseColor[1] * 1.5, baseColor[2] * 1.5, baseColor[3] * 1.5, baseColor[4] * 0.8)
+        love.graphics.setLineWidth(1)
+        love.graphics.polygon("line", dPts)
+
+        love.graphics.pop()
+    end
+
+    love.graphics.setLineWidth(1)
+    love.graphics.pop()
+end
+
+-- Renderizar bahía de atraque con balizas estroboscópicas secuenciales de aproximación
+function AncientRuinsRenderer.renderDockingBay(placeholder, screenX, screenY, finalSize, camera, alpha, time, damageState, lod)
+    local dock = placeholder.dockingBay
+    if not dock then return end
+
+    local is25D = placeholder.complexType and (placeholder.complexType:find("ring") or placeholder.complexType:find("modular"))
+    local yFlatten = is25D and 0.62 or 1.0
+
+    local dockAngle = dock.angle or 0
+    local dockDist = finalSize * (dock.distRatio or 0.88)
+    local dx = math.cos(dockAngle) * dockDist
+    local dy = math.sin(dockAngle) * dockDist * yFlatten
+    local bayScreenX = screenX + dx
+    local bayScreenY = screenY + dy
+
+    local bayW = math.max(32, finalSize * 0.12)
+    local bayH = math.max(20, finalSize * 0.07)
+
+    love.graphics.push("all")
+    love.graphics.translate(bayScreenX, bayScreenY)
+    love.graphics.rotate(dockAngle)
+
+    -- Colores de la bahía según el estado
+    local dockColor = {0.25, 0.35, 0.45, alpha}
+    local beaconColor = {0.2, 0.85, 1.0, alpha}
+    local airlockColor = {0.15, 0.22, 0.30, alpha}
+    
+    if damageState == "damaged" then
+        dockColor = {0.35, 0.30, 0.22, alpha}
+        beaconColor = {1.0, 0.70, 0.2, alpha}
+        airlockColor = {0.25, 0.18, 0.12, alpha}
+    elseif damageState == "ruins" then
+        dockColor = {0.22, 0.15, 0.15, alpha}
+        beaconColor = {1.0, 0.25, 0.2, alpha}
+        airlockColor = {0.12, 0.08, 0.08, alpha}
+    end
+
+    -- 1. Base y estructura del hangar en U
+    love.graphics.setColor(dockColor[1], dockColor[2], dockColor[3], dockColor[4])
+    love.graphics.setLineWidth(math.max(2, finalSize * 0.008))
+    -- Base de la esclusa
+    love.graphics.rectangle("fill", -bayW * 0.4, -bayH * 0.5, bayW * 0.8, bayH, 3, 3)
+    -- Brazos metálicos de atraque exterior que reciben a la nave
+    love.graphics.line(-bayW * 0.45, -bayH * 0.7, bayW * 0.35, -bayH * 0.7)
+    love.graphics.line(-bayW * 0.45, bayH * 0.7, bayW * 0.35, bayH * 0.7)
+
+    -- 2. Compuerta presurizada (Airlock Gate)
+    love.graphics.setColor(airlockColor[1], airlockColor[2], airlockColor[3], airlockColor[4])
+    love.graphics.circle("fill", -bayW * 0.1, 0, bayH * 0.44, 8)
+    -- Sello hermético octogonal
+    love.graphics.setColor(dockColor[1] * 1.5, dockColor[2] * 1.5, dockColor[3] * 1.5, alpha * 0.9)
+    love.graphics.circle("line", -bayW * 0.1, 0, bayH * 0.44, 8)
+
+    -- 3. Balizas estroboscópicas direccionales secuenciales (Landing Strobe Lights)
+    local beaconCount = 4
+    for i = 1, beaconCount do
+        local progress = (i - 1) / (beaconCount - 1)
+        local bx = -bayW * 0.3 + progress * (bayW * 0.65)
+        
+        -- Secuencia estroboscópica: la luz viaja desde el exterior hacia la compuerta
+        local phase = (time * 4.0 - (beaconCount - i) * 0.6) % 3.0
+        local strobe = math.max(0.15, 1.0 - phase)
+        if damageState == "ruins" then
+            strobe = strobe * (math.sin(time * 25 + i * 7) > 0 and 1 or 0.25)
+        end
+
+        local curA = beaconColor[4] * strobe
+        local bRadius = math.max(2, finalSize * 0.007)
+
+        -- Resplandor difuso
+        love.graphics.setColor(beaconColor[1], beaconColor[2], beaconColor[3], curA * 0.45)
+        love.graphics.circle("fill", bx, -bayH * 0.7, bRadius * 2.2, 6)
+        love.graphics.circle("fill", bx, bayH * 0.7, bRadius * 2.2, 6)
+
+        -- Núcleo incandescente de la baliza
+        love.graphics.setColor(1, 1, 1, curA * 0.95)
+        love.graphics.circle("fill", bx, -bayH * 0.7, bRadius, 6)
+        love.graphics.circle("fill", bx, bayH * 0.7, bRadius, 6)
+    end
+
+    -- 4. Indicador de compuerta central (sello magnético)
+    local gatePulse = 0.5 + 0.5 * math.sin(time * 5.0)
+    love.graphics.setColor(beaconColor[1], beaconColor[2], beaconColor[3], beaconColor[4] * (0.4 + 0.6 * gatePulse))
+    love.graphics.circle("fill", -bayW * 0.1, 0, math.max(2, bayH * 0.18), 6)
+
+    love.graphics.setLineWidth(1)
+    love.graphics.pop()
+end
+
 -- Renderizar un placeholder individual
 function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
+    local numLod = type(lod) == "number" and lod or (lod == "high" and 1 or (lod == "medium" and 2 or (lod == "low" and 3 or 0)))
+    local lod = numLod
     local screenX, screenY = camera:worldToScreen(placeholder.x, placeholder.y)
     local screenSize = placeholder.size * (camera.zoom or 1)
     
@@ -695,7 +885,7 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     local alpha = AncientRuinsRenderer.calculateEdgeFade(screenX, screenY, finalSize, camera)
     alpha = alpha * complexConfig.alpha  -- Aplicar alpha del tipo de complejo
     
-    love.graphics.push()
+    love.graphics.push("all")
     love.graphics.origin()
     
     -- En el espacio no hay sombras proyectadas - solo iluminación direccional de estrellas
@@ -708,61 +898,76 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     
     -- Transformaciones de perspectiva ahora se aplican dentro de cada forma y en la ruta con shader
     
-    -- Usar shader si está disponible (solo para estaciones funcionales)
-    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
-    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
-    
-    if shader and img and lod <= 3 and complexConfig.shape ~= "damaged" and complexConfig.shape ~= "ruins" then
-        -- Renderizado con shader para mejor calidad
-        ShaderManager.setShader(shader)
-        local iw, ih = img:getWidth(), img:getHeight()
-        local scale = (finalSize * 2) / math.max(1, iw)
-
-        -- Usar StationShaders module para envío de uniforms optimizado por LOD
-        local StationShaders = require 'src.shaders.station_shaders'
-        local lightAngle = (volumeEffects and volumeEffects.lighting and volumeEffects.lighting.gradientAngle) or 0
-        local lightDir = {math.cos(lightAngle), math.sin(lightAngle)}
-        local shapeType = 1 -- modular por defecto
-        if baseType == "ring" then shapeType = 0 elseif baseType == "modular" then shapeType = 1 elseif baseType == "elongated" then shapeType = 2 end
-        local damageFactor = 1.0 - (complexConfig.structuralIntegrity or 1.0)
-        
-        -- Enviar uniforms usando el módulo especializado
-        StationShaders.sendUniforms({
-            time = time,
-            lod = lod,
-            rotation = rotation,
-            damage = damageFactor,
-            lightDir = lightDir,
-            shapeType = shapeType,
-            seed = placeholder.seed or 0,
-            size = finalSize
-        })
-        
-        -- Resplandor exterior (LOD 0-2 y LOD 4 para mantener visibilidad a distancia)
-        if lod <= 2 or lod == 4 then
-            local glowIntensity = (lod == 4) and 0.7 or 1.0  -- Reducir intensidad en LOD 4
-            love.graphics.setColor(complexConfig.glowColor[1], complexConfig.glowColor[2], complexConfig.glowColor[3], complexConfig.glowColor[4] * alpha * glowIntensity)
-            local glowScale = scale * 1.5
-            love.graphics.draw(img, screenX, screenY, placeholder.rotation, glowScale, glowScale, iw * 0.5, ih * 0.5)
-        end
-        
-        -- Cuerpo principal
-         love.graphics.setColor(complexConfig.color[1], complexConfig.color[2], complexConfig.color[3], complexConfig.color[4] * alpha)
-         love.graphics.draw(img, screenX, screenY, rotation, scale, scale, iw * 0.5, ih * 0.5)
-        
-        ShaderManager.unsetShader()
+    -- Renderizadores especializados 2.5D con parallax de subniveles (Megaestructuras Brutalistas Sci-Fi)
+    if baseType == "ring" then
+        local StationRingRenderer = require 'src.maps.systems.renderers.station_ring_renderer'
+        StationRingRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+    elseif baseType == "modular" then
+        local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
+        StationModularRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     else
-        -- Fallback sin shader con segmentos basados en LOD mejorado
-        local lodConfig = AncientRuinsRenderer.config.lod.details[lod] or AncientRuinsRenderer.config.lod.details[4]
-        local baseSegments = lod >= 4 and 8 or (lod >= 3 and 12 or (lod >= 2 and 16 or (lod >= 1 and 20 or 24)))
-        local segments = math.floor(baseSegments * lodConfig.segmentMultiplier)
+        -- Usar shader si está disponible (solo para estaciones funcionales modulares/alargadas)
+        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
+        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
         
-        -- Renderizar según el tipo de complejo espacial
-        love.graphics.setColor(complexConfig.color[1], complexConfig.color[2], complexConfig.color[3], complexConfig.color[4] * alpha)
-        
-        AncientRuinsRenderer.renderComplexShape(complexConfig.shape, screenX, screenY, finalSize, segments, alpha, rotation, placeholder.seed, complexConfig.glowColor, lod, perspectiveData, volumeEffects, lodConfig)
+        if shader and img and lod <= 3 and complexConfig.shape ~= "damaged" and complexConfig.shape ~= "ruins" then
+            -- Renderizado con shader para mejor calidad
+            ShaderManager.setShader(shader)
+            local iw, ih = img:getWidth(), img:getHeight()
+            local scale = (finalSize * 2) / math.max(1, iw)
+
+            -- Usar StationShaders module para envío de uniforms optimizado por LOD
+            local StationShaders = require 'src.shaders.station_shaders'
+            local lightAngle = (volumeEffects and volumeEffects.lighting and volumeEffects.lighting.gradientAngle) or 0
+            local lightDir = {math.cos(lightAngle), math.sin(lightAngle)}
+            local shapeType = (baseType == "modular") and 1 or 2
+            local damageFactor = 1.0 - (complexConfig.structuralIntegrity or 1.0)
+            
+            -- Enviar uniforms usando el módulo especializado
+            StationShaders.sendUniforms({
+                time = time,
+                lod = lod,
+                rotation = rotation,
+                damage = damageFactor,
+                lightDir = lightDir,
+                shapeType = shapeType,
+                seed = placeholder.seed or 0,
+                size = finalSize
+            })
+            
+            -- Resplandor exterior (LOD 0-2 y LOD 4 para mantener visibilidad a distancia)
+            if lod <= 2 or lod == 4 then
+                local glowIntensity = (lod == 4) and 0.7 or 1.0  -- Reducir intensidad en LOD 4
+                love.graphics.setColor(complexConfig.glowColor[1], complexConfig.glowColor[2], complexConfig.glowColor[3], complexConfig.glowColor[4] * alpha * glowIntensity)
+                local glowScale = scale * 1.5
+                love.graphics.draw(img, screenX, screenY, placeholder.rotation, glowScale, glowScale, iw * 0.5, ih * 0.5)
+            end
+            
+            -- Cuerpo principal
+             love.graphics.setColor(complexConfig.color[1], complexConfig.color[2], complexConfig.color[3], complexConfig.color[4] * alpha)
+             love.graphics.draw(img, screenX, screenY, rotation, scale, scale, iw * 0.5, ih * 0.5)
+            
+            ShaderManager.unsetShader()
+        else
+            -- Fallback sin shader con segmentos basados en LOD mejorado
+            local lodConfig = AncientRuinsRenderer.config.lod.details[lod] or AncientRuinsRenderer.config.lod.details[4]
+            local baseSegments = lod >= 4 and 8 or (lod >= 3 and 12 or (lod >= 2 and 16 or (lod >= 1 and 20 or 24)))
+            local segments = math.floor(baseSegments * lodConfig.segmentMultiplier)
+            
+            -- Renderizar según el tipo de complejo espacial
+            love.graphics.setColor(complexConfig.color[1], complexConfig.color[2], complexConfig.color[3], complexConfig.color[4] * alpha)
+            
+            AncientRuinsRenderer.renderComplexShape(complexConfig.shape, screenX, screenY, finalSize, segments, alpha, rotation, placeholder.seed, complexConfig.glowColor, lod, perspectiveData, volumeEffects, lodConfig)
+        end
     end
     
+    -- Renderizar campo de escombros orbitales alrededor del casco
+    AncientRuinsRenderer.renderOrbitalDebrisField(placeholder, screenX, screenY, finalSize, camera, alpha, time, lod)
+
+    -- Renderizar bahía de atraque con balizas estroboscópicas secuenciales
+    AncientRuinsRenderer.renderDockingBay(placeholder, screenX, screenY, finalSize, camera, alpha, time, damageState, lod)
+    
+    love.graphics.setLineWidth(1)
     love.graphics.pop()
 end
 
@@ -858,405 +1063,13 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
     end
     
     if baseType == "ring" then
-        -- Estación tipo anillo (como en las imágenes de referencia)
-        love.graphics.push()
-        love.graphics.translate(screenX, screenY)
-        love.graphics.rotate(rotation)
-        love.graphics.scale(1.0, perspectiveData.scaleY)
-        love.graphics.shear(perspectiveData.skewX, 0)
-        
-        -- Resplandor específico para anillo (LOD 0-2 y LOD 4)
-        if glowColor and (lod <= 2 or lod == 4) then
-            local glowIntensity = (lod == 4) and 0.7 or 1.0
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * glowIntensity)
-            love.graphics.circle("fill", 0, 0, finalSize * 1.2, segments)
-            love.graphics.setColor(love.graphics.getColor())
-        end
-        
-        -- Capa de profundidad (fondo más oscuro)
-        if volumeEffects.depth and lod <= 2 then
-            local currentColor = {love.graphics.getColor()}
-            love.graphics.setColor(currentColor[1] * 0.7, currentColor[2] * 0.7, currentColor[3] * 0.7, currentColor[4])
-            love.graphics.circle("fill", volumeEffects.depth.layerOffset * 0.5, volumeEffects.depth.layerOffset * 0.5, finalSize * 1.02, segments)
-            love.graphics.setColor(currentColor)
-        end
-        
-        -- Anillo exterior principal
-        love.graphics.circle("fill", 0, 0, finalSize, segments)
-        
-        -- Aplicar efectos de volumen (highlights)
-        applyVolumeEffects(volumeEffects, finalSize, lod, lodConfig)
-        
-        -- Hueco interior con efectos de profundidad direccional
-        local lighting = volumeEffects.lighting or {gradientAngle = 0, intensity = 1.0, contrastFactor = 1.0}
-        local lightAngle = lighting.gradientAngle
-        local lightDirX, lightDirY = math.cos(lightAngle), math.sin(lightAngle)
-        local depthIntensity = lighting.intensity * 0.8
-        
-        -- Múltiples capas para crear efecto de profundidad realista
-        for i = 1, 6 do
-            local depthFactor = 0.55 - (i * 0.02)
-            local depthAlpha = 1.0 - (i * 0.12)
-            local shadowOffset = i * 0.015
-            
-            -- Color base de profundidad con variación según dirección de luz
-            local depthR = 0.02 + (lightDirX * 0.03 * depthIntensity)
-            local depthG = 0.01 + (lightDirY * 0.015 * depthIntensity)
-            local depthB = 0.05 + (depthIntensity * 0.04)
-            
-            love.graphics.setColor(depthR, depthG, depthB, depthAlpha)
-            love.graphics.circle("fill", 
-                lightDirX * finalSize * shadowOffset, 
-                lightDirY * finalSize * shadowOffset, 
-                finalSize * depthFactor, 
-                segments
-            )
-        end
-        
-        -- Restaurar color
-        love.graphics.setColor(love.graphics.getColor())
-        
-        -- Anillo interior estructural con contraste mejorado
-        local structuralIntensity = 0.7 + (lighting.contrastFactor * 0.3)
-        local currentColor = {love.graphics.getColor()}
-        love.graphics.setColor(
-            currentColor[1] * structuralIntensity,
-            currentColor[2] * structuralIntensity,
-            currentColor[3] * structuralIntensity,
-            currentColor[4]
-        )
-        love.graphics.setLineWidth(math.max(2, finalSize * 0.008))
-        love.graphics.circle("line", 0, 0, finalSize * 0.7, segments)
-        love.graphics.circle("line", 0, 0, finalSize * 0.85, segments)
-        
-        -- Anillos adicionales para mayor detalle estructural
-        love.graphics.setLineWidth(math.max(1, finalSize * 0.004))
-        love.graphics.circle("line", 0, 0, finalSize * 0.77, segments)
-        love.graphics.setColor(currentColor)
-        
-        -- Estructuras radiales principales (rayos) con efectos direccionales
-        local lighting = volumeEffects.lighting or {gradientAngle = 0, intensity = 1.0, contrastFactor = 1.0}
-        local lightAngle = lighting.gradientAngle
-        local lightDirX, lightDirY = math.cos(lightAngle), math.sin(lightAngle)
-        
-        for i = 1, 12 do
-            local angle = (i / 12) * 2 * math.pi
-            local rayDirX, rayDirY = math.cos(angle), math.sin(angle)
-            local x1 = rayDirX * finalSize * 0.55
-            local y1 = rayDirY * finalSize * 0.55
-            local x2 = rayDirX * finalSize
-            local y2 = rayDirY * finalSize
-            
-            -- Calcular intensidad basada en ángulo con la luz
-            local dotProduct = rayDirX * lightDirX + rayDirY * lightDirY
-            local rayIntensity = 0.6 + (dotProduct * 0.4 * lighting.intensity)
-            local rayAlpha = 0.8 + (dotProduct * 0.2)
-            
-            local currentColor = {love.graphics.getColor()}
-            love.graphics.setColor(
-                currentColor[1] * rayIntensity,
-                currentColor[2] * rayIntensity,
-                currentColor[3] * rayIntensity,
-                currentColor[4] * rayAlpha
-            )
-            
-            love.graphics.setLineWidth(math.max(2, finalSize * 0.012 * rayIntensity))
-            love.graphics.line(x1, y1, x2, y2)
-            
-            -- Sombra sutil del rayo en el lado opuesto
-            if dotProduct < 0 then
-                love.graphics.setColor(
-                    currentColor[1] * 0.3,
-                    currentColor[2] * 0.3,
-                    currentColor[3] * 0.3,
-                    currentColor[4] * 0.4
-                )
-                love.graphics.setLineWidth(math.max(1, finalSize * 0.006))
-                love.graphics.line(
-                    x1 + lightDirX * finalSize * 0.02,
-                    y1 + lightDirY * finalSize * 0.02,
-                    x2 + lightDirX * finalSize * 0.02,
-                    y2 + lightDirY * finalSize * 0.02
-                )
-            end
-            
-            love.graphics.setColor(currentColor)
-        end
-        
-        -- Módulos de acoplamiento con efectos de profundidad
-        for i = 1, 4 do
-            local angle = (i / 4) * 2 * math.pi
-            local moduleDirX, moduleDirY = math.cos(angle), math.sin(angle)
-            local x = moduleDirX * finalSize * 0.9
-            local y = moduleDirY * finalSize * 0.9
-            
-            -- Calcular intensidad del módulo basada en iluminación
-            local dotProduct = moduleDirX * lightDirX + moduleDirY * lightDirY
-            local moduleIntensity = 0.7 + (dotProduct * 0.3 * lighting.intensity)
-            
-            local currentColor = {love.graphics.getColor()}
-            
-            -- Sombra del módulo
-            love.graphics.setColor(
-                currentColor[1] * 0.2,
-                currentColor[2] * 0.2,
-                currentColor[3] * 0.2,
-                currentColor[4] * 0.6
-            )
-            love.graphics.rectangle("fill", 
-                x - finalSize * 0.05 + lightDirX * finalSize * 0.01,
-                y - finalSize * 0.03 + lightDirY * finalSize * 0.01,
-                finalSize * 0.1, finalSize * 0.06
-            )
-            
-            -- Módulo principal con iluminación
-            love.graphics.setColor(
-                currentColor[1] * moduleIntensity,
-                currentColor[2] * moduleIntensity,
-                currentColor[3] * moduleIntensity,
-                currentColor[4]
-            )
-            love.graphics.rectangle("fill", 
-                x - finalSize * 0.05, y - finalSize * 0.03, 
-                finalSize * 0.1, finalSize * 0.06
-            )
-            
-            -- Highlight en el lado iluminado
-            if dotProduct > 0 then
-                love.graphics.setColor(
-                    math.min(1.0, currentColor[1] * (1.2 + moduleIntensity * 0.3)),
-                    math.min(1.0, currentColor[2] * (1.2 + moduleIntensity * 0.3)),
-                    math.min(1.0, currentColor[3] * (1.2 + moduleIntensity * 0.3)),
-                    currentColor[4] * 0.8
-                )
-                love.graphics.rectangle("fill", 
-                    x - finalSize * 0.05 - lightDirX * finalSize * 0.005,
-                    y - finalSize * 0.03 - lightDirY * finalSize * 0.005,
-                    finalSize * 0.02, finalSize * 0.06
-                )
-            end
-            
-            love.graphics.setColor(currentColor)
-        end
-        
-        -- Antenas y estructuras externas con efectos direccionales
-        for i = 1, 8 do
-            local angle = (i / 8) * 2 * math.pi + math.pi/16
-            local antennaDirX, antennaDirY = math.cos(angle), math.sin(angle)
-            local x1 = antennaDirX * finalSize * 1.0
-            local y1 = antennaDirY * finalSize * 1.0
-            local x2 = antennaDirX * finalSize * 1.15
-            local y2 = antennaDirY * finalSize * 1.15
-            
-            -- Calcular intensidad de la antena basada en iluminación
-            local dotProduct = antennaDirX * lightDirX + antennaDirY * lightDirY
-            local antennaIntensity = 0.5 + (dotProduct * 0.5 * lighting.intensity)
-            local antennaAlpha = 0.7 + (dotProduct * 0.3)
-            
-            local currentColor = {love.graphics.getColor()}
-            
-            -- Sombra de la antena
-            if dotProduct < 0.2 then
-                love.graphics.setColor(
-                    currentColor[1] * 0.3,
-                    currentColor[2] * 0.3,
-                    currentColor[3] * 0.3,
-                    currentColor[4] * 0.5
-                )
-                love.graphics.setLineWidth(math.max(1, finalSize * 0.004))
-                love.graphics.line(
-                    x1 + lightDirX * finalSize * 0.01,
-                    y1 + lightDirY * finalSize * 0.01,
-                    x2 + lightDirX * finalSize * 0.01,
-                    y2 + lightDirY * finalSize * 0.01
-                )
-            end
-            
-            -- Antena principal
-            love.graphics.setColor(
-                currentColor[1] * antennaIntensity,
-                currentColor[2] * antennaIntensity,
-                currentColor[3] * antennaIntensity,
-                currentColor[4] * antennaAlpha
-            )
-            love.graphics.setLineWidth(math.max(1, finalSize * 0.005 * antennaIntensity))
-            love.graphics.line(x1, y1, x2, y2)
-            
-            -- Punta de la antena con efecto de brillo
-            local tipIntensity = antennaIntensity * (1.0 + dotProduct * 0.3)
-            love.graphics.setColor(
-                math.min(1.0, currentColor[1] * tipIntensity),
-                math.min(1.0, currentColor[2] * tipIntensity),
-                math.min(1.0, currentColor[3] * tipIntensity),
-                currentColor[4] * antennaAlpha
-            )
-            love.graphics.circle("fill", x2, y2, finalSize * 0.025 * antennaIntensity, 8)
-            
-            -- Highlight en la punta si está iluminada
-            if dotProduct > 0.3 then
-                love.graphics.setColor(1.0, 0.95, 0.8, antennaAlpha * 0.8)
-                love.graphics.circle("fill", 
-                    x2 - lightDirX * finalSize * 0.01,
-                    y2 - lightDirY * finalSize * 0.01,
-                    finalSize * 0.015, 6
-                )
-            end
-            
-            love.graphics.setColor(currentColor)
-        end
-        
-        -- Microestructuras detalladas solo en LOD alto
-        if lodConfig.showMicroStructures then
-            -- Paneles solares detallados en el anillo
-            for i = 1, 16 do
-                local angle = (i / 16) * 2 * math.pi
-                local x = math.cos(angle) * finalSize * 0.75
-                local y = math.sin(angle) * finalSize * 0.75
-                love.graphics.rectangle("fill", x - finalSize * 0.03, y - finalSize * 0.015, finalSize * 0.06, finalSize * 0.03)
-            end
-            
-            -- Ventanas de observación
-            for i = 1, 12 do
-                local angle = (i / 12) * 2 * math.pi + math.pi/24
-                local x = math.cos(angle) * finalSize * 0.85
-                local y = math.sin(angle) * finalSize * 0.85
-                love.graphics.setColor(0.8, 0.9, 1.0, alpha * 0.95)
-                love.graphics.circle("fill", x, y, finalSize * 0.015, 6)
-                love.graphics.setColor(love.graphics.getColor())
-            end
-            
-            -- Estructuras de comunicación
-            for i = 1, 4 do
-                local angle = (i / 4) * 2 * math.pi + math.pi/8
-                local x = math.cos(angle) * finalSize * 0.95
-                local y = math.sin(angle) * finalSize * 0.95
-                love.graphics.rectangle("fill", x - finalSize * 0.01, y - finalSize * 0.04, finalSize * 0.02, finalSize * 0.08)
-            end
-        end
-        
-        love.graphics.pop()
-        
+        local StationRingRenderer = require 'src.maps.systems.renderers.station_ring_renderer'
+        local dummyPlaceholder = { seed = seed, x = screenX, y = screenY }
+        StationRingRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "modular" then
-        -- Estación modular (como ISS en las imágenes)
-        love.graphics.push()
-        love.graphics.translate(screenX, screenY)
-        love.graphics.rotate(rotation)
-        love.graphics.scale(1.0, perspectiveData.scaleY)
-        love.graphics.shear(perspectiveData.skewX, 0)
-        
-        -- Resplandor específico para estación modular (LOD 0-2 y LOD 4)
-        if glowColor and (lod <= 2 or lod == 4) then
-            local baseIntensity = (lod == 4) and 0.4 or 0.6
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
-            love.graphics.rectangle("fill", -finalSize * 1.3, -finalSize * 0.3, finalSize * 2.6, finalSize * 0.6)
-            love.graphics.setColor(love.graphics.getColor())
-        end
-        
-        -- Capa de profundidad para estructura modular
-        if volumeEffects.depth and lod <= 2 then
-            local currentColor = {love.graphics.getColor()}
-            love.graphics.setColor(currentColor[1] * 0.6, currentColor[2] * 0.6, currentColor[3] * 0.6, currentColor[4])
-            love.graphics.rectangle("fill", -finalSize * 0.42 + volumeEffects.depth.layerOffset * 0.3, -finalSize * 0.14 + volumeEffects.depth.layerOffset * 0.3, finalSize * 0.84, finalSize * 0.28)
-            love.graphics.setColor(currentColor)
-        end
-        
-        -- Estructura central principal (cilindro)
-        love.graphics.rectangle("fill", -finalSize * 0.4, -finalSize * 0.12, finalSize * 0.8, finalSize * 0.24)
-        
-        -- Aplicar efectos de volumen (highlights en estructura central)
-        if volumeEffects.lighting and lod <= 2 then
-            love.graphics.setColor(1.0, 1.0, 1.0, volumeEffects.lighting.highlightColor[4])
-            love.graphics.rectangle("fill", -finalSize * 0.35, -finalSize * 0.10, finalSize * 0.1, finalSize * 0.05)
-            love.graphics.setColor(love.graphics.getColor())
-        end
-        
-        -- Módulos de conexión
-        love.graphics.rectangle("fill", -finalSize * 0.1, -finalSize * 0.25, finalSize * 0.2, finalSize * 0.13)
-        love.graphics.rectangle("fill", -finalSize * 0.1, finalSize * 0.12, finalSize * 0.2, finalSize * 0.13)
-        
-        -- Paneles solares principales (más detallados)
-        love.graphics.setLineWidth(1)
-        -- Panel solar izquierdo
-        love.graphics.rectangle("fill", -finalSize * 1.1, -finalSize * 0.08, finalSize * 0.5, finalSize * 0.16)
-        for i = 1, 6 do
-            local x = -finalSize * 1.1 + (i-1) * finalSize * 0.08
-            love.graphics.line(x, -finalSize * 0.08, x, finalSize * 0.08)
-        end
-        for i = 1, 3 do
-            local y = -finalSize * 0.08 + (i-1) * finalSize * 0.08
-            love.graphics.line(-finalSize * 1.1, y, -finalSize * 0.6, y)
-        end
-        
-        -- Panel solar derecho
-        love.graphics.rectangle("fill", finalSize * 0.6, -finalSize * 0.08, finalSize * 0.5, finalSize * 0.16)
-        for i = 1, 6 do
-            local x = finalSize * 0.6 + (i-1) * finalSize * 0.08
-            love.graphics.line(x, -finalSize * 0.08, x, finalSize * 0.08)
-        end
-        for i = 1, 3 do
-            local y = -finalSize * 0.08 + (i-1) * finalSize * 0.08
-            love.graphics.line(finalSize * 0.6, y, finalSize * 1.1, y)
-        end
-        
-        -- Módulos habitacionales laterales
-        love.graphics.circle("fill", -finalSize * 0.05, -finalSize * 0.45, finalSize * 0.15, 8)
-        love.graphics.circle("fill", finalSize * 0.05, finalSize * 0.45, finalSize * 0.15, 8)
-        
-        -- Antenas y comunicaciones
-        love.graphics.setLineWidth(2)
-        love.graphics.line(0, -finalSize * 0.12, 0, -finalSize * 0.35)
-        love.graphics.line(-finalSize * 0.1, -finalSize * 0.35, finalSize * 0.1, -finalSize * 0.35)
-        love.graphics.circle("fill", 0, -finalSize * 0.35, finalSize * 0.03, 6)
-        
-        -- Brazos robóticos
-        love.graphics.setLineWidth(3)
-        love.graphics.line(finalSize * 0.4, 0, finalSize * 0.55, -finalSize * 0.2)
-        love.graphics.line(finalSize * 0.55, -finalSize * 0.2, finalSize * 0.65, -finalSize * 0.15)
-        love.graphics.circle("fill", finalSize * 0.65, -finalSize * 0.15, finalSize * 0.04, 6)
-        
-        -- Puertos de acoplamiento
-        love.graphics.circle("line", -finalSize * 0.4, 0, finalSize * 0.06, 8)
-        love.graphics.circle("line", finalSize * 0.4, 0, finalSize * 0.06, 8)
-        
-        -- Microestructuras detalladas solo en LOD alto
-        if lodConfig.showMicroStructures then
-            -- Ventanas de observación en módulo central
-            for i = 1, 8 do
-                local x = -finalSize * 0.35 + (i-1) * finalSize * 0.08
-                love.graphics.setColor(0.7, 0.8, 1.0, alpha * 0.9)
-                love.graphics.rectangle("fill", x, -finalSize * 0.05, finalSize * 0.03, finalSize * 0.04)
-                love.graphics.setColor(love.graphics.getColor())
-            end
-            
-            -- Detalles en paneles solares (celdas individuales)
-            for i = 1, 4 do
-                for j = 1, 2 do
-                    local x = -finalSize * 1.05 + (i-1) * finalSize * 0.1
-                    local y = -finalSize * 0.06 + (j-1) * finalSize * 0.06
-                    love.graphics.setColor(0.3, 0.4, 0.8, alpha * 0.8)
-                    love.graphics.rectangle("fill", x, y, finalSize * 0.04, finalSize * 0.03)
-                    love.graphics.setColor(love.graphics.getColor())
-                end
-            end
-            
-            -- Luces de navegación
-            love.graphics.setColor(1.0, 0.2, 0.2, alpha * 0.8)
-            love.graphics.circle("fill", -finalSize * 0.4, 0, finalSize * 0.015, 6)
-            love.graphics.setColor(0.2, 1.0, 0.2, alpha * 0.8)
-            love.graphics.circle("fill", finalSize * 0.4, 0, finalSize * 0.015, 6)
-            love.graphics.setColor(love.graphics.getColor())
-            
-            -- Sistemas de acoplamiento detallados
-            for i = 1, 3 do
-                local angle = (i / 3) * 2 * math.pi
-                local x = math.cos(angle) * finalSize * 0.08
-                local y = math.sin(angle) * finalSize * 0.08
-                love.graphics.rectangle("fill", x - finalSize * 0.02, y - finalSize * 0.02, finalSize * 0.04, finalSize * 0.04)
-            end
-        end
-        
-        love.graphics.pop()
-        
+        local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
+        local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
+        StationModularRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "elongated" then
         -- Nave alargada (como las naves espaciales de las imágenes)
         love.graphics.push()

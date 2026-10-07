@@ -46,7 +46,9 @@ function HUD.updateStationHint(dt)
             local chunk = HUD.Map.getChunkNonBlocking and HUD.Map.getChunkNonBlocking(cx, cy) or nil
             if chunk and chunk.ancientRuinsPlaceholders then
                 for _, ph in ipairs(chunk.ancientRuinsPlaceholders) do
-                    local dx, dy = (ph.x or 0) - HUD.player.x, (ph.y or 0) - HUD.player.y
+                    local targetX = (ph.dockingBay and ph.dockingBay.worldX) or (ph.x or 0)
+                    local targetY = (ph.dockingBay and ph.dockingBay.worldY) or (ph.y or 0)
+                    local dx, dy = targetX - HUD.player.x, targetY - HUD.player.y
                     local dist = math.sqrt(dx*dx + dy*dy)
                     if not minDist or dist < minDist then
                         closest, minDist = ph, dist
@@ -58,7 +60,7 @@ function HUD.updateStationHint(dt)
 
     if closest and minDist then
         local factor = cfg.enterRadiusFactor or 1.25
-        -- Usar helper centralizado para calcular el radio permitido (incluye daño + tipo base)
+        -- Usar helper centralizado para calcular el radio permitido (incluye daño + tipo base + dockingBay)
         local allowed = (HUD.computeEnterRadius and HUD.computeEnterRadius(closest, factor)) or math.huge
         
         if minDist <= allowed then
@@ -66,10 +68,12 @@ function HUD.updateStationHint(dt)
             cfg.placeholder = closest
             cfg.distance = minDist
 
-            -- Posición de pantalla para indicador
+            -- Posición de pantalla para indicador centrada en la bahía de atraque
             local camera = World.get('camera')
             if camera and camera.worldToScreen then
-                local sx, sy = camera:worldToScreen(closest.x or 0, closest.y or 0)
+                local targetX = (closest.dockingBay and closest.dockingBay.worldX) or (closest.x or 0)
+                local targetY = (closest.dockingBay and closest.dockingBay.worldY) or (closest.y or 0)
+                local sx, sy = camera:worldToScreen(targetX, targetY)
                 cfg.screenX, cfg.screenY = sx, sy
             else
                 cfg.screenX, cfg.screenY = love.graphics.getWidth() * 0.5, love.graphics.getHeight() * 0.5
@@ -78,7 +82,7 @@ function HUD.updateStationHint(dt)
     end
 end
 
--- Nuevo helper: calcula el radio dinámico de entrada para una estación
+-- Helper: calcula el radio dinámico de entrada para una estación (basado en dockingBay)
 function HUD.computeEnterRadius(placeholder, factorOverride)
     local cfg = HUD.hudState and HUD.hudState.stationHint or {}
     local factor = factorOverride or (cfg and cfg.enterRadiusFactor) or 1.25
@@ -86,27 +90,28 @@ function HUD.computeEnterRadius(placeholder, factorOverride)
         return math.huge
     end
 
-    local baseMultiplier = 1.0
     local damageMultiplier = 1.0
-
     if placeholder.complexType then
-        local base, state = tostring(placeholder.complexType):match("([^_]+)_([^_]+)")
-        -- Ajuste por tipo base
-        if base == "ring" then
-            baseMultiplier = 1.0
-        elseif base == "modular" then
-            baseMultiplier = 0.95
-        elseif base == "elongated" then
-            baseMultiplier = 1.1
-        end
-        -- Ajuste por estado de daño
+        local _, state = tostring(placeholder.complexType):match("([^_]+)_([^_]+)")
         if state == "damaged" then
-            damageMultiplier = 0.9
+            damageMultiplier = 0.95
         elseif state == "ruins" then
-            damageMultiplier = 0.7
-        else
-            damageMultiplier = 1.0
+            damageMultiplier = 0.85
         end
+    end
+
+    -- Si existe bahía de atraque dedicada, el radio se acopla al perímetro de atraque
+    if placeholder.dockingBay then
+        local dockRadius = placeholder.dockingBay.radius or 65
+        return (dockRadius + 90) * factor * damageMultiplier
+    end
+
+    local baseMultiplier = 1.0
+    if placeholder.complexType then
+        local base = tostring(placeholder.complexType):match("([^_]+)_")
+        if base == "ring" then baseMultiplier = 1.0
+        elseif base == "modular" then baseMultiplier = 0.95
+        elseif base == "elongated" then baseMultiplier = 1.1 end
     end
 
     return placeholder.size * factor * damageMultiplier * baseMultiplier
@@ -166,7 +171,8 @@ function HUD.drawStationHint()
     local mainFont = HUD.hudState.font or love.graphics.getFont()
     local smallFont = HUD.hudState.smallFont or mainFont
     
-    local prompt = "Presiona E para entrar"
+    local dockName = (placeholder.dockingBay and placeholder.dockingBay.name) or "DOCK-01"
+    local prompt = "[E] ATRAQUE EN " .. dockName
     local typeText = "Tipo: " .. stationType
     local stateText = "Estado: " .. stationState
     
