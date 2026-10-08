@@ -37,8 +37,13 @@ AncientRuinsRenderer.config = {
             },
             elongated_ship = {
                 name = "nave_alargada",
-                weight = 0.25,  -- 25% probabilidad de tipo nave
+                weight = 0.20,  -- 20% probabilidad de tipo nave
                 baseShape = "elongated"
+            },
+            axiom_cruiser = {
+                name = "crucero_axiom",
+                weight = 0.15,  -- 15% probabilidad de crucero Axiom
+                baseShape = "axiom"
             }
         },
         
@@ -130,6 +135,29 @@ AncientRuinsRenderer.config = {
                 glowColor = {0.35, 0.20, 0.15, 1.0},  -- Resplandor rojizo muy tenue
                 alpha = 1.0,
                 structuralIntegrity = 0.1
+            },
+
+            -- Crucero Estelar Clase Axiom (Wall-E Class)
+            axiom_operational = {
+                shape = "axiom_operational",
+                color = {0.88, 0.91, 0.96, 1.0},  -- Blanco titanio Axiom
+                glowColor = {0.35, 0.82, 1.0, 1.0},  -- Resplandor plasma cian
+                alpha = 1.0,
+                structuralIntegrity = 1.0
+            },
+            axiom_damaged = {
+                shape = "axiom_damaged",
+                color = {0.70, 0.76, 0.84, 1.0},  -- Titanio con marcas de impacto
+                glowColor = {0.95, 0.65, 0.20, 1.0},  -- Resplandor ámbar de alerta
+                alpha = 1.0,
+                structuralIntegrity = 0.5
+            },
+            axiom_ruins = {
+                shape = "axiom_ruins",
+                color = {0.20, 0.24, 0.33, 1.0},  -- Metal carbonizado en blackout
+                glowColor = {0.20, 0.25, 0.35, 1.0},  -- Resplandor frío muy débil
+                alpha = 1.0,
+                structuralIntegrity = 0.15
             }
         }
     },
@@ -818,13 +846,15 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
             ring = 0.75,
             modular = 0.7,
             elongated = 0.85,
+            axiom = 0.85,
             partial = 0.6,
             ruins = 1.0,
             damaged = 1.0,
             -- alias/variantes posibles
             ring_station = 0.75,
             modular_station = 0.7,
-            elongated_ship = 0.85
+            elongated_ship = 0.85,
+            axiom_cruiser = 0.85
         }
         local intensity = (typeIntensity[shape] or 0.7) * effectStrength
         -- Limitar intensidades para evitar extremos
@@ -875,8 +905,10 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
         rotation = (placeholder.seed * 0.1) % (math.pi * 2) + advanced3D.apparentRotation * 0.3
     elseif baseType == "modular" then
         rotation = advanced3D.apparentRotation * 0.2  -- Rotación sutil para estructuras modulares
+    elseif baseType == "axiom" then
+        rotation = placeholder.rotation or 0 -- Porte náutico horizontal estable Axiom
     elseif baseType == "elongated" then
-        rotation = (placeholder.seed * 0.05) % (math.pi * 2) + advanced3D.apparentRotation * 0.5
+        rotation = placeholder.rotation or 0 -- Porte náutico horizontal estable
     else
         rotation = advanced3D.apparentRotation * 0.1
     end
@@ -905,6 +937,12 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     elseif baseType == "modular" then
         local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
         StationModularRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+    elseif baseType == "axiom" then
+        local StationAxiomRenderer = require 'src.maps.systems.renderers.station_axiom_renderer'
+        StationAxiomRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+    elseif baseType == "elongated" then
+        local StationElongatedRenderer = require 'src.maps.systems.renderers.station_elongated_renderer'
+        StationElongatedRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     else
         -- Usar shader si está disponible (solo para estaciones funcionales modulares/alargadas)
         local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("station") or nil
@@ -1070,6 +1108,10 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationModularRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+    elseif baseType == "axiom" then
+        local StationAxiomRenderer = require 'src.maps.systems.renderers.station_axiom_renderer'
+        local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
+        StationAxiomRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "elongated" then
         -- Nave alargada (como las naves espaciales de las imágenes)
         love.graphics.push()

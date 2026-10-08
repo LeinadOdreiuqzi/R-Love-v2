@@ -7,7 +7,7 @@ local StationsDebug = {
     name = "Estaciones Espaciales (Debug)",
     ambientColor = { 0.015, 0.018, 0.028 },
     accentColor = { 0.25, 0.85, 0.95 },
-    bounds = { width = 16000, height = 16000 }
+    bounds = { width = 18000, height = 18000 }
 }
 
 -- Definición de estaciones maestras por tipo y estado
@@ -88,42 +88,80 @@ local MASTER_STATIONS = {
         desc = "Brazos 2 y 4 cercenados con ciudadelas a la deriva, rescoldos térmicos y blindaje flotante."
     },
 
-    -- 3. NAVES ALARGADAS (ELONGATED CRUISER / DREADNOUGHT)
+    -- 3. NAVES ALARGADAS (FINAL WEAPON - MEGA MAN X4)
     elongated_operational = {
         id = "elo_op",
-        name = "Nave Alargada - Operacional",
-        shortName = "Alargada (Op)",
+        name = "Final Weapon - Operacional",
+        shortName = "Final Weapon (Op)",
         complexType = "elongated_operational",
         damageState = "operational",
-        colorBadge = { 1.00, 0.70, 0.35 },
+        colorBadge = { 0.95, 0.20, 0.35 },
         badgeText = "OPERACIONAL",
         size = 230,
         seed = 70707,
-        desc = "Crucero interestelar militar pesado de aleación bronce con propulsores de iones."
+        desc = "Super-arma orbital Final Weapon: floración mecha abierta con núcleo de plasma frontal y fuste cónico posterior en profundidad."
     },
     elongated_damaged = {
         id = "elo_dmg",
-        name = "Nave Alargada - Dañada",
-        shortName = "Alargada (Dmg)",
+        name = "Final Weapon - Dañada",
+        shortName = "Final Weapon (Dmg)",
         complexType = "elongated_damaged",
         damageState = "damaged",
         colorBadge = { 0.95, 0.65, 0.20 },
         badgeText = "DAÑADA",
         size = 230,
         seed = 80808,
-        desc = "Impactos cinéticos en quilla, paneles solares desgarrados e incendios contenidos."
+        desc = "Pétalos agrietados con fallos térmicos, núcleo inestable con arcos voltaicos y fugas de energía."
     },
     elongated_ruins = {
         id = "elo_rui",
-        name = "Nave Alargada - Ruinas",
-        shortName = "Alargada (Rui)",
+        name = "Final Weapon - Ruinas",
+        shortName = "Final Weapon (Rui)",
         complexType = "elongated_ruins",
         damageState = "ruins",
         colorBadge = { 0.90, 0.30, 0.30 },
         badgeText = "EN RUINAS",
         size = 230,
         seed = 90909,
-        desc = "Casco partido en dos mitades a la deriva, pérdida de atmósfera y escombros de aleación."
+        desc = "Super-arma destrozada: pétalos desgajados a la deriva, cañón carbonizado y fuste fracturado."
+    },
+
+    -- 4. CRUCERO ESTELAR CLASE AXIOM (NUEVA VARIANTE SCI-FI)
+    axiom_operational = {
+        id = "ax_op",
+        name = "Crucero Axiom - Operacional",
+        shortName = "Axiom (Op)",
+        complexType = "axiom_operational",
+        damageState = "operational",
+        colorBadge = { 0.88, 0.92, 0.98 },
+        badgeText = "OPERACIONAL",
+        size = 230,
+        seed = 77001,
+        desc = "Crucero colosal clase Axiom: proa clíper aerodinámica, terrazas residenciales y quilla ventral profunda."
+    },
+    axiom_damaged = {
+        id = "ax_dmg",
+        name = "Crucero Axiom - Dañado",
+        shortName = "Axiom (Dmg)",
+        complexType = "axiom_damaged",
+        damageState = "damaged",
+        colorBadge = { 0.95, 0.65, 0.20 },
+        badgeText = "DAÑADA",
+        size = 230,
+        seed = 77002,
+        desc = "Alerón dorsal combado, blackout parcial en terrazas y balizas estroboscópicas de emergencia."
+    },
+    axiom_ruins = {
+        id = "ax_rui",
+        name = "Crucero Axiom - Ruinas",
+        shortName = "Axiom (Rui)",
+        complexType = "axiom_ruins",
+        damageState = "ruins",
+        colorBadge = { 0.90, 0.30, 0.30 },
+        badgeText = "EN RUINAS",
+        size = 230,
+        seed = 77003,
+        desc = "Casco seccionado con proa a la deriva, mamparos carbonizados expuestos y escombros en gravedad cero."
     }
 }
 
@@ -156,20 +194,25 @@ function StationsDebug.getStationsForTier(tier)
     local stations = {}
     local spacingX = 1400
 
-    -- Fila 1: Estaciones Anillo (Y = -1400)
-    table.insert(stations, makeStation(MASTER_STATIONS.ring_operational,      -spacingX, -1400, 0.0))
-    table.insert(stations, makeStation(MASTER_STATIONS.ring_damaged,          0,         -1400, 0.0))
-    table.insert(stations, makeStation(MASTER_STATIONS.ring_ruins,            spacingX,  -1400, 0.0))
+    -- Fila 1: Estaciones Anillo (Y = -2100)
+    table.insert(stations, makeStation(MASTER_STATIONS.ring_operational,      -spacingX, -2100, 0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.ring_damaged,          0,         -2100, 0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.ring_ruins,            spacingX,  -2100, 0.0))
 
-    -- Fila 2: Estaciones Modulares (Y = 0)
-    table.insert(stations, makeStation(MASTER_STATIONS.modular_operational,   -spacingX, 0,     0.0))
-    table.insert(stations, makeStation(MASTER_STATIONS.modular_damaged,       0,         0,     0.0))
-    table.insert(stations, makeStation(MASTER_STATIONS.modular_ruins,         spacingX,  0,     0.0))
+    -- Fila 2: Estaciones Modulares (Y = -700)
+    table.insert(stations, makeStation(MASTER_STATIONS.modular_operational,   -spacingX, -700,  0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.modular_damaged,       0,         -700,  0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.modular_ruins,         spacingX,  -700,  0.0))
 
-    -- Fila 3: Naves Alargadas (Y = 1400)
-    table.insert(stations, makeStation(MASTER_STATIONS.elongated_operational, -spacingX, 1400,  0.0))
-    table.insert(stations, makeStation(MASTER_STATIONS.elongated_damaged,     0,         1400,  0.0))
-    table.insert(stations, makeStation(MASTER_STATIONS.elongated_ruins,       spacingX,  1400,  0.0))
+    -- Fila 3: Naves Alargadas (Diseño Original) (Y = 700)
+    table.insert(stations, makeStation(MASTER_STATIONS.elongated_operational, -spacingX, 700,   0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.elongated_damaged,     0,         700,   0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.elongated_ruins,       spacingX,  700,   0.0))
+
+    -- Fila 4: Cruceros Estelares Axiom (Nueva Variante) (Y = 2100)
+    table.insert(stations, makeStation(MASTER_STATIONS.axiom_operational,     -spacingX, 2100,  0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.axiom_damaged,         0,         2100,  0.0))
+    table.insert(stations, makeStation(MASTER_STATIONS.axiom_ruins,           spacingX,  2100,  0.0))
 
     return stations
 end
