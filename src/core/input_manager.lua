@@ -189,6 +189,12 @@ function InputManager.keypressed(key)
                 GameLoader.changeSeedWithLoading(SeedSystem.generate())
             end
         end
+    elseif key == "y" then -- Debug: Abrir directamente la estación espacial (Metroidvania)
+        if stateManager then
+            local StationScene = require 'src.states.station_scene'
+            stateManager:push(StationScene:new(), { suspendUnderlying = true, fadeDuration = 0.25 })
+            print("[DEBUG] Entrando a StationScene con tecla 'Y'...")
+        end
     end
 end
 

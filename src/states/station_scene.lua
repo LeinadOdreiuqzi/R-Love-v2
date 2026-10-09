@@ -1,15 +1,33 @@
 -- src/states/station_scene.lua
--- Escena de Estación (Rooms Grid estilo Metal Warriors) - usa módulos: generador, plantillas, jugador, decoración y fondo
+-- Escena de interiores de estación (motor Metroidvania).
+-- Orquesta: StationMap (salas hechas a mano), Viewport (480x270), Camera,
+-- Transition (puertas Metroid) y Player. Toda la lógica vive en src/states/station/.
 
 local StateBase = require 'src.states.state_base'
-local Generator = require 'src.states.station.generator'
-local Player = require 'src.states.station.platformer_player'
-local Decor = require 'src.states.station.decor'
+local Config = require 'src.states.station.engine.config'
+local Viewport = require 'src.states.station.engine.viewport'
+local Camera = require 'src.states.station.engine.camera'
+local StationMap = require 'src.states.station.engine.station_map'
+local Transition = require 'src.states.station.engine.transition'
+local Collision = require 'src.states.station.engine.collision'
+local DebugDraw = require 'src.states.station.engine.debug_draw'
+local Player = require 'src.states.station.player'
 local BackgroundManager = require 'src.shaders.background_manager'
 local World = require 'src.core.world'
 
 local StationScene = setmetatable({}, { __index = StateBase })
 StationScene.__index = StationScene
+
+local DEFAULT_STATION = 'ring_station'
+
+local function keyDown(...)
+    for i = 1, select('#', ...) do
+        if love.keyboard.isDown((select(i, ...))) then return true end
+    end
+    return false
+end
+
+local JUMP_KEYS = { space = true, z = true, w = true, up = true }
 
 function StationScene:new(placeholder)
     local o = StateBase.new(self, {
@@ -18,287 +36,188 @@ function StationScene:new(placeholder)
         isOverlay = false
     })
     o.placeholder = placeholder
-    o.time = 0
+    o.stationId = (placeholder and placeholder.stationId) or DEFAULT_STATION
+    o.map = nil
+    o.room = nil
     o.player = nil
-    -- Sistema de cámara simplificado sin zoom cercano
-    o.camera = { 
-        x = 0, 
-        y = 0, 
-        zoom = 1.0,  -- Zoom fijo sin acercamiento
-        smoothing = 10.0  -- Factor de suavizado
-    }
-    o.seed = (placeholder and placeholder.seed) or 0
-    o.graph = nil
-    o.currentRoomId = nil
-    o._doorCooldown = 0
-    -- Recordar estado previo del fondo para restaurarlo al salir
+    o.camera = nil
+    o.viewport = nil
+    o.transition = nil
+    o.debug = { collision = false, camera = false, info = false }
+    o.toast = nil
     o._prevBgEnabled = nil
     return o
 end
 
 function StationScene:enter(params)
-    self.time = 0
+    self.map = StationMap.load(self.stationId)
+    self.map:bakeAll()
 
-    -- Generar grafo 2D estilo Metal Warriors (permite verticalidad y grandes salas)
-    local rows, cols = 4, 5
-    -- Usar separación ampliada para acomodar espacios más grandes
-    self.graph = Generator.generateGrid({ seed = self.seed, rows = rows, cols = cols, separation = 260 })
-    if not self.graph or not self.graph.rooms or #self.graph.rooms == 0 then return end
+    self.room = self.map:getRoom(self.map.start.room)
+    local cfg = Config.player
+    local x, y = self.room:spawnPosition(self.map.start.spawn, cfg.w, cfg.h)
+    self.player = Player.new(x, y)
 
-    -- Decor por sala
-    for _, room in ipairs(self.graph.rooms) do
-        room.decor = Decor.decorateRoom(room, self.seed + room.id)
+    self.viewport = Viewport.new()
+    self.camera = Camera.new(self.viewport.w, self.viewport.h)
+    self.camera:snap(self.player, self.room)
+    self.transition = Transition.new()
+
+    -- Fondo conectado por shader y parallax para estaciones (ej. ring_station)
+    if self.stationId == 'ring_station' then
+        local RingBackground = require 'src.states.station.engine.ring_background'
+        self.stationBackground = RingBackground.new()
     end
 
-    -- Definir sala inicial y jugador
-    self.currentRoomId = self.graph.startRoomId or 1
-    local startRoom = self.graph.rooms[self.currentRoomId]
-    self.player = Player.new({ x = startRoom.spawn.x, y = startRoom.spawn.y })
-
-    -- Inicializar cámara con vista completa
-    self.camera.x = startRoom.x
-    self.camera.y = startRoom.y
-    self:updateCamera(0)
-
-    -- Inicializar fondo
-    if BackgroundManager and BackgroundManager.init then
-        BackgroundManager.init()
-    end
-
-    -- Desactivar fondo galáctico dentro de la estación para evitar niebla/grumos sobre la escena
+    -- El fondo galáctico exterior no se usa en interiores
     if BackgroundManager and BackgroundManager.isEnabled and BackgroundManager.setEnabled then
         self._prevBgEnabled = BackgroundManager.isEnabled()
         BackgroundManager.setEnabled(false)
     end
 end
 
-function StationScene:update(dt)
-    self.time = self.time + dt
-    if self._doorCooldown > 0 then self._doorCooldown = self._doorCooldown - dt end
-
-    local room = self:getCurrentRoom()
-    if not room then return end
-
-    -- Actualizar fondo (feedback visual de fondo, no debe quedar obstruido por plataformas)
-    if BackgroundManager and BackgroundManager.update then
-        BackgroundManager.update(dt, self.camera, { currentSeed = self.seed })
-    end
-
-    -- Construir level efímero para el jugador basado en la sala actual
-    local level = { x = room.x, y = room.y, width = room.width, height = room.height, platforms = room.platforms }
-    if self.player then
-        self.player:update(dt, level)
-    end
-
-    -- Ya no hacemos transición automática al tocar puertas; se hace con tecla 'E'
-
-    self:updateCamera(dt)
-
-    -- Actualizar UIs de inventario si están abiertas
-    local UIManager = require 'src.ui.ui_manager'
-    local playerSys = World.get('player')
-    UIManager.updateAll(dt, playerSys)
+function StationScene:readInput()
+    return {
+        left = keyDown('a', 'left'),
+        right = keyDown('d', 'right'),
+        down = keyDown('s', 'down'),
+        jumpHeld = keyDown('space', 'z', 'w', 'up'),
+        jetpack = keyDown('lshift', 'rshift'),
+    }
 end
 
-function StationScene:getCurrentRoom()
-    if not self.graph or not self.currentRoomId then return nil end
-    return self.graph.rooms[self.currentRoomId]
+function StationScene:showToast(text)
+    self.toast = { text = text, t = 1.6 }
 end
 
-function StationScene:switchRoom(door)
-    local targetId = door.to and door.to.roomId
-    if not targetId then return end
-    local target = self.graph.rooms[targetId]
-    if not target then return end
+-- Apertura por proximidad inteligente, auto-cierre y disparo de transición anti-bloqueo
+function StationScene:updateDoors(dt, input)
+    local p = self.player
+    for _, d in ipairs(self.room.doors) do
+        local near = d:isPlayerNear(p.x, p.y, p.w, p.h)
+        local otherDoor = d.link and d.link.door
 
-    -- Reposicionar jugador cercano a la puerta opuesta
-    local destSide = door.to.door -- 'left'|'right'|'up'|'down'
-    local td = target.doors and target.doors[destSide]
-    if td then
-        if destSide == 'left' then
-            self.player.x = td.x + td.w + 4
-            self.player.y = td.y - self.player.h * 0.5 + td.h * 0.5
-        elseif destSide == 'right' then
-            self.player.x = td.x - self.player.w - 4
-            self.player.y = td.y - self.player.h * 0.5 + td.h * 0.5
-        elseif destSide == 'up' then
-            self.player.x = td.x - self.player.w * 0.5 + td.w * 0.5
-            self.player.y = td.y + td.h + 4
-        elseif destSide == 'down' then
-            self.player.x = td.x - self.player.w * 0.5 + td.w * 0.5
-            self.player.y = td.y - self.player.h - 4
+        if d.state == 'closed' or d.state == 'closing' then
+            local wantsOpen = near and (d.side ~= 'down' or input.down)
+            if wantsOpen then
+                if not d:requestOpen() and not self.toast then
+                    self:showToast("Puerta bloqueada")
+                else
+                    if otherDoor then otherDoor:requestOpen() end
+                end
+            end
+        elseif d.state == 'open' or d.state == 'opening' then
+            if near then
+                d:keepOpen()
+                if otherDoor then otherDoor:keepOpen() end
+                if d.state == 'open' and d:isPlayerCrossing(p.x, p.y, p.w, p.h) then
+                    if self.transition:start(self, d) then return end
+                end
+            else
+                d.idle = d.idle + dt
+                if d.idle >= Config.door.autoCloseDelay then
+                    d:requestClose()
+                    if otherDoor then otherDoor:requestClose() end
+                end
+            end
         end
+    end
+end
+
+function StationScene:update(dt)
+    dt = dt or (1 / 60)
+    dt = math.min(dt, 1 / 30)
+    if not self.map then return end
+
+    self.map:update(dt)
+
+    if self.transition:isActive() then
+        self.transition:update(dt, self)
     else
-        -- Fallback al spawn de la sala
-        self.player.x, self.player.y = target.spawn.x, target.spawn.y
+        local input = self:readInput()
+        self.player:update(dt, self.room, input)
+        self:updateDoors(dt, input)
+        if not self.transition:isActive() then
+            self.camera:update(dt, self.player, self.room)
+        end
     end
 
-    -- Resetear velocidades y timers de salto
-    self.player.vx, self.player.vy = 0, 0
-    self.player.onGround = false
-    if self.player.coyote then self.player.coyote = 0 end
-    if self.player.jumpBuffer then self.player.jumpBuffer = 0 end
+    if self.toast then
+        self.toast.t = self.toast.t - dt
+        if self.toast.t <= 0 then self.toast = nil end
+    end
 
-    -- Cambiar sala
-    self.currentRoomId = targetId
+    if self.stationBackground then
+        self.stationBackground:update(dt)
+    end
+
+    -- Mantener actualizadas las UIs de inventario si están abiertas
+    local UIManager = require 'src.ui.ui_manager'
+    UIManager.updateAll(dt, World.get('player'))
 end
 
 function StationScene:draw()
-    -- Limpiar fondo base
-    love.graphics.clear(0.02, 0.02, 0.04, 1)
+    if not self.map then return end
 
-    local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
+    self.viewport:updateLayout()
+    self.camera:setViewDimensions(self.viewport.w, self.viewport.h)
+    self.viewport:beginDraw()
 
-    -- Renderizar fondo procedural (feedback), por detrás de todo lo demás
-    if BackgroundManager and BackgroundManager.render then
-        BackgroundManager.render(self.camera, { currentSeed = self.seed })
+    local W, H = self.viewport.w, self.viewport.h
+    local camX, camY = self.camera:drawOffset()
+
+    -- 1. Fondo cósmico y shader de la estación (conectado globalmente por parallax continuo)
+    if self.stationBackground then
+        self.stationBackground:draw(camX, camY, W, H, self.room)
     end
 
-    -- Mundo 2D sin zoom
+    -- 2. Capas arquitectónicas de la estación (mamparos con ventanales, estructuras, plataformas y jugador)
     love.graphics.push()
-    love.graphics.translate(-math.floor(self.camera.x), -math.floor(self.camera.y))
-
-    local room = self:getCurrentRoom()
-    if room then
-        -- Color de fondo por tipo de sala (sutil)
-        local t = room.type or 'generic'
-        local col = {0.07, 0.09, 0.12, 0.35}
-        if t == 'entrance' then col = {0.06, 0.12, 0.08, 0.38}
-        elseif t == 'corridor' then col = {0.06, 0.10, 0.16, 0.38}
-        elseif t == 'filler' then col = {0.10, 0.10, 0.12, 0.38}
-        elseif t == 'specialized' then col = {0.10, 0.07, 0.12, 0.40}
-        elseif t == 'secret' then col = {0.14, 0.12, 0.06, 0.35}
-        elseif t == 'boss' then col = {0.16, 0.06, 0.06, 0.40}
-        end
-        love.graphics.setColor(col[1], col[2], col[3], col[4])
-        love.graphics.rectangle('fill', room.x, room.y, room.width, room.height)
-
-        -- Textura simple: franjas para suelos metálicos
-        love.graphics.setColor(0.12, 0.15, 0.20, 0.55)
-        for _, plat in ipairs(room.platforms or {}) do
-            love.graphics.rectangle('fill', plat.x, plat.y, plat.w, plat.h, 2, 2)
-            love.graphics.setColor(0.20, 0.25, 0.32, 0.55)
-            for ix = plat.x, plat.x + plat.w, 14 do
-                love.graphics.rectangle('fill', ix, plat.y, 8, math.min(plat.h, 4))
-            end
-            love.graphics.setColor(0.12, 0.15, 0.20, 0.55)
-        end
-
-        -- Puertas
-        local overlappingDoor = nil
-        for side, d in pairs(room.doors or {}) do
-            if d then
-                if side == 'left' or side == 'right' then
-                    love.graphics.setColor(0.70, 0.85, 1.0, 0.55)
-                else
-                    love.graphics.setColor(0.70, 1.0, 0.85, 0.55)
-                end
-                love.graphics.rectangle('line', d.x, d.y, d.w, d.h)
-
-                -- Chequeo de overlap para UI (solo mostrar si la puerta tiene destino)
-                if d.to and self.player and self:rectsIntersect(self.player.x, self.player.y, self.player.w, self.player.h, d.x, d.y, d.w, d.h) then
-                    overlappingDoor = d
-                end
-            end
-        end
-
-        -- Decoraciones
-        if room.decor then
-            for _, d in ipairs(room.decor) do
-                if d.kind == 'panel' then
-                    love.graphics.setColor(0.55, 0.65, 0.80, 0.55)
-                elseif d.kind == 'rubble' then
-                    love.graphics.setColor(0.40, 0.45, 0.50, 0.55)
-                else -- 'crate' u otros
-                    love.graphics.setColor(0.55, 0.50, 0.40, 0.65)
-                end
-                -- d.x, d.y ya están en coordenadas de mundo
-                love.graphics.rectangle('fill', d.x, d.y, d.w, d.h, 2, 2)
-                love.graphics.setColor(0, 0, 0, 0.25)
-                love.graphics.rectangle('line', d.x, d.y, d.w, d.h)
-            end
-        end
-
-        -- Jugador
-        if self.player then
-            love.graphics.setColor(0.9, 0.95, 1.0, 1)
-            love.graphics.rectangle('fill', self.player.x, self.player.y, self.player.w, self.player.h, 3, 3)
-            love.graphics.setColor(0,0,0,0.20)
-            love.graphics.ellipse('fill', self.player.x + self.player.w*0.5, self.player.y + self.player.h, self.player.w*0.45, 5)
-        end
-
-        -- Prompt de interacción con puerta (solo si tiene destino)
-        if overlappingDoor then
-            love.graphics.setColor(1,1,1,0.9)
-            love.graphics.print("Pulsa E para entrar", overlappingDoor.x, overlappingDoor.y - 18)
-        end
+    love.graphics.translate(-camX, -camY)
+    self.map:drawVisible(camX, camY, W, H)
+    self.player:draw()
+    if self.debug.collision then
+        DebugDraw.collision(self.room, self.player, camX, camY, W, H)
     end
-
     love.graphics.pop()
 
-    -- UI
-    love.graphics.setColor(0.82, 0.92, 1.0, 1)
-    love.graphics.printf("Estación - Grafo 2D (usa puertas ←→↑↓)", 16, 14, sw - 32, 'left')
+    if self.debug.camera then DebugDraw.camera(self.camera) end
 
-    -- Mostrar tipo y posición de la sala actual (más específico)
-    local room2 = self:getCurrentRoom()
-    if room2 then
-        local t2 = room2.type or 'generic'
-        local labelByType = {
-            entrance = 'entrada',
-            corridor = 'pasillo',
-            filler = 'relleno',
-            specialized = 'especializada',
-            secret = 'secreto',
-            boss = 'jefe',
-        }
-        local label = labelByType[t2] or t2
-        local gridText = ""
-        if room2.grid then gridText = string.format(" (r=%d, c=%d)", room2.grid.r, room2.grid.c) end
-        local idText = string.format(" [ID %d]", room2.id or -1)
-        local posText = string.format(" x=%d y=%d", math.floor(room2.x), math.floor(room2.y))
-        local nameText = string.format(" plantilla=%s", tostring(room2.name))
-        love.graphics.setColor(0.90, 0.96, 1.0, 0.95)
-        love.graphics.printf("Sala actual: " .. tostring(label) .. gridText .. idText .. posText .. nameText, 16, 34, sw - 32, 'left')
-    end
-    
-    love.graphics.setColor(0.90, 0.96, 1.0, 0.95)
-    love.graphics.printf("[A/D o ←/→] Mover   [W/↑/ESP/Z] Saltar   [Shift] Jetpack   [E] Usar puerta   [Q/ESC] Salir", 16, sh - 28, sw - 32, 'right')
+    self.viewport:endDraw()
+    self.viewport:present()
+    self:drawHUD()
 end
 
-function StationScene:updateCamera(dt)
-    if not self.player then return end
-    local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
-    local room = self:getCurrentRoom()
-    if not room then return end
+function StationScene:drawHUD()
+    local sw, sh = love.graphics.getDimensions()
 
-    -- Vista completa de la sala sin zoom
-    local targetX = (self.player.x + self.player.w * 0.5) - sw * 0.5
-    local targetY = (self.player.y + self.player.h * 0.5) - sh * 0.5
-    
-    -- Clamping sin márgenes: aprovechar toda la pantalla
-    local minX = room.x
-    local minY = room.y
-    local maxX = room.x + room.width - sw
-    local maxY = room.y + room.height - sh
-    
-    -- Si la sala es más pequeña que la pantalla, centrar
-    if maxX < minX then
-        targetX = room.x + room.width * 0.5 - sw * 0.5
-    else
-        targetX = math.max(minX, math.min(targetX, maxX))
-    end
-    if maxY < minY then
-        targetY = room.y + room.height * 0.5 - sh * 0.5
-    else
-        targetY = math.max(minY, math.min(targetY, maxY))
+    -- Título de la estación y sala en la esquina superior izquierda
+    love.graphics.setColor(0.82, 0.92, 1.0, 0.95)
+    love.graphics.print(string.format("%s  ·  %s", self.map.name, self.room.name), 16, 12)
+
+    if self.debug.info then
+        local p = self.player
+        local lines = {
+            string.format("sala=%s  grid=(%d,%d)  tiles=%dx%d", self.room.id, self.room.gx, self.room.gy, self.room.tw, self.room.th),
+            string.format("jugador x=%.1f y=%.1f  vx=%.1f vy=%.1f  suelo=%s", p.x, p.y, p.vx, p.vy, tostring(p.onGround)),
+            string.format("cámara x=%.1f y=%.1f  vista=%dx%d  escala=%sx (%s)", self.camera.x, self.camera.y, self.viewport.w, self.viewport.h, tostring(self.viewport.scale), tostring(self.transition.state)),
+            string.format("FPS %d  [+/-] Zoom  [0] Auto-zoom", love.timer.getFPS()),
+        }
+        love.graphics.setColor(0, 0, 0, 0.65)
+        love.graphics.rectangle('fill', 12, 32, 520, #lines * 16 + 8, 4, 4)
+        love.graphics.setColor(0.6, 1.0, 0.8, 1)
+        for i, l in ipairs(lines) do love.graphics.print(l, 18, 36 + (i - 1) * 16) end
     end
 
-    -- Suavizado dt-invariante
-    local lambda = self.camera.smoothing
-    local alpha = 1 - math.exp(-lambda * (dt or 0.016))
-    self.camera.x = self.camera.x + (targetX - self.camera.x) * alpha
-    self.camera.y = self.camera.y + (targetY - self.camera.y) * alpha
+    if self.toast then
+        local a = math.min(1, self.toast.t * 2)
+        love.graphics.setColor(1, 0.85, 0.4, a)
+        love.graphics.printf(self.toast.text, 0, 50, sw, 'center')
+    end
+
+    love.graphics.setColor(0.70, 0.80, 0.92, 0.85)
+    love.graphics.printf("[A/D] Mover   [ESP/Z/W] Saltar   [S+Salto] Bajar plataforma   [S] Abrir escotilla   [+/-] Zoom   [F1/F2/F3] Debug   [Q/ESC] Salir",
+        8, sh - 22, sw - 16, 'center')
 end
 
 function StationScene:keypressed(key)
@@ -306,38 +225,58 @@ function StationScene:keypressed(key)
         if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
         return true
     end
-    
-    if key == 'e' and self.player and self._doorCooldown <= 0 then
-        local room = self:getCurrentRoom()
-        if room then
-            for _, door in pairs(room.doors or {}) do
-                if door and door.to and self:rectsIntersect(self.player.x, self.player.y, self.player.w, self.player.h, door.x, door.y, door.w, door.h) then
-                    self:switchRoom(door)
-                    self._doorCooldown = 0.15
-                    return true
-                end
-            end
-        end
+    if key == 'f1' then self.debug.collision = not self.debug.collision; return true end
+    if key == 'f2' then self.debug.camera = not self.debug.camera; return true end
+    if key == 'f3' then self.debug.info = not self.debug.info; return true end
+
+    -- Ajuste dinámico de escala / zoom
+    if key == '=' or key == 'kp+' or key == '+' then
+        local current = self.viewport.scale
+        Config.PIXEL_SCALE = math.min(6, current + 1)
+        self.viewport:updateLayout()
+        self.camera:setViewDimensions(self.viewport.w, self.viewport.h)
+        self:showToast(string.format("Zoom: escala %dx (vista %dx%d)", self.viewport.scale, self.viewport.w, self.viewport.h))
+        return true
+    elseif key == '-' or key == 'kp-' then
+        local current = self.viewport.scale
+        Config.PIXEL_SCALE = math.max(1, current - 1)
+        self.viewport:updateLayout()
+        self.camera:setViewDimensions(self.viewport.w, self.viewport.h)
+        self:showToast(string.format("Zoom: escala %dx (vista %dx%d)", self.viewport.scale, self.viewport.w, self.viewport.h))
+        return true
+    elseif key == '0' then
+        Config.PIXEL_SCALE = nil
+        self.viewport:updateLayout()
+        self.camera:setViewDimensions(self.viewport.w, self.viewport.h)
+        self:showToast(string.format("Zoom: automático (escala %dx)", self.viewport.scale))
+        return true
     end
-    if self.player and self.player:keypressed(key) then
+
+    if JUMP_KEYS[key] then
+        if self.player and self.transition and not self.transition:isActive() then
+            self.player:pressJump()
+        end
         return true
     end
     return false
 end
 
-function StationScene:keyreleased(key)
-    if self.player and self.player.keyreleased then
-        return self.player:keyreleased(key)
+function StationScene:resize(w, h)
+    if self.viewport then
+        self.viewport:updateLayout()
+        if self.camera then
+            self.camera:setViewDimensions(self.viewport.w, self.viewport.h)
+        end
     end
-    return false
 end
 
-function StationScene:rectsIntersect(ax, ay, aw, ah, bx, by, bw, bh)
-    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
-end
-
--- Restaurar el estado del fondo al salir de la escena de estación
 function StationScene:exit()
+    if self.stationBackground and self.stationBackground.release then
+        self.stationBackground:release()
+        self.stationBackground = nil
+    end
+    if self.map then self.map:release() end
+    if self.viewport then self.viewport:release() end
     if BackgroundManager and BackgroundManager.setEnabled then
         if self._prevBgEnabled == nil then
             BackgroundManager.setEnabled(true)
