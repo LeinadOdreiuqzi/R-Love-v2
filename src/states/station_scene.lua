@@ -69,6 +69,10 @@ function StationScene:enter(params)
         self.stationBackground = RingBackground.new()
     end
 
+    -- Sistema de iluminación dinámica interior (Lightmap virtual + linterna + LEDs)
+    local StationLighting = require 'src.states.station.engine.lighting'
+    self.lighting = StationLighting.new()
+
     -- El fondo galáctico exterior no se usa en interiores
     if BackgroundManager and BackgroundManager.isEnabled and BackgroundManager.setEnabled then
         self._prevBgEnabled = BackgroundManager.isEnabled()
@@ -151,6 +155,10 @@ function StationScene:update(dt)
         self.stationBackground:update(dt)
     end
 
+    if self.lighting then
+        self.lighting:update(dt)
+    end
+
     -- Mantener actualizadas las UIs de inventario si están abiertas
     local UIManager = require 'src.ui.ui_manager'
     UIManager.updateAll(dt, World.get('player'))
@@ -161,29 +169,58 @@ function StationScene:draw()
 
     self.viewport:updateLayout()
     self.camera:setViewDimensions(self.viewport.w, self.viewport.h)
-    self.viewport:beginDraw()
 
     local W, H = self.viewport.w, self.viewport.h
     local camX, camY = self.camera:drawOffset()
 
-    -- 1. Fondo cósmico y shader de la estación (conectado globalmente por parallax continuo)
-    if self.stationBackground then
-        self.stationBackground:draw(camX, camY, W, H, self.room)
+    if self.lighting then
+        -- 1. Capturar la arquitectura interior de la sala en interiorCanvas
+        self.lighting:beginInterior(W, H)
+
+        love.graphics.push()
+        love.graphics.translate(-camX, -camY)
+        self.map:drawVisible(camX, camY, W, H)
+        self.player:draw()
+        if self.debug.collision then
+            DebugDraw.collision(self.room, self.player, camX, camY, W, H)
+        end
+        love.graphics.pop()
+
+        self.lighting:endInterior()
+
+        -- 2. Renderizar el Lightmap virtual (linterna suave, luminarias LED, LEDs de puertas)
+        self.lighting:renderLightmap(self, camX, camY, W, H)
+
+        -- 3. Componer la escena en el canvas virtual final:
+        self.viewport:beginDraw()
+
+        -- Paso A: Fondo cósmico exterior prístino (estrellas, anillo, arco)
+        if self.stationBackground then
+            self.stationBackground:draw(camX, camY, W, H, self.room)
+        end
+
+        -- Paso B: Componer la arquitectura interior iluminada por shader
+        self.lighting:present(self, W, H)
+
+        if self.debug.camera then DebugDraw.camera(self.camera) end
+        self.viewport:endDraw()
+    else
+        self.viewport:beginDraw()
+        if self.stationBackground then
+            self.stationBackground:draw(camX, camY, W, H, self.room)
+        end
+        love.graphics.push()
+        love.graphics.translate(-camX, -camY)
+        self.map:drawVisible(camX, camY, W, H)
+        self.player:draw()
+        if self.debug.collision then
+            DebugDraw.collision(self.room, self.player, camX, camY, W, H)
+        end
+        love.graphics.pop()
+        if self.debug.camera then DebugDraw.camera(self.camera) end
+        self.viewport:endDraw()
     end
 
-    -- 2. Capas arquitectónicas de la estación (mamparos con ventanales, estructuras, plataformas y jugador)
-    love.graphics.push()
-    love.graphics.translate(-camX, -camY)
-    self.map:drawVisible(camX, camY, W, H)
-    self.player:draw()
-    if self.debug.collision then
-        DebugDraw.collision(self.room, self.player, camX, camY, W, H)
-    end
-    love.graphics.pop()
-
-    if self.debug.camera then DebugDraw.camera(self.camera) end
-
-    self.viewport:endDraw()
     self.viewport:present()
     self:drawHUD()
 end
@@ -216,7 +253,7 @@ function StationScene:drawHUD()
     end
 
     love.graphics.setColor(0.70, 0.80, 0.92, 0.85)
-    love.graphics.printf("[A/D] Mover   [ESP/Z/W] Saltar   [S+Salto] Bajar plataforma   [S] Abrir escotilla   [+/-] Zoom   [F1/F2/F3] Debug   [Q/ESC] Salir",
+    love.graphics.printf("[A/D] Mover   [ESP/Z/W] Saltar   [S+Salto] Bajar plataforma   [S] Abrir escotilla   [F] Linterna   [+/-] Zoom   [F1/F2/F3] Debug   [Q/ESC] Salir",
         8, sh - 22, sw - 16, 'center')
 end
 
@@ -224,6 +261,13 @@ function StationScene:keypressed(key)
     if key == 'escape' or key == 'q' then
         if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
         return true
+    end
+    if key == 'f' then
+        if self.lighting then
+            local on = self.lighting:toggleFlashlight()
+            self:showToast(on and "Linterna del traje: ACTIVADA" or "Linterna del traje: DESACTIVADA")
+            return true
+        end
     end
     if key == 'f1' then self.debug.collision = not self.debug.collision; return true end
     if key == 'f2' then self.debug.camera = not self.debug.camera; return true end
@@ -271,6 +315,10 @@ function StationScene:resize(w, h)
 end
 
 function StationScene:exit()
+    if self.lighting and self.lighting.release then
+        self.lighting:release()
+        self.lighting = nil
+    end
     if self.stationBackground and self.stationBackground.release then
         self.stationBackground:release()
         self.stationBackground = nil
