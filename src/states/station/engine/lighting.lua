@@ -9,24 +9,63 @@ local Config = require 'src.states.station.engine.config'
 local StationLighting = {}
 StationLighting.__index = StationLighting
 
+local function compileShaderFile(path)
+    local code = nil
+    if love.filesystem.getInfo and love.filesystem.getInfo(path) then
+        code = love.filesystem.read(path)
+    end
+    if not code then
+        local altPath = 'c:/Users/sherd/OneDrive/Desktop/JuegoProyectoLove/R-Love-v2/' .. path
+        local f = io.open(altPath, 'r')
+        if f then
+            code = f:read('*all')
+            f:close()
+        end
+    end
+
+    if code then
+        local ok, s = pcall(love.graphics.newShader, code)
+        if ok and s then
+            return s
+        else
+            print(string.format("[StationLighting] Error compilando shader '%s': %s", path, tostring(s)))
+        end
+    end
+    return nil
+end
+
 function StationLighting.new()
     local self = setmetatable({}, StationLighting)
     self.time = 0
     self.lightCanvas = nil
     self.interiorCanvas = nil
     self.w, self.h = 0, 0
-    self.shader = nil
-    self.shaderLoaded = false
-    self.flashlightEnabled = true
-    self.ambient = { 0.34, 0.38, 0.46 } -- Penumbra base azul titanio legible y cinematográfica
+
+    -- Modos de iluminación: "operational" (estación activa / luces encendidas) o "damaged" (dañada / penumbra)
+    self.mode = "operational"
+
+    -- Shaders dedicados según el estado de la estación
+    self.shaderOperational = nil
+    self.shaderDamaged = nil
+    self.activeShader = nil
+
+    -- Perfiles de luz ambiental base
+    self.operationalAmbient = { 0.88, 0.92, 0.98 } -- Ambiente nítido, claro y tecnológico
+    self.damagedAmbient     = { 0.16, 0.20, 0.26 } -- Penumbra de emergencia y abandono
+    self.ambient = self.operationalAmbient
+
+    -- Linterna del traje (apagada por defecto en estaciones operacionales, encendida en dañadas)
+    self.flashlightEnabled = false
+    self.accentColor = { 0.45, 0.82, 1.00 }
 
     -- Luces dinámicas transitorias (chispas, partículas, explosiones)
     self.dynamicLights = {}
+    self.sparkTimer = 0
 
     -- Inicializar texturas de luz de alta suavidad matemática
     self:initLightTextures()
 
-    -- Compilar el shader de composición
+    -- Compilar los shaders de composición
     self:initShader()
 
     return self
@@ -63,10 +102,8 @@ function StationLighting:initLightTextures()
             -- Apertura cónica angular que se ensancha hacia adelante
             local spread = math.max(0.12, dx * 0.92)
             if math.abs(dy) <= spread and dx <= 1.0 then
-                -- Caída longitudinal suave hacia la punta del haz
                 local fallX = (1.0 - dx)
                 fallX = fallX * fallX
-                -- Caída angular suave hacia los bordes del cono
                 local normAngle = (dy / spread) * (math.pi * 0.5)
                 local fallY = math.cos(normAngle)
                 local a = fallX * fallY * fallY
@@ -102,34 +139,58 @@ function StationLighting:initLightTextures()
 end
 
 function StationLighting:initShader()
-    local path = 'src/shaders/station_interior_light.glsl'
-    local code = nil
-    if love.filesystem.getInfo and love.filesystem.getInfo(path) then
-        code = love.filesystem.read(path)
-    end
-    if not code then
-        local altPath = 'c:/Users/sherd/OneDrive/Desktop/JuegoProyectoLove/R-Love-v2/' .. path
-        local f = io.open(altPath, 'r')
-        if f then
-            code = f:read('*all')
-            f:close()
-        end
-    end
+    self.shaderOperational = compileShaderFile('src/shaders/station_operational_light.glsl')
+    self.shaderDamaged     = compileShaderFile('src/shaders/station_interior_light.glsl')
+    self:setMode(self.mode)
+end
 
-    if code then
-        local ok, s = pcall(love.graphics.newShader, code)
-        if ok and s then
-            self.shader = s
-            self.shaderLoaded = true
-        else
-            print("[StationLighting] Error compilando shader:", tostring(s))
-            self.shaderLoaded = false
-        end
+function StationLighting:setMode(mode)
+    if mode ~= "damaged" and mode ~= "operational" then
+        mode = "operational"
+    end
+    self.mode = mode
+    if mode == "operational" then
+        self.ambient = self.operationalAmbient
+        self.activeShader = self.shaderOperational
+        self.flashlightEnabled = false
+    else
+        self.ambient = self.damagedAmbient
+        self.activeShader = self.shaderDamaged
+        self.flashlightEnabled = true
+    end
+    return self.mode
+end
+
+function StationLighting:getMode()
+    return self.mode
+end
+
+function StationLighting:isOperational()
+    return self.mode == "operational"
+end
+
+function StationLighting:isDamaged()
+    return self.mode == "damaged"
+end
+
+function StationLighting:toggleMode()
+    if self.mode == "operational" then
+        return self:setMode("damaged")
+    else
+        return self:setMode("operational")
     end
 end
 
 function StationLighting:update(dt)
     self.time = self.time + dt
+
+    -- Chispas esporádicas en estaciones dañadas
+    if self.mode == "damaged" then
+        self.sparkTimer = self.sparkTimer + dt
+        if self.sparkTimer > 1.8 then
+            self.sparkTimer = 0
+        end
+    end
 
     -- Limpieza de luces dinámicas temporales
     for i = #self.dynamicLights, 1, -1 do
@@ -177,55 +238,25 @@ function StationLighting:endInterior()
     love.graphics.pop()
 end
 
--- Genera el lightmap en lightCanvas
+-- Genera el lightmap virtual en lightCanvas
 function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
     local room = scene.room
     local player = scene.player
     local T = Config.TILE
+    local isOp = (self.mode == "operational")
 
     love.graphics.push('all')
     love.graphics.setCanvas(self.lightCanvas)
     love.graphics.origin()
 
-    -- 1. Luz ambiental base de la sala
+    -- 1. Luz ambiental base:
     local amb = (room and room.def and room.def.ambientLight) or self.ambient
     love.graphics.clear(amb[1], amb[2], amb[3], 1.0)
 
-    -- Modo de dibujo aditivo para sumar intensidades lumínicas
+    -- Modo de dibujo aditivo para sumar fuentes de luz
     love.graphics.setBlendMode("add", "alphamultiply")
 
-    -- 2. Luminarias cenitales de techo (Tiras LED / fluorescentes)
-    if room then
-        local fixtureSpacing = 8
-        for tx = 3, room.tw - 2, fixtureSpacing do
-            local lx = (room.x + (tx - 1) * T + T * 0.5) - camX
-            local ly = (room.y + T * 1.0) - camY
-
-            if lx > -80 and lx < vw + 80 and ly > -150 and ly < vh + 150 then
-                local fPulse = 0.94 + 0.06 * math.sin(self.time * 2.5 + tx * 1.3)
-                local isFlicker = (room.id == "ring_sector_omega") and (math.sin(self.time * 18.0 + tx * 9.0) > 0.88)
-                if not isFlicker then
-                    local r = 0.85 * fPulse
-                    local g = 0.94 * fPulse
-                    local b = 1.00 * fPulse
-
-                    -- Haz descendente suave
-                    local beamH = math.min(180, room.th * T * 0.70)
-                    local scaleX = 1.8 * fPulse
-                    local scaleY = beamH / 64.0
-                    love.graphics.setColor(r * 0.40, g * 0.42, b * 0.45, 0.50)
-                    love.graphics.draw(self.stripLightImg, lx, ly, 0, scaleX, scaleY, 32, 0)
-
-                    -- Halo puntual en la lámpara
-                    love.graphics.setColor(r * 0.75, g * 0.75, b * 0.75, 0.65)
-                    local sHalo = (48 / 64) * fPulse
-                    love.graphics.draw(self.radialLightImg, lx, ly + 2, 0, sHalo, sHalo, 32, 32)
-                end
-            end
-        end
-    end
-
-    -- 3. LEDs y balizas de estado de puertas / escotillas
+    -- 2. LEDs y balizas de estado de puertas / escotillas
     if room and room.doors then
         for _, d in ipairs(room.doors) do
             local dx = (d.x + d.w * 0.5) - camX
@@ -233,14 +264,20 @@ function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
             if dx > -40 and dx < vw + 40 and dy > -40 and dy < vh + 40 then
                 local isOpen = (d.state == 'open' or d.state == 'opening')
                 if isOpen then
-                    -- Verde de presurización segura
-                    love.graphics.setColor(0.20, 1.00, 0.55, 0.80)
+                    -- Verde de paso libre
+                    love.graphics.setColor(0.20, 1.00, 0.55, 0.85)
                 else
-                    -- Ámbar / rojo de advertencia
-                    local blink = 0.75 + 0.25 * math.sin(self.time * 4.0)
-                    love.graphics.setColor(1.00, 0.35 * blink, 0.20, 0.75 * blink)
+                    if isOp then
+                        -- Azul / cian tecnológico en espera segura
+                        local pulse = 0.85 + 0.15 * math.sin(self.time * 3.0)
+                        love.graphics.setColor(0.30 * pulse, 0.75 * pulse, 1.00 * pulse, 0.75)
+                    else
+                        -- Ámbar / rojo de advertencia intermitente
+                        local blink = 0.75 + 0.25 * math.sin(self.time * 4.5)
+                        love.graphics.setColor(1.00, 0.32 * blink, 0.18, 0.80 * blink)
+                    end
                 end
-                local s = 32 / 64
+                local s = 34 / 64
                 love.graphics.draw(self.radialLightImg, dx, dy, 0, s, s, 32, 32)
             end
         end
@@ -251,9 +288,9 @@ function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
         local conX = (room.x + 8 * T) - camX
         local conY = (room.y + 17 * T) - camY
         if conX > -50 and conX < vw + 50 and conY > -50 and conY < vh + 50 then
-            local pulse = 0.85 + 0.15 * math.sin(self.time * 3.5)
+            local pulse = 0.88 + 0.12 * math.sin(self.time * 3.5)
             love.graphics.setColor(0.35 * pulse, 0.85 * pulse, 1.00 * pulse, 0.85)
-            local s = 46 / 64
+            local s = 48 / 64
             love.graphics.draw(self.radialLightImg, conX, conY, 0, s, s, 32, 32)
         end
     end
@@ -264,9 +301,9 @@ function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
         local py = (player.y + 6) - camY
         local f = player.facing or 1
 
-        -- 5.1 Halo ambiental personal 360° suave (radio ~45 px)
-        love.graphics.setColor(0.90, 0.96, 1.00, 0.85)
-        local sHalo = 90 / 64
+        -- 5.1 Halo ambiental personal 360° suave
+        love.graphics.setColor(0.92, 0.96, 1.00, 0.85)
+        local sHalo = 92 / 64
         love.graphics.draw(self.radialLightImg, px, py, 0, sHalo, sHalo, 32, 32)
 
         -- 5.2 Haz cónico frontal suave de largo alcance (165 px de alcance, 76 px de alto)
@@ -274,7 +311,6 @@ function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
         local beamScaleX = (beamLen / 128.0) * f
         local beamScaleY = 76 / 64.0
 
-        -- Aporte de luz xenon blanca-azulada
         love.graphics.setColor(0.92, 0.98, 1.00, 0.95)
         love.graphics.draw(self.coneLightImg, px + f * 4, py + 2, 0, beamScaleX, beamScaleY, 0, 32)
 
@@ -283,18 +319,18 @@ function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
         love.graphics.draw(self.coneLightImg, px + f * 4, py + 2, 0, beamScaleX * 0.75, beamScaleY * 0.60, 0, 32)
     end
 
-    -- 6. Visor del casco del astronauta (Emisivo cian)
+    -- 6. Visor del casco del astronauta (Emisivo cian de navegación)
     if player then
         local vx = (player.facing > 0) and (player.x + player.w - 4) or (player.x + 4)
         local vy = player.y + 3.5
         local svx = vx - camX
         local svy = vy - camY
-        love.graphics.setColor(0.35, 0.90, 1.00, 0.95)
+        love.graphics.setColor(0.35, 0.92, 1.00, 0.95)
         local sVisor = 18 / 64
         love.graphics.draw(self.radialLightImg, svx, svy, 0, sVisor, sVisor, 32, 32)
     end
 
-    -- 7. Luces dinámicas transitorias
+    -- 7. Luces dinámicas transitorias (chispas, explosiones)
     for _, l in ipairs(self.dynamicLights) do
         local lx = l.x - camX
         local ly = l.y - camY
@@ -308,35 +344,38 @@ function StationLighting:renderLightmap(scene, camX, camY, vw, vh)
         end
     end
 
-    -- Restaurar blend mode estándar
     love.graphics.setBlendMode("alpha")
     love.graphics.pop()
 end
 
 -- Compone la arquitectura interior iluminada sobre el canvas activo
 function StationLighting:present(scene, vw, vh)
-    if self.shaderLoaded and self.shader then
-        love.graphics.setShader(self.shader)
-        local okSend = pcall(function()
-            self.shader:send("u_lightCanvas", self.lightCanvas)
-            self.shader:send("u_bloomIntensity", 0.75)
+    local s = self.activeShader
+    if s then
+        love.graphics.setShader(s)
+        pcall(function()
+            s:send("u_lightCanvas", self.lightCanvas)
+            if self.mode == "operational" then
+                s:send("u_bloomIntensity", 0.65)
+                local acc = (scene and scene.room and scene.room.def and scene.room.def.accent) or self.accentColor
+                s:send("u_accentColor", { acc[1], acc[2], acc[3] })
+                s:send("u_exposure", 1.0)
+            else
+                s:send("u_bloomIntensity", 0.75)
+            end
         end)
 
-        if okSend then
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(self.interiorCanvas, 0, 0)
-            love.graphics.setShader()
-        else
-            love.graphics.setShader()
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(self.interiorCanvas, 0, 0)
-        end
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(self.interiorCanvas, 0, 0)
+        love.graphics.setShader()
     else
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(self.interiorCanvas, 0, 0)
     end
 
-    -- Sutil halo volumétrico de partículas en el aire para la linterna (dust haze)
+    -- Efecto volumétrico de linterna en el aire:
+    -- En modo dañado: polvo y condensación en suspensión (dust haze)
+    -- En modo operacional: haz limpio y translúcido
     if scene and scene.player and self.flashlightEnabled then
         local camX, camY = scene.camera:drawOffset()
         local px = (scene.player.x + scene.player.w * 0.5) - camX
@@ -348,7 +387,12 @@ function StationLighting:present(scene, vw, vh)
         local beamLen = 165
         local beamScaleX = (beamLen / 128.0) * f
         local beamScaleY = 76 / 64.0
-        love.graphics.setColor(0.35, 0.60, 0.90, 0.14)
+
+        if self.mode == "damaged" then
+            love.graphics.setColor(0.35, 0.60, 0.90, 0.16)
+        else
+            love.graphics.setColor(0.40, 0.70, 1.00, 0.05)
+        end
         love.graphics.draw(self.coneLightImg, px + f * 4, py + 2, 0, beamScaleX, beamScaleY, 0, 32)
         love.graphics.setBlendMode(oldBlend, oldAlpha)
     end
@@ -360,7 +404,15 @@ function StationLighting:release()
     if self.radialLightImg then self.radialLightImg:release(); self.radialLightImg = nil end
     if self.coneLightImg then self.coneLightImg:release(); self.coneLightImg = nil end
     if self.stripLightImg then self.stripLightImg:release(); self.stripLightImg = nil end
-    if self.shader and self.shader.release then self.shader:release(); self.shader = nil end
+    if self.shaderOperational and self.shaderOperational.release then
+        self.shaderOperational:release()
+        self.shaderOperational = nil
+    end
+    if self.shaderDamaged and self.shaderDamaged.release then
+        self.shaderDamaged:release()
+        self.shaderDamaged = nil
+    end
+    self.activeShader = nil
 end
 
 return StationLighting

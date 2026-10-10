@@ -70,6 +70,7 @@ function Transition:start(scene, door)
     if self.walkDir ~= 0 then player.facing = self.walkDir end
 
     scene.room = self.toRoom
+    if scene.onRoomChanged then scene:onRoomChanged(self.toRoom) end
     camera:snap(player, self.toRoom)
     self.toX, self.toY = camera.x, camera.y
     camera.x, camera.y = self.fromX, self.fromY

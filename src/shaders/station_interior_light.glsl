@@ -10,10 +10,14 @@ vec4 effect(vec4 color, Image sceneTex, vec2 texcoord, vec2 screen_coords) {
     vec4 sceneCol = Texel(sceneTex, texcoord);
     vec4 lightCol = Texel(u_lightCanvas, texcoord);
 
-    // 1. Modulación base de iluminación: Escena * Luz
+    if (sceneCol.a < 0.01) {
+        return vec4(0.0);
+    }
+
+    // 1. Modulación en penumbra: Escena * Lightmap
     vec3 lit = sceneCol.rgb * lightCol.rgb;
 
-    // 2. Aporte de resplandor / bloom para emisivos y luces intensas (light > 0.95)
+    // 2. Aporte de resplandor / bloom para emisivos y luces intensas (light > 0.92)
     // Permite que consolas, el visor del astronauta y chispas brillen con intensidad propia
     vec3 overexposure = max(vec3(0.0), lightCol.rgb - vec3(0.92));
     float bloomWeight = (u_bloomIntensity > 0.0) ? u_bloomIntensity : 0.65;

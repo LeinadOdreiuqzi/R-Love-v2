@@ -69,14 +69,59 @@ function StationScene:enter(params)
         self.stationBackground = RingBackground.new()
     end
 
-    -- Sistema de iluminación dinámica interior (Lightmap virtual + linterna + LEDs)
+    -- Sistema de iluminación dinámica interior (Soporta modos "operational" y "damaged")
     local StationLighting = require 'src.states.station.engine.lighting'
     self.lighting = StationLighting.new()
+    self._manualLightingOverride = false
+    local initialMode = self:determineLightingMode(self.room)
+    self.lighting:setMode(initialMode)
 
     -- El fondo galáctico exterior no se usa en interiores
     if BackgroundManager and BackgroundManager.isEnabled and BackgroundManager.setEnabled then
         self._prevBgEnabled = BackgroundManager.isEnabled()
         BackgroundManager.setEnabled(false)
+    end
+end
+
+-- Determina automáticamente el modo de iluminación según metadatos del placeholder o sala
+function StationScene:determineLightingMode(room)
+    room = room or self.room
+    -- 1. Si la sala específica declara su estado:
+    if room and room.def then
+        if room.def.damageState == "damaged" or room.def.damageState == "ruins" or room.def.operational == false then
+            return "damaged"
+        elseif room.def.damageState == "operational" or room.def.operational == true then
+            return "operational"
+        end
+    end
+
+    -- 2. Si la estación como entidad cósmica (placeholder) declara su estado:
+    if self.placeholder then
+        local ds = self.placeholder.damageState
+        if ds == "damaged" or ds == "ruins" or self.placeholder.operational == false or self.placeholder.isOperational == false then
+            return "damaged"
+        elseif ds == "operational" or self.placeholder.operational == true or self.placeholder.isOperational == true then
+            return "operational"
+        end
+    end
+
+    -- 3. Si el mapa declara su estado:
+    if self.map then
+        if self.map.damageState == "damaged" or self.map.damageState == "ruins" or self.map.operational == false then
+            return "damaged"
+        elseif self.map.damageState == "operational" or self.map.operational == true then
+            return "operational"
+        end
+    end
+
+    -- 4. Por defecto, ring_station y bases civiles estándar son operacionales (luces encendidas)
+    return "operational"
+end
+
+function StationScene:onRoomChanged(newRoom)
+    if self.lighting and not self._manualLightingOverride then
+        local mode = self:determineLightingMode(newRoom)
+        self.lighting:setMode(mode)
     end
 end
 
@@ -238,6 +283,9 @@ function StationScene:drawHUD()
             string.format("sala=%s  grid=(%d,%d)  tiles=%dx%d", self.room.id, self.room.gx, self.room.gy, self.room.tw, self.room.th),
             string.format("jugador x=%.1f y=%.1f  vx=%.1f vy=%.1f  suelo=%s", p.x, p.y, p.vx, p.vy, tostring(p.onGround)),
             string.format("cámara x=%.1f y=%.1f  vista=%dx%d  escala=%sx (%s)", self.camera.x, self.camera.y, self.viewport.w, self.viewport.h, tostring(self.viewport.scale), tostring(self.transition.state)),
+            string.format("Iluminación: %s (linterna: %s)  [F] Cambiar modo",
+                self.lighting and (self.lighting:isOperational() and "OPERACIONAL (Luces ON)" or "DAÑADA (Penumbra)") or "DESACTIVADA",
+                (self.lighting and self.lighting.flashlightEnabled) and "ENCENDIDA" or "APAGADA"),
             string.format("FPS %d  [+/-] Zoom  [0] Auto-zoom", love.timer.getFPS()),
         }
         love.graphics.setColor(0, 0, 0, 0.65)
@@ -253,7 +301,7 @@ function StationScene:drawHUD()
     end
 
     love.graphics.setColor(0.70, 0.80, 0.92, 0.85)
-    love.graphics.printf("[A/D] Mover   [ESP/Z/W] Saltar   [S+Salto] Bajar plataforma   [S] Abrir escotilla   [F] Linterna   [+/-] Zoom   [F1/F2/F3] Debug   [Q/ESC] Salir",
+    love.graphics.printf("[A/D] Mover   [ESP/Z/W] Saltar   [S+Salto] Bajar plataforma   [S] Abrir escotilla   [F] Modo Luz   [L] Linterna   [+/-] Zoom   [F1/F2/F3] Debug   [Q/ESC] Salir",
         8, sh - 22, sw - 16, 'center')
 end
 
@@ -262,7 +310,18 @@ function StationScene:keypressed(key)
         if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
         return true
     end
-    if key == 'f' then
+    -- Tecla [F]: Alternar entre tipos de iluminación de la estación (Operacional <-> Dañada)
+    if key == 'f' or key == 'f4' then
+        if self.lighting then
+            self._manualLightingOverride = true
+            local newMode = self.lighting:toggleMode()
+            local desc = (newMode == "operational") and "OPERACIONAL (Luces Encendidas)" or "DAÑADA / FALLA (Penumbra & Linterna)"
+            self:showToast("Iluminación: " .. desc)
+            return true
+        end
+    end
+    -- Tecla [L]: Alternar linterna del traje del astronauta independientemente
+    if key == 'l' then
         if self.lighting then
             local on = self.lighting:toggleFlashlight()
             self:showToast(on and "Linterna del traje: ACTIVADA" or "Linterna del traje: DESACTIVADA")

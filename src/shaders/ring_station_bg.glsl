@@ -127,7 +127,7 @@ vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords)
     // el mismo centro de curvatura y perspectiva 3D elíptica.
     // =========================================================================
     vec2 hubScreenCenter = vec2(u_resolution.x * 0.50, u_resolution.y * 0.58);
-    00 vec2 torusCenter = hubScreenCenter - (u_camera - vec2(2400.0, 272.0)) * vec2(0.038, 0.020);
+    vec2 torusCenter = hubScreenCenter - (u_camera - vec2(2400.0, 272.0)) * vec2(0.038, 0.020);
 
     float Rx = max(u_resolution.x * 0.75 + abs(torusCenter.x - u_resolution.x * 0.50) * 1.2, 440.0);
     float Ry = max(u_resolution.y * 0.52 + abs(torusCenter.y - u_resolution.y * 0.58) * 0.8, 220.0);
@@ -145,8 +145,7 @@ vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords)
     float arcAngle = atan(normX, -normY);
 
     // =========================================================================
-    // 4. EJE CENTRAL DE GRAVEDAD CERO (DISEÑO CANÓNICO DE LA ESTACIÓN)
-    // 100% idéntico a la vista exterior del sobre-mundo (station_ring_renderer.lua):
+    // 4. EJE CENTRAL DE GRAVEDAD CERO (DISEÑO CANÓNICO DE LA ESTACIÓN)s
     // - Tambor cilíndrico volumétrico con extrusión vertical hacia abajo.
     // - Cúpula superior elíptica con bisel de titanio, anillo intermedio, iris
     //   polar de 8 sectores y túnel axial con anillo cian resplandeciente.
