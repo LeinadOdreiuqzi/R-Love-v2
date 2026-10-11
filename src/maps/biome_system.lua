@@ -240,8 +240,11 @@ BiomeSystem.biomeConfigs = {
 }
 
 -- Cache y configuración
+BiomeSystem.CACHE_LIMIT = 2048
 BiomeSystem.biomeCache = {}
 BiomeSystem.parameterCache = {}
+BiomeSystem._cacheKeys = {}
+BiomeSystem._cacheKeyCount = 0
 BiomeSystem.debugInfo = {
     lastPlayerBiome = nil,
     biomeChangeCount = 0
@@ -369,9 +372,66 @@ function BiomeSystem.setPresetProfileBySeed(seed)
     end
 end
 
+-- Seguimiento y poda amortizada del caché de biomas (LRU Bounded Ring)
+function BiomeSystem._trackCacheKey(key)
+    if not key then return end
+    BiomeSystem._cacheKeyCount = (BiomeSystem._cacheKeyCount or 0) + 1
+    BiomeSystem._cacheKeys[BiomeSystem._cacheKeyCount] = key
+    
+    if BiomeSystem._cacheKeyCount > (BiomeSystem.CACHE_LIMIT or 2048) then
+        BiomeSystem._pruneCache()
+    end
+end
+
+function BiomeSystem._pruneCache()
+    local limit = BiomeSystem.CACHE_LIMIT or 2048
+    local targetPrune = math.floor(limit * 0.25)
+    for i = 1, targetPrune do
+        local oldKey = BiomeSystem._cacheKeys[i]
+        if oldKey then
+            BiomeSystem.biomeCache[oldKey] = nil
+            BiomeSystem.parameterCache[oldKey] = nil
+        end
+    end
+    
+    local newKeys = {}
+    local newCount = 0
+    for i = targetPrune + 1, BiomeSystem._cacheKeyCount do
+        local k = BiomeSystem._cacheKeys[i]
+        if k and (BiomeSystem.biomeCache[k] ~= nil or BiomeSystem.parameterCache[k] ~= nil) then
+            newCount = newCount + 1
+            newKeys[newCount] = k
+        end
+    end
+    BiomeSystem._cacheKeys = newKeys
+    BiomeSystem._cacheKeyCount = newCount
+end
+
+function BiomeSystem.evictChunk(chunkX, chunkY)
+    if not chunkX or not chunkY then return end
+    local key = chunkX .. "," .. chunkY
+    BiomeSystem.biomeCache[key] = nil
+    BiomeSystem.parameterCache[key] = nil
+end
+
+function BiomeSystem.getCacheStats()
+    local bCount = 0
+    for _ in pairs(BiomeSystem.biomeCache) do bCount = bCount + 1 end
+    local pCount = 0
+    for _ in pairs(BiomeSystem.parameterCache) do pCount = pCount + 1 end
+    return {
+        biomeEntries = bCount,
+        parameterEntries = pCount,
+        trackedKeys = BiomeSystem._cacheKeyCount or 0,
+        maxLimit = BiomeSystem.CACHE_LIMIT or 2048
+    }
+end
+
 function BiomeSystem.clearCache()
     BiomeSystem.biomeCache = {}
     BiomeSystem.parameterCache = {}
+    BiomeSystem._cacheKeys = {}
+    BiomeSystem._cacheKeyCount = 0
     print("[BiomeSystem] cache cleared")
 end
 
@@ -391,6 +451,8 @@ function BiomeSystem._maybeInvalidateOnOCChange()
     if BiomeSystem._ocSignature ~= sig then
         -- Solo los biomas dependen de organicCoherence; los parámetros espaciales no
         BiomeSystem.biomeCache = {}
+        BiomeSystem._cacheKeys = {}
+        BiomeSystem._cacheKeyCount = 0
         BiomeSystem._ocSignature = sig
         if BiomeSystem.debugMode then
             print("[BiomeSystem] organicCoherence changed -> biome cache invalidated")
@@ -413,6 +475,8 @@ function BiomeSystem._maybeInvalidateOnSamplingChange()
     local sig = BiomeSystem._computeSamplingSignature()
     if BiomeSystem._samplingSignature ~= sig then
         BiomeSystem.parameterCache = {}
+        BiomeSystem._cacheKeys = {}
+        BiomeSystem._cacheKeyCount = 0
         BiomeSystem._samplingSignature = sig
         if BiomeSystem.debugMode then
             print("[BiomeSystem] sampling scale changed -> parameter cache invalidated")
@@ -606,6 +670,8 @@ function BiomeSystem.init(seed)
     BiomeSystem.numericSeed = BiomeSystem.seedToNumeric(seed)
     BiomeSystem.biomeCache = {}
     BiomeSystem.parameterCache = {}
+    BiomeSystem._cacheKeys = {}
+    BiomeSystem._cacheKeyCount = 0
     BiomeSystem.debugInfo = {
         lastPlayerBiome = nil,
         biomeChangeCount = 0
@@ -738,6 +804,9 @@ function BiomeSystem.generateSpaceParameters(chunkX, chunkY, noCache)
     }
     
     if not noCache and cacheKey then
+        if not BiomeSystem.parameterCache[cacheKey] then
+            BiomeSystem._trackCacheKey(cacheKey)
+        end
         BiomeSystem.parameterCache[cacheKey] = params
     end
     return params
@@ -971,6 +1040,9 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
     
     -- Si no hay coincidencias, usar Deep Space
     if #biomeScores == 0 then
+        if not BiomeSystem.biomeCache[key] then
+            BiomeSystem._trackCacheKey(key)
+        end
         BiomeSystem.biomeCache[key] = BiomeSystem.BiomeType.DEEP_SPACE
         return BiomeSystem.BiomeType.DEEP_SPACE
     end
@@ -1101,6 +1173,9 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
     local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     local coherentType = BiomeSystem.applyCoherence3D(chunkX, chunkY, selectedType, params)
 
+    if not BiomeSystem.biomeCache[key] then
+        BiomeSystem._trackCacheKey(key)
+    end
     BiomeSystem.biomeCache[key] = coherentType
 
     -- Expansión de ASTEROID_BELT ahora es implícita y determinista vía coherencia/macro; no se crean reservas efímeras

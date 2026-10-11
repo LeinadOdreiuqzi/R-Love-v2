@@ -206,6 +206,11 @@ function ChunkManager.removeFromCache(id)
     end
     list[#list] = nil
     chunk._cacheIndex = nil
+
+    -- Notificar a BiomeSystem para liberar memoria de caché de este chunk
+    if BiomeSystem and BiomeSystem.evictChunk and chunk.x and chunk.y then
+        BiomeSystem.evictChunk(chunk.x, chunk.y)
+    end
 end
 
 -- Estructura de chunk
