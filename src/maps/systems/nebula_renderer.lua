@@ -242,23 +242,45 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 
         local brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
 
+        -- Extraer color armónico del núcleo (Dual-Tone) o fallback armónico
+        local core = n.coreColor or (n.color and n.color.core) or {br, bg, bb}
+        local coreR, coreG, coreB = core[1] or br, core[2] or bg, core[3] or bb
+
+        -- Sincronizar modulación de profundidad (parallax y armonía vecinal) con el núcleo
+        local ch, cs, cv = rgb2hsv(coreR, coreG, coreB)
+        ch = (ch + hueShift) % 1.0
+        cs = math.max(0.0, math.min(1.0, cs * satAdj))
+        cv = math.max(0.0, math.min(1.0, cv * valAdj))
+        local fCoreR, fCoreG, fCoreB = hsv2rgb(ch, cs, cv)
+
         -- Configurar uniforms para esta nebulosa
         NebulasShaders.configureForNebula({
-            seed = (n.seed or 0) * 0.001,
+            seed = n.seed or 0,
             noiseScale = n.noiseScale or 2.5,
-            warpAmp = n.warpAmp or 0.05,
-            warpFreq = n.warpFreq or 0.20,
-            softness = n.softness or 0.70,
+            warpAmp = n.warpAmp or 0.65,
+            warpFreq = n.warpFreq or 1.25,
+            softness = n.softness or 0.28,
             brightness = brightness,
             parallax = par,
-            sparkleStrength = 0.0
+            sparkleStrength = n.sparkleStrength or 0.0,
+            coreColor = { fCoreR, fCoreG, fCoreB },
+            morphology = n.morphology or 0.0,
+            irregularity = n.irregularity or 0.35
         })
 
         local scale = radiusPx * scaleFactor
+        local rot = n.rotation or 0.0
+        local aspect = n.aspectRatio or 1.0
+        local scaleX = scale * aspect
+        local scaleY = scale / aspect
+
         item.scale = scale
+        item.scaleX = scaleX
+        item.scaleY = scaleY
+        item.rot = rot
 
         love.graphics.setColor(cr, cg, cb, ba)
-        love.graphics.draw(img, screenX, screenY, 0, scale, scale, halfIw, halfIh)
+        love.graphics.draw(img, screenX, screenY, rot, scaleX, scaleY, halfIw, halfIh)
     end
 
     NebulasShaders.unsetShader()
@@ -276,6 +298,9 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         local screenY = item.screenY
         local fadeAlpha = item.fadeAlpha
         local scale = item.scale or (item.radiusPx * scaleFactor)
+        local rot = item.rot or 0.0
+        local scaleX = item.scaleX or scale
+        local scaleY = item.scaleY or scale
 
         local baseIntensity = n.intensity or 0.6
         local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par))) * fadeAlpha
@@ -284,8 +309,9 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
             local fogTint = 0.08 + 0.04 * par
             local harmonyFactor = 0.85 + 0.15 * math.sin(timeNow * 0.3 + (n.seed or 0) * 0.1)
             love.graphics.setColor(fogTint * harmonyFactor, fogTint * 0.75 * harmonyFactor, fogTint * 0.55 * harmonyFactor, fogAlpha)
-            local fogScale = scale * 1.18
-            love.graphics.draw(img, screenX, screenY, 0, fogScale, fogScale, halfIw, halfIh)
+            local fogScaleX = scaleX * 1.18
+            local fogScaleY = scaleY * 1.18
+            love.graphics.draw(img, screenX, screenY, rot, fogScaleX, fogScaleY, halfIw, halfIh)
         end
     end
 

@@ -66,6 +66,14 @@ function SubLevelScene:enter(params)
         camX = entryX
         camY = entryY - 120
         targetZoom = 0.55
+    elseif cfg.meta and cfg.meta.subworldId == "nebulae_debug" then
+        local NebulaeDebugWorld = require 'src.sublevels.nebulae_debug_world'
+        NebulaeDebugWorld.init(cfg)
+        entryX = 0
+        entryY = 400
+        camX = 0
+        camY = 200
+        targetZoom = 0.45
     elseif tier == 1 then
         entryX = 0
         entryY = 0
@@ -221,6 +229,9 @@ function SubLevelScene:update(dt)
     if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         StationsDebugWorld.update(dt, player)
+    elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
+        local NebulaeDebugWorld = require 'src.sublevels.nebulae_debug_world'
+        NebulaeDebugWorld.update(dt, player)
     end
 
     -- Actualizar módulos del subnivel
@@ -309,6 +320,9 @@ function SubLevelScene:draw()
     if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         StationsDebugWorld.draw(camera, player)
+    elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
+        local NebulaeDebugWorld = require 'src.sublevels.nebulae_debug_world'
+        NebulaeDebugWorld.draw(camera, player)
     end
 
     -- Restaurar transformación
@@ -359,6 +373,9 @@ function SubLevelScene:draw()
         if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
             local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
             StationsDebugWorld.drawHUD()
+        elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
+            local NebulaeDebugWorld = require 'src.sublevels.nebulae_debug_world'
+            NebulaeDebugWorld.drawHUD()
         end
     end
 
@@ -404,6 +421,12 @@ function SubLevelScene:keypressed(key)
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         local camera = World.get('camera')
         if StationsDebugWorld.keypressed(key, player, camera) then
+            return true
+        end
+    elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
+        local NebulaeDebugWorld = require 'src.sublevels.nebulae_debug_world'
+        local camera = World.get('camera')
+        if NebulaeDebugWorld.keypressed(key, player, camera) then
             return true
         end
     end

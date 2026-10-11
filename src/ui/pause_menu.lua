@@ -35,6 +35,14 @@ local SOUNDTRACKS = {
 -- Lista de submundos y sus subniveles
 local SUBWORLDS = {
     {
+        id = "nebulae_debug",
+        name = "Nebulosas (Laboratorio)",
+        color = { 0.85, 0.45, 0.95 },
+        levels = {
+            { id = "nebulae_lab_sandbox", name = "Banco de Pruebas", tier = "debug_nebulae", width = 16, height = 16, color = { 0.85, 0.45, 0.95 } }
+        }
+    },
+    {
         id = "stations_debug",
         name = "Estaciones (Debug)",
         color = { 0.25, 0.85, 0.95 },

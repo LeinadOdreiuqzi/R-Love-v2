@@ -92,6 +92,7 @@ end
 
 -- Alias para compatibilidad con el código existente
 SeedSystem.toNumeric = SeedSystem.toNumber
+SeedSystem.createRNG = function(seed) return SeedSystem.makeRNG(seed) end
 
 -- Crear un RNG determinista local (LCG 32-bit)
 function SeedSystem.makeRNG(seed)

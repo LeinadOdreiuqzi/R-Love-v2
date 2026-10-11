@@ -806,7 +806,32 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
                 globalY = globalY
             }
 
-            -- NUEVO: parámetros aleatorios para el shader de domain warping + parallax
+            -- Color y propiedades de energía (Forma A: Mono-Tono / Forma B: Bi-Tonal)
+            nebula.coreColor = (nebula.color and nebula.color.core) or nebula.color
+            nebula.colorMode = (nebula.color and nebula.color.mode) or "A"
+            nebula.harmony = (nebula.color and nebula.color.harmony) or "cosmic"
+            nebula.energyStyle = (nebula.color and nebula.color.energyStyle) or "Standard"
+            nebula.sparkleStrength = (nebula.color and nebula.color.sparkle) or 0.0
+
+            -- Parámetros morfológicos y de orientación aleatoria libre
+            nebula.rotation     = rng:randomRange(0, math.pi * 2)
+            nebula.aspectRatio  = rng:randomRange(0.72, 1.38)
+            nebula.irregularity = rng:randomRange(0.22, 0.52)
+
+            -- Selección morfológica ponderada según el bioma cósmico:
+            -- 0: Difusa, 1: Anular (Ring/Burbuja), 2: Bipolar (Alas/Reloj de arena), 3: Filamentosa
+            local morphRoll = rng:random()
+            if chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
+                nebula.morphology = (morphRoll < 0.40 and 3) or (morphRoll < 0.70 and 2) or 0
+            elseif chunk.biome.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
+                nebula.morphology = (morphRoll < 0.45 and 1) or (morphRoll < 0.75 and 2) or 0
+            elseif chunk.biome.type == BiomeSystem.BiomeType.DEEP_SPACE then
+                nebula.morphology = (morphRoll < 0.35 and 3) or 0
+            else
+                nebula.morphology = (morphRoll < 0.22 and 1) or (morphRoll < 0.42 and 2) or (morphRoll < 0.62 and 3) or 0
+            end
+
+            -- Parámetros aleatorios para el shader de domain warping + parallax
             nebula.seed       = nebulaSeed
             nebula.noiseScale = rng:randomRange(1.6, 3.6)
             nebula.warpAmp    = rng:randomRange(0.35, 1.00)
@@ -817,29 +842,36 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             local sizeFactor = math.min(1.0, (nebula.size / (220.0 * MapConfig.chunk.worldScale)))
             nebula.parallax  = math.min(0.95, 0.55 + sizeFactor * 0.35 + rng:randomRange(-0.05, 0.05))
 
-            -- Brillo por-nebulosa (usado por el renderer): más alto en NEBULA_FIELD
-            nebula.brightness = rng:randomRange(1.10, 1.20)
+            -- Brillo base por-nebulosa (usado por el renderer)
+            nebula.brightness = rng:randomRange(1.10, 1.22)
 
-            if chunk.biome.type == BiomeSystem.BiomeType.NEBULA_FIELD then
+            -- Modulaciones físicas y energéticas según el bioma (Opción A)
+            local bType = chunk.biome.type
+            if bType == BiomeSystem.BiomeType.NEBULA_FIELD then
                 nebula.size = nebula.size * rng:randomRange(1.30, 1.90)
                 nebula.intensity = nebula.intensity * rng:randomRange(1.20, 1.70)
-                -- Nebulosas más “tortuosas” en campos densos
-                nebula.warpAmp    = (nebula.warpAmp or rng:randomRange(0.35, 1.00)) * rng:randomRange(1.10, 1.40)
-                nebula.noiseScale = (nebula.noiseScale or rng:randomRange(1.6, 3.6)) * rng:randomRange(1.05, 1.25)
-                -- subir brillo en NEBULA_FIELD
+                nebula.warpAmp    = (nebula.warpAmp or 0.5) * rng:randomRange(1.10, 1.40)
+                nebula.noiseScale = (nebula.noiseScale or 2.5) * rng:randomRange(1.05, 1.25)
                 nebula.brightness = rng:randomRange(1.30, 1.45)
-            elseif chunk.biome.type == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
-                nebula.size = nebula.size * rng:randomRange(0.80, 1.30)
-                nebula.intensity = nebula.intensity * rng:randomRange(1.20, 1.60)
-                -- En zonas radioactivas preferimos verdes/ámbar intensos
-                local ok, c = pcall(ColorHarmony.generateHarmonicPalette, rng, "analogous", {0.2, 0.9, 0.2}, 1)
-                if ok and type(c) == "table" and c[1] then
-                    nebula.color = c[1]
-                else
-                    nebula.color = {0.8, 0.6, 0.2, 0.5}
-                end
-                -- Un poco más finas
-                nebula.softness = math.max(0.15, (nebula.softness or rng:randomRange(0.18, 0.40)) - 0.05)
+            elseif bType == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
+                nebula.size = nebula.size * rng:randomRange(0.85, 1.35)
+                nebula.intensity = nebula.intensity * rng:randomRange(1.25, 1.65)
+                nebula.warpAmp = (nebula.warpAmp or 0.5) * rng:randomRange(1.20, 1.45)
+                nebula.softness = math.max(0.15, (nebula.softness or 0.25) - 0.06)
+                nebula.brightness = rng:randomRange(1.25, 1.42)
+                nebula.sparkleStrength = math.max(nebula.sparkleStrength or 0.0, rng:randomRange(0.25, 0.50))
+            elseif bType == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
+                nebula.size = nebula.size * rng:randomRange(0.90, 1.40)
+                nebula.intensity = nebula.intensity * rng:randomRange(1.15, 1.50)
+                nebula.warpAmp = (nebula.warpAmp or 0.5) * rng:randomRange(1.30, 1.60)
+                nebula.warpFreq = (nebula.warpFreq or 1.0) * rng:randomRange(0.70, 0.90)
+                nebula.softness = math.max(0.14, (nebula.softness or 0.25) - 0.08)
+            elseif bType == BiomeSystem.BiomeType.ANCIENT_RUINS then
+                nebula.sparkleStrength = math.max(nebula.sparkleStrength or 0.0, rng:randomRange(0.15, 0.35))
+                nebula.brightness = rng:randomRange(1.20, 1.35)
+            elseif bType == BiomeSystem.BiomeType.DEEP_SPACE then
+                nebula.softness = math.min(0.48, (nebula.softness or 0.25) + 0.08)
+                nebula.brightness = rng:randomRange(1.05, 1.18)
             end
 
             table.insert(nebulaObjects, nebula)
@@ -850,23 +882,33 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
         local cx = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
         local cy = math.floor(MapConfig.chunk.size * 0.5) * MapConfig.chunk.tileSize
         local baseScale = (MapConfig.nebulae and MapConfig.nebulae.baseSizeScale) or 1.25
-        table.insert(nebulaObjects, {
+        local fallbackNebula = {
             type = MapConfig.ObjectType.NEBULA,
             x = cx, y = cy,
             size = rng:randomInt(120, 220) * MapConfig.chunk.worldScale * baseScale,
             -- Color armónico para el fallback central en NEBULA_FIELD
             color = (function()
-                local ok, palette = pcall(ColorHarmony.generateRandomCoherentPalette, rng, 1)
-                if ok and type(palette) == "table" and palette[1] then
-                    return palette[1]
+                local ok, nebColor = pcall(ColorHarmony.generateNebulaColor, rng, chunk.biome.type, math.floor(chunkSeed or 999))
+                if ok and type(nebColor) == "table" then
+                    return nebColor
                 end
                 return {0.6, 0.4, 0.9, 0.35}
             end)(),
             intensity = rng:randomRange(0.25, 0.55),
             biomeType = chunk.biome.type,
-            globalX = chunkX * MapConfig.chunk.size + math.floor(MapConfig.chunk.size * 0.5),
-            globalY = chunkY * MapConfig.chunk.size + math.floor(MapConfig.chunk.size * 0.5)
-        })
+            globalX = chunkX * MapConfig.chunk.size + cx,
+            globalY = chunkY * MapConfig.chunk.size + cy
+        }
+        fallbackNebula.coreColor = (fallbackNebula.color and fallbackNebula.color.core) or fallbackNebula.color
+        fallbackNebula.colorMode = (fallbackNebula.color and fallbackNebula.color.mode) or "A"
+        fallbackNebula.harmony = (fallbackNebula.color and fallbackNebula.color.harmony) or "cosmic"
+        fallbackNebula.energyStyle = (fallbackNebula.color and fallbackNebula.color.energyStyle) or "Standard"
+        fallbackNebula.sparkleStrength = (fallbackNebula.color and fallbackNebula.color.sparkle) or 0.0
+        fallbackNebula.rotation = rng:randomRange(0, math.pi * 2)
+        fallbackNebula.aspectRatio = rng:randomRange(0.80, 1.25)
+        fallbackNebula.morphology = (rng:random() < 0.35 and 1) or 0
+        fallbackNebula.irregularity = rng:randomRange(0.20, 0.45)
+        table.insert(nebulaObjects, fallbackNebula)
     end
 
     chunk.objects.nebulae = nebulaObjects
