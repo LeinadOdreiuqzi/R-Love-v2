@@ -262,24 +262,20 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     love.graphics.push()
     love.graphics.origin()
 
-    -- Si hay biomas no Deep Space visibles, usar su promedio SIEMPRE (aunque Deep Space sea dominante)
+    -- Si hay biomas no Deep Space visibles, aplicar un tinte atmosférico sutil
+    -- El alpha está acotado para garantizar que el espacio conserve su negro profundo y
+    -- las nebulosas aditivas mantengan su máximo contraste y colores vivos
     if ndCount > 0 then
         local backgroundColor = { ndSumR / ndCount, ndSumG / ndCount, ndSumB / ndCount, (ndSumA / ndCount) }
         local cr = backgroundColor[1] or 0
         local cg = backgroundColor[2] or 0
         local cb = backgroundColor[3] or 0
-        local ca = backgroundColor[4] or 1
-        love.graphics.setColor(cr, cg, cb, ca)
+        -- Opacidad máxima subliminal (máx 6% de opacidad) para que el fondo se perciba negro con ligero matiz
+        local maxAmbientAlpha = 0.06
+        local rawA = backgroundColor[4] or 1.0
+        local ca = math.min(maxAmbientAlpha, rawA * 0.06)
+        love.graphics.setColor(cr * 0.35, cg * 0.35, cb * 0.35, ca)
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
-    else
-        -- Solo Deep Space visible: NO dibujar fondo para permitir que el fondo galáctico sea visible
-        -- El fondo galáctico procedural se renderiza desde BackgroundManager
-        -- local totalChunks = math.max(1, sumCount)
-        -- local deepSpaceRatio = (biomeCounts[BiomeSystem.BiomeType.DEEP_SPACE] or 0) / totalChunks
-        -- if deepSpaceRatio > 0.7 then
-        --     love.graphics.setColor(0.02, 0.02, 0.05, 0.3)
-        --     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
-        -- end
     end
 
     love.graphics.pop()

@@ -666,12 +666,15 @@ function BiomeSystem.hashChunk(chunkX, chunkY)
 end
 
 -- Generar parámetros espaciales 3D mejorados
-function BiomeSystem.generateSpaceParameters(chunkX, chunkY)
-    BiomeSystem._maybeInvalidateOnSamplingChange()
-    local cacheKey = chunkX .. "," .. chunkY
-    
-    if BiomeSystem.parameterCache[cacheKey] then
-        return BiomeSystem.parameterCache[cacheKey]
+function BiomeSystem.generateSpaceParameters(chunkX, chunkY, noCache)
+    local cacheKey
+    if not noCache then
+        BiomeSystem._maybeInvalidateOnSamplingChange()
+        cacheKey = chunkX .. "," .. chunkY
+        
+        if BiomeSystem.parameterCache[cacheKey] then
+            return BiomeSystem.parameterCache[cacheKey]
+        end
     end
     
     -- Coordenadas del mundo
@@ -734,7 +737,9 @@ function BiomeSystem.generateSpaceParameters(chunkX, chunkY)
         depth = falseHeight  -- Solo para modificar densidades, no para bloquear
     }
     
-    BiomeSystem.parameterCache[cacheKey] = params
+    if not noCache and cacheKey then
+        BiomeSystem.parameterCache[cacheKey] = params
+    end
     return params
 end
 
@@ -796,7 +801,7 @@ end
 -- Muestreador continuo de presencia de bioma en espacio de chunks (cx, cy pueden ser flotantes)
 function BiomeSystem.sampleBiomePresence(biomeType, cx, cy)
     -- Usa la misma lógica de puntuación que getBiomeForChunk pero sin caché y con coordenadas continuas.
-    local params = BiomeSystem.generateSpaceParameters(cx, cy)
+    local params = BiomeSystem.generateSpaceParameters(cx, cy, true)
     local biomeScores = {}
     local BT = BiomeSystem.BiomeType
 

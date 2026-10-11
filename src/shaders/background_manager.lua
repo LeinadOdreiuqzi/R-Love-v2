@@ -228,13 +228,12 @@ function BackgroundManager.setSeed(seed)
     -- Generar variación única para esta semilla
     GalacticBackground.generateVariation(seed)
     
-    -- Forzar intensidad alta para máxima visibilidad
+    -- Intensidad equilibrada para suelo cósmico sutil (preserva negros profundos y contraste de nebulosas)
     GalacticBackground.setSettings({
-        intensity = 70.0  -- Intensidad extremadamente alta
+        intensity = 45.0
     })
     
     print("✓ Background seed set to: " .. tostring(seed))
-    print("✓ Forced high intensity for maximum visibility")
 end
 
 function BackgroundManager.setEnabled(enabled)
