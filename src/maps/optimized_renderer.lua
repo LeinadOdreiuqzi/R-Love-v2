@@ -805,17 +805,24 @@ function OptimizedRenderer.renderNebulaBatched(nebula, x, y, size)
     local brightness = OptimizedRenderer.calculateNebulaBrightness(nebula, love.timer.getTime())
     local par = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
 
-    -- Enviar uniforms por nebulosa (incluye u_parallax y sparkle)
-    shader:send("u_seed", (nebula.seed or 0) * 0.001)
-    shader:send("u_noiseScale", nebula.noiseScale or 2.5)
-    shader:send("u_warpAmp", nebula.warpAmp or 0.65)
-    shader:send("u_warpFreq", nebula.warpFreq or 1.25)
-    shader:send("u_softness", nebula.softness or 0.28)
-    shader:send("u_brightness", brightness)
-    shader:send("u_intensity", (nebula.intensity or 0.6) * 1.3) -- Aumentar intensidad
-    shader:send("u_parallax", par)
-    shader:send("u_sparkleStrength", 1.3)
-    shader:send("u_time", love.timer.getTime())
+    -- Enviar uniforms por nebulosa de forma vectorizada
+    local NebulasShaders = require 'src.shaders.nebulas_shaders'
+    if NebulasShaders and NebulasShaders.configureForNebula then
+        NebulasShaders.configureForNebula({
+            seed = nebula.seed,
+            noiseScale = nebula.noiseScale,
+            warpAmp = nebula.warpAmp,
+            warpFreq = nebula.warpFreq,
+            softness = nebula.softness,
+            brightness = brightness,
+            intensity = (nebula.intensity or 0.6) * 1.3,
+            parallax = par,
+            sparkleStrength = 1.3,
+            morphology = nebula.morphology or 0.0,
+            irregularity = nebula.irregularity or 0.35,
+            coreColor = nebula.coreColor or nebula.color
+        }, love.timer.getTime())
+    end
 
     -- Dibujar
     ShaderManager.setShader(shader)
@@ -853,17 +860,24 @@ function OptimizedRenderer.renderNebula(nebula, x, y, size)
     local brightness = OptimizedRenderer.calculateNebulaBrightness(nebula, love.timer.getTime())
     local par = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
     
-    -- Enviar uniforms por nebulosa
-    shader:send("u_seed", (nebula.seed or 0) * 0.001)
-    shader:send("u_noiseScale", nebula.noiseScale or 2.5)
-    shader:send("u_warpAmp", nebula.warpAmp or 0.65)
-    shader:send("u_warpFreq", nebula.warpFreq or 1.25)
-    shader:send("u_softness", nebula.softness or 0.28)
-    shader:send("u_brightness", brightness)
-    shader:send("u_intensity", (nebula.intensity or 0.6) * 1.3)
-    shader:send("u_parallax", par)
-    shader:send("u_sparkleStrength", 1.3)
-    shader:send("u_time", love.timer.getTime())
+    -- Enviar uniforms por nebulosa de forma vectorizada
+    local NebulasShaders = require 'src.shaders.nebulas_shaders'
+    if NebulasShaders and NebulasShaders.configureForNebula then
+        NebulasShaders.configureForNebula({
+            seed = nebula.seed,
+            noiseScale = nebula.noiseScale,
+            warpAmp = nebula.warpAmp,
+            warpFreq = nebula.warpFreq,
+            softness = nebula.softness,
+            brightness = brightness,
+            intensity = (nebula.intensity or 0.6) * 1.3,
+            parallax = par,
+            sparkleStrength = 1.3,
+            morphology = nebula.morphology or 0.0,
+            irregularity = nebula.irregularity or 0.35,
+            coreColor = nebula.coreColor or nebula.color
+        }, love.timer.getTime())
+    end
     
     -- Dibujar
     love.graphics.setShader(shader)

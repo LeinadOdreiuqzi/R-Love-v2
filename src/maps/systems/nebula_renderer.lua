@@ -253,20 +253,27 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         cv = math.max(0.0, math.min(1.0, cv * valAdj))
         local fCoreR, fCoreG, fCoreB = hsv2rgb(ch, cs, cv)
 
-        -- Configurar uniforms para esta nebulosa
-        NebulasShaders.configureForNebula({
-            seed = n.seed or 0,
-            noiseScale = n.noiseScale or 2.5,
-            warpAmp = n.warpAmp or 0.65,
-            warpFreq = n.warpFreq or 1.25,
-            softness = n.softness or 0.28,
-            brightness = brightness,
-            parallax = par,
-            sparkleStrength = n.sparkleStrength or 0.0,
-            coreColor = { fCoreR, fCoreG, fCoreB },
-            morphology = n.morphology or 0.0,
-            irregularity = n.irregularity or 0.35
-        })
+        -- Reutilizar tabla de configuración para cero asignaciones por fotograma
+        NebulaRenderer._nebulaConfig = NebulaRenderer._nebulaConfig or {}
+        local cfg = NebulaRenderer._nebulaConfig
+        cfg.seed = n.seed or 0
+        cfg.noiseScale = n.noiseScale or 2.5
+        cfg.warpAmp = n.warpAmp or 0.65
+        cfg.warpFreq = n.warpFreq or 1.25
+        cfg.softness = n.softness or 0.28
+        cfg.intensity = n.intensity or 0.6
+        cfg.brightness = brightness
+        cfg.parallax = par
+        cfg.sparkleStrength = n.sparkleStrength or 0.0
+        cfg.coreColor = cfg.coreColor or {1.0, 1.0, 1.0}
+        cfg.coreColor[1] = fCoreR
+        cfg.coreColor[2] = fCoreG
+        cfg.coreColor[3] = fCoreB
+        cfg.morphology = n.morphology or 0.0
+        cfg.irregularity = n.irregularity or 0.35
+
+        -- Configurar uniforms vectoriales para esta nebulosa (Fase 4: 4 llamadas en lugar de 13)
+        NebulasShaders.configureForNebula(cfg)
 
         local scale = radiusPx * scaleFactor
         local rot = n.rotation or 0.0
@@ -286,9 +293,22 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
     NebulasShaders.unsetShader()
 
     -- =========================================================================
-    -- PASO 2: CAPAS DE NIEBLA SUAVE (FOG-OF-WAR) (Sin shader + Blend Alpha)
+    -- PASO 2: CAPAS DE NIEBLA SUAVE (FOG-OF-WAR) (Sin shader + SpriteBatch consolidado en 1 draw call)
     -- =========================================================================
     love.graphics.setBlendMode("alpha", "alphamultiply")
+
+    local fogBatch = NebulaRenderer.fogBatch
+    if not fogBatch or NebulaRenderer._fogBatchImg ~= img then
+        local initialCap = math.max(128, visibleCount * 2)
+        fogBatch = love.graphics.newSpriteBatch(img, initialCap, "stream")
+        NebulaRenderer.fogBatch = fogBatch
+        NebulaRenderer._fogBatchImg = img
+    elseif fogBatch:getBufferSize() < visibleCount then
+        fogBatch:setBufferSize(math.max(visibleCount * 2, 128))
+    end
+
+    fogBatch:clear()
+    local fogAddedCount = 0
 
     for idx = 1, visibleCount do
         local item = visibleList[idx]
@@ -308,11 +328,21 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         if fogAlpha > 0.01 then
             local fogTint = 0.08 + 0.04 * par
             local harmonyFactor = 0.85 + 0.15 * math.sin(timeNow * 0.3 + (n.seed or 0) * 0.1)
-            love.graphics.setColor(fogTint * harmonyFactor, fogTint * 0.75 * harmonyFactor, fogTint * 0.55 * harmonyFactor, fogAlpha)
+            local fr = fogTint * harmonyFactor
+            local fg = fogTint * 0.75 * harmonyFactor
+            local fb = fogTint * 0.55 * harmonyFactor
             local fogScaleX = scaleX * 1.18
             local fogScaleY = scaleY * 1.18
-            love.graphics.draw(img, screenX, screenY, rot, fogScaleX, fogScaleY, halfIw, halfIh)
+
+            fogBatch:setColor(fr, fg, fb, fogAlpha)
+            fogBatch:add(screenX, screenY, rot, fogScaleX, fogScaleY, halfIw, halfIh)
+            fogAddedCount = fogAddedCount + 1
         end
+    end
+
+    if fogAddedCount > 0 then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(fogBatch)
     end
 
     -- Limpiar referencias pesadas del pool para permitir GC de chunks descargados

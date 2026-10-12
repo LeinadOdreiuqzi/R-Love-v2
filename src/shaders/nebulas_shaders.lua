@@ -8,8 +8,13 @@ NebulasShaders.state = {
     shader = nil,
     initialized = false,
     uniforms = {
-        -- Valores por defecto para uniforms del shader (densidad aumentada)
+        -- Uniforms vectoriales empaquetados (Fase 4: Batching y reducción de draw calls)
         u_time = 0.0,
+        u_params1 = {0.0, 2.8, 0.75, 1.35},
+        u_params2 = {0.18, 1.45, 0.85, 0.15},
+        u_params3 = {0.85, 0.0, 0.35, 0.0},
+        u_coreColor = {1.0, 1.0, 1.0},
+        -- Aliases escalares mantenidos para total retrocompatibilidad y telemetría
         u_seed = 0.0,
         u_noiseScale = 2.8,
         u_warpAmp = 0.75,
@@ -19,27 +24,39 @@ NebulasShaders.state = {
         u_brightness = 1.45,
         u_parallax = 0.85,
         u_sparkleStrength = 0.15,
-        u_coreColor = {1.0, 1.0, 1.0},
         u_morphology = 0.0,    -- 0: Difusa clásica, 1: Anular, 2: Bipolar, 3: Filamentosa
         u_irregularity = 0.35  -- Desgarro/irregularidad en bordes
     }
 }
 
+-- Buffers persistentes preasignados para evitar asignaciones de tabla por fotograma (GC-free)
+local _packedP1 = {0.0, 2.8, 0.75, 1.35}
+local _packedP2 = {0.18, 1.45, 0.85, 0.15}
+local _packedP3 = {0.85, 0.0, 0.35, 0.0}
+local _packedCore = {1.0, 1.0, 1.0}
+
 -- Código del shader de nebulosas con efectos avanzados
 local nebulaShaderCode = [[
     extern float u_time;
-    extern float u_seed;
-    extern float u_noiseScale;
-    extern float u_warpAmp;
-    extern float u_warpFreq;
-    extern float u_softness;
-    extern float u_intensity;
-    extern float u_brightness;
-    extern float u_parallax;        // Parallax por-nebulosa
-    extern float u_sparkleStrength; // Control de intensidad de destellos locales
-    extern vec3 u_coreColor;        // Color armónico del núcleo (Dual-Tone)
-    extern float u_morphology;     // 0: Difusa, 1: Anular (Ring), 2: Bipolar, 3: Filamentosa
-    extern float u_irregularity;   // Perturbación orgánica en la silueta
+    // Fase 4: Uniforms agrupados en vectores vec4 (reduce llamadas a glUniform en más de 70%)
+    extern vec4 u_params1; // x: seed, y: noiseScale, z: warpAmp, w: warpFreq
+    extern vec4 u_params2; // x: softness, y: brightness, z: parallax, w: sparkleStrength
+    extern vec4 u_params3; // x: intensity, y: morphology, z: irregularity, w: unused (0.0)
+    extern vec3 u_coreColor; // Color armónico del núcleo (Dual-Tone)
+
+    #define u_seed            (u_params1.x)
+    #define u_noiseScale      (u_params1.y)
+    #define u_warpAmp         (u_params1.z)
+    #define u_warpFreq        (u_params1.w)
+
+    #define u_softness        (u_params2.x)
+    #define u_brightness      (u_params2.y)
+    #define u_parallax        (u_params2.z)
+    #define u_sparkleStrength (u_params2.w)
+
+    #define u_intensity       (u_params3.x)
+    #define u_morphology      (u_params3.y)
+    #define u_irregularity    (u_params3.z)
 
     float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -209,12 +226,91 @@ function NebulasShaders.init()
     end
     
     NebulasShaders.state.shader = shader
+
+    -- Instalar capa de compatibilidad transparente en el metatable de Shader
+    -- para interceptar llamadas directas legacy (ej: shader:send("u_seed", ...) en loading_screen o renderers externos)
+    if not NebulasShaders._hookInstalled and debug and debug.getmetatable then
+        local mt = debug.getmetatable(shader)
+        if mt and mt.__index and type(mt.__index.send) == "function" then
+            local rawSend = mt.__index.send
+            local rawHasUniform = mt.__index.hasUniform
+
+            mt.__index.send = function(self, name, ...)
+                if self == NebulasShaders.state.shader then
+                    local u = NebulasShaders.state.uniforms
+                    if name == "u_seed" then
+                        local v = ...
+                        _packedP1[1] = v; u.u_seed = v
+                        return rawSend(self, "u_params1", _packedP1)
+                    elseif name == "u_noiseScale" then
+                        local v = ...
+                        _packedP1[2] = v; u.u_noiseScale = v
+                        return rawSend(self, "u_params1", _packedP1)
+                    elseif name == "u_warpAmp" then
+                        local v = ...
+                        _packedP1[3] = v; u.u_warpAmp = v
+                        return rawSend(self, "u_params1", _packedP1)
+                    elseif name == "u_warpFreq" then
+                        local v = ...
+                        _packedP1[4] = v; u.u_warpFreq = v
+                        return rawSend(self, "u_params1", _packedP1)
+                    elseif name == "u_softness" then
+                        local v = ...
+                        _packedP2[1] = v; u.u_softness = v
+                        return rawSend(self, "u_params2", _packedP2)
+                    elseif name == "u_brightness" then
+                        local v = ...
+                        _packedP2[2] = v; u.u_brightness = v
+                        return rawSend(self, "u_params2", _packedP2)
+                    elseif name == "u_parallax" then
+                        local v = ...
+                        _packedP2[3] = v; u.u_parallax = v
+                        return rawSend(self, "u_params2", _packedP2)
+                    elseif name == "u_sparkleStrength" then
+                        local v = ...
+                        _packedP2[4] = v; u.u_sparkleStrength = v
+                        return rawSend(self, "u_params2", _packedP2)
+                    elseif name == "u_intensity" then
+                        local v = ...
+                        _packedP3[1] = v; u.u_intensity = v
+                        return rawSend(self, "u_params3", _packedP3)
+                    elseif name == "u_morphology" then
+                        local v = ...
+                        _packedP3[2] = v; u.u_morphology = v
+                        return rawSend(self, "u_params3", _packedP3)
+                    elseif name == "u_irregularity" then
+                        local v = ...
+                        _packedP3[3] = v; u.u_irregularity = v
+                        return rawSend(self, "u_params3", _packedP3)
+                    end
+                end
+                return rawSend(self, name, ...)
+            end
+
+            if rawHasUniform then
+                mt.__index.hasUniform = function(self, name)
+                    if self == NebulasShaders.state.shader then
+                        if name == "u_seed" or name == "u_noiseScale" or name == "u_warpAmp" or name == "u_warpFreq"
+                           or name == "u_softness" or name == "u_brightness" or name == "u_parallax" or name == "u_sparkleStrength"
+                           or name == "u_intensity" or name == "u_morphology" or name == "u_irregularity" then
+                            return true
+                        end
+                    end
+                    return rawHasUniform(self, name)
+                end
+            end
+
+            NebulasShaders._hookInstalled = true
+        end
+    end
     
     -- Configurar uniforms por defecto
     local ok = pcall(function()
-        for uniform, value in pairs(NebulasShaders.state.uniforms) do
-            shader:send(uniform, value)
-        end
+        if shader:hasUniform("u_time") then shader:send("u_time", NebulasShaders.state.uniforms.u_time) end
+        if shader:hasUniform("u_params1") then shader:send("u_params1", NebulasShaders.state.uniforms.u_params1) end
+        if shader:hasUniform("u_params2") then shader:send("u_params2", NebulasShaders.state.uniforms.u_params2) end
+        if shader:hasUniform("u_params3") then shader:send("u_params3", NebulasShaders.state.uniforms.u_params3) end
+        if shader:hasUniform("u_coreColor") then shader:send("u_coreColor", NebulasShaders.state.uniforms.u_coreColor) end
     end)
     
     if not ok then
@@ -235,51 +331,155 @@ function NebulasShaders.getShader()
     return NebulasShaders.state.shader
 end
 
--- Actualizar uniforms del shader
+-- Actualizar uniforms del shader (soporta vectores y nombres escalares para total compatibilidad)
 function NebulasShaders.updateUniforms(uniforms)
     local shader = NebulasShaders.getShader()
     if not shader then return false end
     
     local success = pcall(function()
+        local u = NebulasShaders.state.uniforms
+        local p1Changed, p2Changed, p3Changed = false, false, false
+
         for uniform, value in pairs(uniforms) do
-            if NebulasShaders.state.uniforms[uniform] ~= nil then
-                shader:send(uniform, value)
-                NebulasShaders.state.uniforms[uniform] = value
+            if uniform == "u_time" then
+                if shader:hasUniform("u_time") then shader:send("u_time", value) end
+                u.u_time = value
+            elseif uniform == "u_params1" then
+                if shader:hasUniform("u_params1") then shader:send("u_params1", value) end
+                u.u_params1 = value
+            elseif uniform == "u_params2" then
+                if shader:hasUniform("u_params2") then shader:send("u_params2", value) end
+                u.u_params2 = value
+            elseif uniform == "u_params3" then
+                if shader:hasUniform("u_params3") then shader:send("u_params3", value) end
+                u.u_params3 = value
+            elseif uniform == "u_coreColor" then
+                if shader:hasUniform("u_coreColor") then shader:send("u_coreColor", value) end
+                u.u_coreColor = value
+            -- Aliases escalares
+            elseif uniform == "u_seed" then
+                _packedP1[1] = value; u.u_seed = value; p1Changed = true
+            elseif uniform == "u_noiseScale" then
+                _packedP1[2] = value; u.u_noiseScale = value; p1Changed = true
+            elseif uniform == "u_warpAmp" then
+                _packedP1[3] = value; u.u_warpAmp = value; p1Changed = true
+            elseif uniform == "u_warpFreq" then
+                _packedP1[4] = value; u.u_warpFreq = value; p1Changed = true
+            elseif uniform == "u_softness" then
+                _packedP2[1] = value; u.u_softness = value; p2Changed = true
+            elseif uniform == "u_brightness" then
+                _packedP2[2] = value; u.u_brightness = value; p2Changed = true
+            elseif uniform == "u_parallax" then
+                _packedP2[3] = value; u.u_parallax = value; p2Changed = true
+            elseif uniform == "u_sparkleStrength" then
+                _packedP2[4] = value; u.u_sparkleStrength = value; p2Changed = true
+            elseif uniform == "u_intensity" then
+                _packedP3[1] = value; u.u_intensity = value; p3Changed = true
+            elseif uniform == "u_morphology" then
+                _packedP3[2] = value; u.u_morphology = value; p3Changed = true
+            elseif uniform == "u_irregularity" then
+                _packedP3[3] = value; u.u_irregularity = value; p3Changed = true
             end
         end
+
+        if p1Changed and shader:hasUniform("u_params1") then shader:send("u_params1", _packedP1) end
+        if p2Changed and shader:hasUniform("u_params2") then shader:send("u_params2", _packedP2) end
+        if p3Changed and shader:hasUniform("u_params3") then shader:send("u_params3", _packedP3) end
     end)
     
     return success
 end
 
--- Configurar uniforms específicos para una nebulosa
+-- Configurar uniforms específicos para una nebulosa (Fase 4: vectorizado y sin asignación de tablas)
 function NebulasShaders.configureForNebula(nebula, currentTime)
+    local shader = NebulasShaders.getShader()
+    if not shader then return false end
+
+    local seedVal = (nebula.seed or 0) * 0.001
+    local noiseScaleVal = nebula.noiseScale or 2.5
+    local warpAmpVal = nebula.warpAmp or 0.65
+    local warpFreqVal = nebula.warpFreq or 1.25
+
+    local softnessVal = nebula.softness or 0.28
+    local brightnessVal = nebula.brightness or 1.20
+    local parallaxVal = math.max(0.0, math.min(1.0, nebula.parallax or 0.85))
+    local sparkleVal = nebula.sparkleStrength or 0.0
+
+    local intensityVal = nebula.intensity or 0.6
+    local morphologyVal = nebula.morphology or 0.0
+    local irregularityVal = nebula.irregularity or 0.35
+
     local core = nebula.coreColor or {1.0, 1.0, 1.0}
-    local uniforms = {
-        u_time = currentTime or love.timer.getTime(),
-        u_seed = (nebula.seed or 0) * 0.001,
-        u_noiseScale = nebula.noiseScale or 2.5,
-        u_warpAmp = nebula.warpAmp or 0.65,
-        u_warpFreq = nebula.warpFreq or 1.25,
-        u_softness = nebula.softness or 0.28,
-        u_intensity = nebula.intensity or 0.6,
-        u_brightness = nebula.brightness or 1.20,
-        u_parallax = math.max(0.0, math.min(1.0, nebula.parallax or 0.85)),
-        u_sparkleStrength = nebula.sparkleStrength or 0.0,
-        u_coreColor = { core[1] or 1.0, core[2] or 1.0, core[3] or 1.0 },
-        u_morphology = nebula.morphology or 0.0,
-        u_irregularity = nebula.irregularity or 0.35
-    }
-    
-    return NebulasShaders.updateUniforms(uniforms)
+    local cR = core[1] or 1.0
+    local cG = core[2] or 1.0
+    local cB = core[3] or 1.0
+
+    _packedP1[1] = seedVal
+    _packedP1[2] = noiseScaleVal
+    _packedP1[3] = warpAmpVal
+    _packedP1[4] = warpFreqVal
+
+    _packedP2[1] = softnessVal
+    _packedP2[2] = brightnessVal
+    _packedP2[3] = parallaxVal
+    _packedP2[4] = sparkleVal
+
+    _packedP3[1] = intensityVal
+    _packedP3[2] = morphologyVal
+    _packedP3[3] = irregularityVal
+    _packedP3[4] = 0.0
+
+    _packedCore[1] = cR
+    _packedCore[2] = cG
+    _packedCore[3] = cB
+
+    -- Sincronizar estado interno para debug/telemetría
+    local u = NebulasShaders.state.uniforms
+    u.u_params1 = _packedP1
+    u.u_params2 = _packedP2
+    u.u_params3 = _packedP3
+    u.u_coreColor = _packedCore
+    u.u_seed = seedVal
+    u.u_noiseScale = noiseScaleVal
+    u.u_warpAmp = warpAmpVal
+    u.u_warpFreq = warpFreqVal
+    u.u_softness = softnessVal
+    u.u_brightness = brightnessVal
+    u.u_parallax = parallaxVal
+    u.u_sparkleStrength = sparkleVal
+    u.u_intensity = intensityVal
+    u.u_morphology = morphologyVal
+    u.u_irregularity = irregularityVal
+
+    -- Actualizar u_time solo si se especifica y difiere
+    if currentTime and currentTime ~= u.u_time and shader:hasUniform("u_time") then
+        shader:send("u_time", currentTime)
+        u.u_time = currentTime
+    end
+
+    -- 4 envíos vectoriales directos (reducción masiva de overhead de driver OpenGL)
+    if shader:hasUniform("u_params1") then shader:send("u_params1", _packedP1) end
+    if shader:hasUniform("u_params2") then shader:send("u_params2", _packedP2) end
+    if shader:hasUniform("u_params3") then shader:send("u_params3", _packedP3) end
+    if shader:hasUniform("u_coreColor") then shader:send("u_coreColor", _packedCore) end
+
+    return true
+end
+
+-- Actualizar tiempo explícito del shader
+function NebulasShaders.updateTime(time)
+    local shader = NebulasShaders.getShader()
+    if shader and shader:hasUniform("u_time") then
+        local t = time or love.timer.getTime()
+        shader:send("u_time", t)
+        NebulasShaders.state.uniforms.u_time = t
+    end
 end
 
 -- Actualizar tiempo del shader (llamar cada frame)
 function NebulasShaders.update(dt)
     if not NebulasShaders.state.initialized then return end
-    
-    local currentTime = love.timer.getTime()
-    NebulasShaders.updateUniforms({u_time = currentTime})
+    NebulasShaders.updateTime(love.timer.getTime())
 end
 
 -- Aplicar shader de nebulosas
@@ -287,6 +487,11 @@ function NebulasShaders.setShader()
     local shader = NebulasShaders.getShader()
     if shader then
         love.graphics.setShader(shader)
+        local now = love.timer.getTime()
+        if shader:hasUniform("u_time") and NebulasShaders.state.uniforms.u_time ~= now then
+            shader:send("u_time", now)
+            NebulasShaders.state.uniforms.u_time = now
+        end
         return true
     end
     return false

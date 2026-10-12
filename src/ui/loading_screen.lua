@@ -514,10 +514,21 @@ function LoadingScreen.drawNebulae(alpha)
             nebula.seed = nebula.seed or (math.random() * 1000)
             
             love.graphics.setShader(shader)
-            shader:send("u_time", love.timer.getTime())
-            shader:send("u_seed", nebula.seed)
-            shader:send("u_parallax", 0.0)
-            shader:send("u_sparkleStrength", 0.0)
+            local NebulasShaders = require 'src.shaders.nebulas_shaders'
+            if NebulasShaders and NebulasShaders.configureForNebula then
+                NebulasShaders.configureForNebula({
+                    seed = nebula.seed,
+                    parallax = 0.0,
+                    sparkleStrength = 0.0,
+                    brightness = 1.0,
+                    intensity = 0.8
+                }, love.timer.getTime())
+            else
+                if shader:hasUniform("u_time") then shader:send("u_time", love.timer.getTime()) end
+                if shader:hasUniform("u_seed") then shader:send("u_seed", nebula.seed) end
+                if shader:hasUniform("u_parallax") then shader:send("u_parallax", 0.0) end
+                if shader:hasUniform("u_sparkleStrength") then shader:send("u_sparkleStrength", 0.0) end
+            end
             -- Mantener intensidad/brillo en defaults (configurados en ShaderManager),
             -- el fade lo manejamos vía setColor
             
