@@ -161,6 +161,10 @@ function LoadingScreen.init()
     LoadingScreen.tipChangeTime = 0
 
     LoadingScreen.initLoadingRing()
+
+    local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
+    HyperspaceTunnel.init()
+
     print("✓ LoadingScreen: Hyperspace Warp Drive engine initialized")
 end
 
@@ -229,7 +233,7 @@ function LoadingScreen.initLoadingRing()
 end
 
 -- Iniciar secuencia de carga
-function LoadingScreen.start(loadFunction, onComplete)
+function LoadingScreen.start(loadFunction, onComplete, seedOverride)
     local state = LoadingScreen.state
     state.active = true
     state.progress = 0
@@ -246,10 +250,13 @@ function LoadingScreen.start(loadFunction, onComplete)
     state.totalSteps = #LoadingScreen.gameLoadSteps
 
     -- Recuperar semilla cósmica activa
-    local seed = (GameState and GameState.state and GameState.state.currentSeed) or "3HY6E8X36H"
+    local seed = seedOverride or (GameState and GameState.state and GameState.state.currentSeed) or "3HY6E8X36H"
     state.targetSeed = seed
     state.displaySeed = "----------"
     state.seedLockIndex = 0
+
+    local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
+    HyperspaceTunnel.setSeed(seed)
 
     state.onComplete = onComplete
     state.loadFunction = loadFunction
@@ -305,6 +312,9 @@ function LoadingScreen.update(dt)
 
     state.elapsedTime = state.elapsedTime + dt
     state.animationTime = state.animationTime + dt
+
+    local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
+    HyperspaceTunnel.update(dt, state.smoothProgress)
 
     -- Interpolación continua LERP a 60 FPS (cero tirones en el progreso visual)
     local targetP = state.progress
@@ -455,11 +465,15 @@ function LoadingScreen.draw()
     local cy = math.floor(height * 0.46)
     local p = state.smoothProgress
 
-    -- 2. Nebulosa cuántica en el punto de fuga del túnel
-    LoadingScreen.drawFocalNebula(cx, cy, alpha)
+    -- 2. Túnel hiperespacial 3D (Shader procedural estilo Destiny 2)
+    local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
+    local tunnelOk = HyperspaceTunnel.draw(cx, cy, width, height, alpha, p)
 
-    -- 3. Campo estelar Warp 3D con trazas hiperespaciales (Star Streaks)
-    LoadingScreen.drawWarpStarfield(cx, cy, width, height, alpha)
+    if not tunnelOk then
+        -- Fallback de seguridad si el shader no estuviese disponible
+        LoadingScreen.drawFocalNebula(cx, cy, alpha)
+        LoadingScreen.drawWarpStarfield(cx, cy, width, height, alpha)
+    end
 
     -- 4. Interfaz HUD: Telemetría superior (solo la semilla)
     LoadingScreen.drawTopTelemetry(width, alpha)
