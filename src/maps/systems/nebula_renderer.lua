@@ -271,6 +271,7 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         cfg.coreColor[3] = fCoreB
         cfg.morphology = n.morphology or 0.0
         cfg.irregularity = n.irregularity or 0.35
+        cfg.speed = n.speed or 1.0
 
         -- Configurar uniforms vectoriales para esta nebulosa (Fase 4: 4 llamadas en lugar de 13)
         NebulasShaders.configureForNebula(cfg)
@@ -327,7 +328,7 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 
         if fogAlpha > 0.01 then
             local fogTint = 0.08 + 0.04 * par
-            local harmonyFactor = 0.85 + 0.15 * math.sin(timeNow * 0.3 + (n.seed or 0) * 0.1)
+            local harmonyFactor = 0.92 + 0.08 * math.sin(timeNow * 0.15 + (n.seed or 0) * 0.1)
             local fr = fogTint * harmonyFactor
             local fg = fogTint * 0.75 * harmonyFactor
             local fb = fogTint * 0.55 * harmonyFactor

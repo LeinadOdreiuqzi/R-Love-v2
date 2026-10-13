@@ -41,7 +41,7 @@ local nebulaShaderCode = [[
     // Fase 4: Uniforms agrupados en vectores vec4 (reduce llamadas a glUniform en más de 70%)
     extern vec4 u_params1; // x: seed, y: noiseScale, z: warpAmp, w: warpFreq
     extern vec4 u_params2; // x: softness, y: brightness, z: parallax, w: sparkleStrength
-    extern vec4 u_params3; // x: intensity, y: morphology, z: irregularity, w: unused (0.0)
+    extern vec4 u_params3; // x: intensity, y: morphology, z: irregularity, w: speedMultiplier
     extern vec3 u_coreColor; // Color armónico del núcleo (Dual-Tone)
 
     #define u_seed            (u_params1.x)
@@ -57,6 +57,7 @@ local nebulaShaderCode = [[
     #define u_intensity       (u_params3.x)
     #define u_morphology      (u_params3.y)
     #define u_irregularity    (u_params3.z)
+    #define u_speed           (u_params3.w)
 
     float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -115,9 +116,10 @@ local nebulaShaderCode = [[
             return vec4(0.0);
         }
 
-        // Movimiento sutil y dependiente de parallax
+        // Movimiento sutil y dependiente de parallax (reducido para un comportamiento cósmico majestuoso)
         float par = clamp(u_parallax, 0.0, 1.0);
-        float t = u_time * mix(0.008, 0.018, par);
+        float speedFactor = (u_speed > 0.0) ? u_speed : 1.0;
+        float t = u_time * mix(0.0035, 0.0080, par) * speedFactor;
 
         float ns = max(0.0001, u_noiseScale);
         vec2 p = uv * ns + seedOff;
@@ -152,25 +154,25 @@ local nebulaShaderCode = [[
             density = cloud * (0.48 + 1.05 * filFactor);
         }
 
-        // Banda oscura de polvo cósmico con orientación procedural
+        // Banda oscura de polvo cósmico con orientación procedural (movimiento suave)
         float dirAngle = sin(u_seed * 43.12) * 3.14159;
         vec2 dirVec = vec2(cos(dirAngle), sin(dirAngle));
         float dirCoord = dot(uv, dirVec);
-        float darkFogNoise = fbm(p * 1.8 + vec2(t * 0.30, t * 0.15));
+        float darkFogNoise = fbm(p * 1.8 + vec2(t * 0.18, t * 0.10));
         float darkFogMask = smoothstep(0.35, 0.85, darkFogNoise) * smoothstep(0.25, 0.75, dirCoord + 0.15);
         float darkFogIntensity = darkFogMask * 0.80 * (0.8 + par * 0.4);
 
-        // Niebla pálida central para profundidad
-        float paleFogNoise = fbm(p * 0.9 + vec2(-t * 0.30, t * 0.50));
+        // Niebla pálida central para profundidad (movimiento suave)
+        float paleFogNoise = fbm(p * 0.9 + vec2(-t * 0.18, t * 0.28));
         float paleFogMask = smoothstep(0.3, 0.7, paleFogNoise) * centerBoost;
         float paleFogIntensity = paleFogMask * 0.18 * (0.16 + par * 0.8);
 
-        // Destellos estelares ("sparkle") controlados por u_sparkleStrength
+        // Destellos estelares ("sparkle") controlados por u_sparkleStrength (parpadeo atenuado y suave)
         float sparkScale = 2.5 + par * 4.0;
         vec2 sp = p * sparkScale;
 
-        float s1 = noise(sp + vec2(u_time * (0.8 + par * 0.4) + u_seed, -u_time * (0.6 + par * 0.3) + u_seed * 0.7));
-        float s2 = noise(sp * 1.3 + vec2(-u_time * (0.7 + par * 0.3) + u_seed * 1.3, u_time * (0.5 + 0.2 * par)));
+        float s1 = noise(sp + vec2(u_time * (0.45 + par * 0.25) * speedFactor + u_seed, -u_time * (0.35 + par * 0.20) * speedFactor + u_seed * 0.7));
+        float s2 = noise(sp * 1.3 + vec2(-u_time * (0.40 + par * 0.20) * speedFactor + u_seed * 1.3, u_time * (0.30 + 0.15 * par) * speedFactor));
         float smax = max(s1, s2);
 
         float sparkMask = smoothstep(0.88, 1.0, smax) * mask;
@@ -379,6 +381,8 @@ function NebulasShaders.updateUniforms(uniforms)
                 _packedP3[2] = value; u.u_morphology = value; p3Changed = true
             elseif uniform == "u_irregularity" then
                 _packedP3[3] = value; u.u_irregularity = value; p3Changed = true
+            elseif uniform == "u_speed" or uniform == "u_movementSpeed" then
+                _packedP3[4] = value; u.u_speed = value; p3Changed = true
             end
         end
 
@@ -408,6 +412,7 @@ function NebulasShaders.configureForNebula(nebula, currentTime)
     local intensityVal = nebula.intensity or 0.6
     local morphologyVal = nebula.morphology or 0.0
     local irregularityVal = nebula.irregularity or 0.35
+    local speedVal = nebula.speed or nebula.movementSpeed or 1.0
 
     local core = nebula.coreColor or {1.0, 1.0, 1.0}
     local cR = core[1] or 1.0
@@ -427,7 +432,7 @@ function NebulasShaders.configureForNebula(nebula, currentTime)
     _packedP3[1] = intensityVal
     _packedP3[2] = morphologyVal
     _packedP3[3] = irregularityVal
-    _packedP3[4] = 0.0
+    _packedP3[4] = speedVal
 
     _packedCore[1] = cR
     _packedCore[2] = cG
@@ -450,6 +455,7 @@ function NebulasShaders.configureForNebula(nebula, currentTime)
     u.u_intensity = intensityVal
     u.u_morphology = morphologyVal
     u.u_irregularity = irregularityVal
+    u.u_speed = speedVal
 
     -- Actualizar u_time solo si se especifica y difiere
     if currentTime and currentTime ~= u.u_time and shader:hasUniform("u_time") then

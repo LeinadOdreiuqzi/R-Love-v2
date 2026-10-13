@@ -1517,10 +1517,10 @@ function OptimizedRenderer.calculateNebulaBrightness(nebula, timeNow)
         end
     end
     
-    -- Pulso senoidal suave basado en tiempo y seed
-    local freq = 0.15 + 0.25 * par  -- Frecuencia dependiente de parallax
+    -- Pulso senoidal suave basado en tiempo y seed (movimiento de respiración cósmica sutil)
+    local freq = 0.08 + 0.14 * par  -- Frecuencia atenuada (antes 0.15 + 0.25)
     local phase = (nebula.seed or 0) * 0.15
-    local pulse = 1.0 + 0.04 * math.sin((timeNow or love.timer.getTime()) * freq + phase)
+    local pulse = 1.0 + 0.025 * math.sin((timeNow or love.timer.getTime()) * freq + phase)
     
     -- Multiplicador global de brillo unificado
     local globalBrightnessMultiplier = 1.4
