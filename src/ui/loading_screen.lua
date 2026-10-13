@@ -1,728 +1,894 @@
 -- src/ui/loading_screen.lua
+-- Sistema de pantalla de carga inicial: Salto Hiperespacial / Túnel Cuántico (Warp-Drive & Stargate)
+-- Proyección 3D de estrellas en trazas (star streaks), astrolabio holográfico giroscópico 3D y telemetría de sector.
+
 local LoadingScreen = {}
 local ShaderManager = require 'src.shaders.shader_manager'
--- Configuración
+local GameState = require 'src.core.game_state'
+
+-- Configuración temática del Hiperespacio
 LoadingScreen.config = {
-    -- Tiempos
-    minLoadTime = 0.8,          -- Tiempo mínimo de carga suave (elimina esperas artificiales)
-    fadeInTime = 0.3,           -- Tiempo de fade in
-    fadeOutTime = 0.4,          -- Tiempo de fade out
-    
-    -- Colores del tema espacial
+    -- Tiempos de transición
+    minLoadTime = 0.90,         -- Tiempo mínimo cinematográfico para disfrutar del túnel
+    fadeInTime = 0.35,          -- Entrada suave
+    fadeOutTime = 0.50,         -- Salida con destello warp hacia el juego
+
+    -- Paleta de colores de alta energía cuántica (Hiperespacio)
     colors = {
-        background = {0.02, 0.02, 0.08, 1},
-        primary = {0.3, 0.7, 1, 1},
-        secondary = {0.8, 0.5, 1, 1},
-        accent = {1, 0.8, 0.3, 1},
-        text = {0.9, 0.9, 1, 1},
-        textDim = {0.6, 0.6, 0.7, 1}
+        background  = {0.008, 0.010, 0.022, 1.0}, -- Vacío cósmico profundo
+        warpCyan    = {0.20, 0.88, 1.00, 1.0},    -- Haz de hiperimpulso cian
+        warpBlue    = {0.35, 0.58, 1.00, 1.0},    -- Azul interestelar
+        warpPurple  = {0.72, 0.42, 0.98, 1.0},    -- Horizonte de eventos violeta
+        warpAmber   = {1.00, 0.82, 0.38, 1.0},    -- Acento de advertencia y seed
+        text        = {0.94, 0.97, 1.00, 1.0},    -- Blanco nítido
+        textDim     = {0.52, 0.62, 0.78, 1.0},    -- Telemetría secundaria
+        primary     = {0.20, 0.88, 1.00, 1.0},    -- Alias retrocompatible
+        secondary   = {0.72, 0.42, 0.98, 1.0},
+        accent      = {1.00, 0.82, 0.38, 1.0}
     },
-    
-    -- Animación
-    animation = {
-        starCount = 200,
-        nebulaCount = 8,
-        rotationSpeed = 0.5,
-        pulseSpeed = 2,
-        waveSpeed = 3
+
+    -- Parámetros del motor de salto warp 3D
+    warp = {
+        starCount     = 420,    -- Densidad óptima de partículas estelares 3D
+        fov           = 360,    -- Distancia focal de proyección perspectiva
+        maxDepth      = 1200,   -- Profundidad máxima Z
+        baseSpeed     = 140,    -- Velocidad de aproximación inicial (px/s)
+        maxSpeedBoost = 3800,   -- Aceleración a hipervelocidad al 100%
+        coreRadius    = 88      -- Radio del astrolabio holográfico
     }
 }
 
--- Estado optimizado
+-- Estado de ejecución
 LoadingScreen.state = {
     active = false,
-    progress = 0,
+    progress = 0,               -- Progreso real de CPU [0..1]
+    smoothProgress = 0,         -- Progreso interpolado LERP a 60 FPS [0..1]
     currentStep = "",
     subStep = "",
     startTime = 0,
     elapsedTime = 0,
-    
-    -- Estados de carga
-    loadingSteps = {},
-    currentStepIndex = 1,
-    totalSteps = 0,
-    stepsCompleted = 0,
-    
-    -- Animación
+    animationTime = 0,
+
+    -- Control de fases
     fadeAlpha = 0,
     fadeState = "in", -- "in", "loading", "out", "done"
-    animationTime = 0,
-    
-    -- Elementos visuales
+
+    -- Pasos de carga
+    currentStepIndex = 1,
+    totalSteps = 12,
+    stepsCompleted = 0,
+
+    -- Decodificador de semilla cósmica
+    targetSeed = "",
+    displaySeed = "----------",
+    seedLockIndex = 0,
+
+    -- Entidades visuales
     stars = {},
     nebulae = {},
+    astrolabe = {
+        pitch = 0,
+        yaw = 0,
+        roll = 0,
+        pulse = 1.0
+    },
+
+    -- Retrocompatibilidad para inspección externa
     loadingRing = {
         rotation = 0,
         segments = {},
         pulseScale = 1
     },
-    
+
     -- Callbacks
     onComplete = nil,
     loadFunction = nil,
-    
-    -- Optimizaciones de carga asíncrona
+
+    -- Carga asíncrona y cache
     asyncLoader = {
         enabled = true,
-        maxTimePerFrame = 0.016, -- 16ms máximo por frame (60 FPS)
+        maxTimePerFrame = 0.016,
         currentTask = nil,
         taskQueue = {},
         lastFrameTime = 0
     },
-    
-    -- Cache de recursos
+
     resourceCache = {
         preloadedAssets = {},
         memoryUsage = 0,
-        maxMemoryUsage = 50 * 1024 * 1024 -- 50MB
+        maxMemoryUsage = 50 * 1024 * 1024
     }
 }
 
--- Iterador de carga
 LoadingScreen.loadIterator = nil
 
--- Pasos de carga del juego (12 pasos perfectamente sincronizados, suma = 1.00)
+-- Pasos de carga sincronizados con game_loader.lua
 LoadingScreen.gameLoadSteps = {
-    {id = "init", name = "Initializing Core Systems", weight = 0.04},
-    {id = "seed", name = "Processing Seed & Universe", weight = 0.04},
-    {id = "perlin", name = "Generating Noise Patterns", weight = 0.08},
-    {id = "biomes", name = "Calculating Biome Distribution", weight = 0.12},
-    {id = "coordinates", name = "Setting Up Coordinates & Camera", weight = 0.04},
-    {id = "chunks", name = "Initializing Chunk Manager", weight = 0.08},
-    {id = "renderer", name = "Preparing Renderer & Shaders", weight = 0.05},
-    {id = "initial_chunks", name = "Generating Initial Sector Chunks", weight = 0.25},
-    {id = "player", name = "Creating Player & Test Ships", weight = 0.08},
-    {id = "game_systems", name = "Starting Audio & Game Systems", weight = 0.10},
-    {id = "hud", name = "Loading Interface & HUD", weight = 0.05},
-    {id = "finalize", name = "Finalizing Universe Generation", weight = 0.07}
+    {id = "init",           name = "Initializing Core Systems",           weight = 0.04},
+    {id = "seed",           name = "Processing Seed & Universe Matrix",   weight = 0.04},
+    {id = "perlin",         name = "Synthesizing Quantum Noise Fields",   weight = 0.08},
+    {id = "biomes",         name = "Calculating Biome Distribution",      weight = 0.12},
+    {id = "coordinates",    name = "Calibrating Coordinates & Astrometry", weight = 0.04},
+    {id = "chunks",         name = "Initializing Sector Chunk Engine",    weight = 0.08},
+    {id = "renderer",       name = "Compiling Stellar Shaders",           weight = 0.05},
+    {id = "initial_chunks", name = "Materializing Spatial Sectors",       weight = 0.25},
+    {id = "player",         name = "Engaging Vessel & Life Support",       weight = 0.08},
+    {id = "game_systems",   name = "Synchronizing Sensors & Audio Engine", weight = 0.10},
+    {id = "hud",            name = "Projecting Tactical HUD Interface",   weight = 0.05},
+    {id = "finalize",       name = "Locking Hyperspace Exit Coordinates", weight = 0.07}
 }
 
--- Inicializar la pantalla de carga
+-- Inicializar fuentes, tips y recursos
 function LoadingScreen.init()
-    -- Generar estrellas de fondo
     LoadingScreen.generateStars()
-    
-    -- Generar nebulosas
     LoadingScreen.generateNebulae()
-    -- Inicializar ShaderManager para usar shaders en la pantalla de carga (evita doble-init)
+
     if ShaderManager and (not ShaderManager.state or not ShaderManager.state.initialized) then
         ShaderManager.init()
     end
-    -- Inicializar anillo de carga
-    LoadingScreen.initLoadingRing()
-    -- Crear fuentes
+
+    -- Inicializar fuentes nítidas y balanceadas
     LoadingScreen.fonts = {
-        title = love.graphics.newFont(36),
-        progress = love.graphics.newFont(24),
-        step = love.graphics.newFont(18),
-        small = love.graphics.newFont(14),
-        tips = love.graphics.newFont(16)
+        header    = love.graphics.newFont(26),
+        subHeader = love.graphics.newFont(12),
+        progress  = love.graphics.newFont(24),
+        coreGlyph = love.graphics.newFont(10),
+        stepTitle = love.graphics.newFont(17),
+        stepSub   = love.graphics.newFont(13),
+        telemetry = love.graphics.newFont(12),
+        tip       = love.graphics.newFont(14),
+        -- Alias retrocompatibles
+        title     = love.graphics.newFont(26),
+        step      = love.graphics.newFont(17),
+        small     = love.graphics.newFont(12),
+        tips      = love.graphics.newFont(14)
     }
-    
-    -- Tips de carga
+
+    -- Consejos de exploración espacial y controles
     LoadingScreen.tips = {
-        "Deep Space acts as a natural ocean between biomes",
-        "Ancient Ruins are extremely rare - explore far to find them",
-        "Press F12 to toggle the Biome Scanner",
-        "Radioactive Zones have unique green nebulae",
-        "Your seed determines the entire universe layout",
-        "Gravity Anomalies can distort space-time",
-        "Press F1 to see system information",
-        "Each biome has unique properties and dangers",
-        "The universe extends 200,000 units in all directions",
-        "Asteroid Belts are rich in resources but dangerous"
+        "Deep Space acts as an uncharted cosmic ocean between planetary biomes",
+        "Ancient Ruins hold lost precursor technology - scan deep space to locate them",
+        "Press [F12] to toggle the Long-Range Biome Scanner HUD",
+        "Radioactive Zones harbor volatile green nebulae and dense gravitational anomalies",
+        "Your unique sector seed determines the procedural placement of all star systems",
+        "Gravity Anomalies bend starlight and warp local spacetime geometry",
+        "Press [F1] to display flight telemetry, sector diagnostics, and system stats",
+        "Asteroid Belts are abundant in rare minerals but require tactical navigation",
+        "Hold [Shift] to engage emergency reverse thruster brakes",
+        "Warp conduits reach peak stability when navigational event horizons synchronize"
     }
     LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
     LoadingScreen.tipChangeTime = 0
-    
-    print("LoadingScreen initialized")
+
+    LoadingScreen.initLoadingRing()
+    print("✓ LoadingScreen: Hyperspace Warp Drive engine initialized")
 end
 
--- Generar estrellas de fondo
+-- Generar campo de estrellas 3D proyectivas para el túnel de velocidad (Star Streaks)
 function LoadingScreen.generateStars()
     LoadingScreen.state.stars = {}
-    local starCount = LoadingScreen.config.animation.starCount
-    
-    for i = 1, starCount do
-        local star = {
-            x = math.random() * love.graphics.getWidth(),
-            y = math.random() * love.graphics.getHeight(),
-            size = math.random() * 2 + 0.5,
-            brightness = math.random() * 0.5 + 0.5,
-            twinkleSpeed = math.random() * 2 + 1,
-            twinklePhase = math.random() * math.pi * 2,
-            depth = math.random() -- Para efecto parallax
-        }
-        table.insert(LoadingScreen.state.stars, star)
+    local starCount = LoadingScreen.config.warp.starCount
+    local maxZ = LoadingScreen.config.warp.maxDepth
+
+    for _ = 1, starCount do
+        -- Distribución radial homogénea alrededor del punto de fuga central
+        local angle = math.random() * math.pi * 2
+        local dist = (math.random() ^ 0.65) * 1100 + 35
+        local x = math.cos(angle) * dist
+        local y = math.sin(angle) * dist
+        local z = math.random() * maxZ + 15
+
+        -- Temperatura espectral variada
+        local cRoll = math.random()
+        local col
+        if cRoll > 0.85 then
+            col = {1.00, 0.88, 0.55} -- Ámbar / dorado estelar
+        elseif cRoll > 0.55 then
+            col = {0.45, 0.85, 1.00} -- Cian de plasma
+        elseif cRoll > 0.25 then
+            col = {0.65, 0.75, 1.00} -- Azul de hipervelocidad
+        else
+            col = {0.96, 0.98, 1.00} -- Blanco puro brillante
+        end
+
+        table.insert(LoadingScreen.state.stars, {
+            x = x,
+            y = y,
+            z = z,
+            speedMul = math.random() * 0.40 + 0.80,
+            color = col,
+            baseSize = math.random() * 1.6 + 1.0
+        })
     end
 end
 
--- Generar nebulosas de fondo
+-- Generar nebulosa cuántica de fondo en el punto focal
 function LoadingScreen.generateNebulae()
     LoadingScreen.state.nebulae = {}
-    local nebulaCount = LoadingScreen.config.animation.nebulaCount
-    
-    for i = 1, nebulaCount do
-        local nebula = {
-            x = math.random() * love.graphics.getWidth(),
-            y = math.random() * love.graphics.getHeight(),
-            size = math.random() * 200 + 100,
-            color = {
-                math.random() * 0.5 + 0.3,
-                math.random() * 0.5 + 0.2,
-                math.random() * 0.5 + 0.5,
-                0.3
-            },
-            rotation = math.random() * math.pi * 2,
-            rotationSpeed = (math.random() - 0.5) * 0.2
-        }
-        table.insert(LoadingScreen.state.nebulae, nebula)
-    end
+    table.insert(LoadingScreen.state.nebulae, {
+        seed = 42.1337,
+        size = 340,
+        color = {0.18, 0.45, 0.95, 0.35},
+        coreColor = {0.80, 0.35, 1.00},
+        rotation = 0.0,
+        rotationSpeed = 0.08
+    })
 end
 
--- Inicializar anillo de carga
+-- Retrocompatibilidad: inicializador del anillo
 function LoadingScreen.initLoadingRing()
-    local segments = 32
     LoadingScreen.state.loadingRing.segments = {}
-    
-    for i = 1, segments do
-        local segment = {
-            angle = (i - 1) * (math.pi * 2 / segments),
+    for i = 1, 32 do
+        table.insert(LoadingScreen.state.loadingRing.segments, {
+            angle = (i - 1) * (math.pi * 2 / 32),
             active = false,
             brightness = 0,
             size = 1
-        }
-        table.insert(LoadingScreen.state.loadingRing.segments, segment)
+        })
     end
 end
 
--- Comenzar carga
+-- Iniciar secuencia de carga
 function LoadingScreen.start(loadFunction, onComplete)
-    LoadingScreen.state.active = true
-    LoadingScreen.state.progress = 0
-    LoadingScreen.state.currentStep = "Initializing..."
-    LoadingScreen.state.subStep = ""
-    LoadingScreen.state.startTime = love.timer.getTime()
-    LoadingScreen.state.elapsedTime = 0
-    LoadingScreen.state.fadeAlpha = 0
-    LoadingScreen.state.fadeState = "in"
-    LoadingScreen.state.animationTime = 0
-    LoadingScreen.state.currentStepIndex = 1
-    LoadingScreen.state.stepsCompleted = 0
-    LoadingScreen.state.totalSteps = #LoadingScreen.gameLoadSteps
-    
-    -- Guardar callbacks
-    LoadingScreen.state.onComplete = onComplete
-    LoadingScreen.state.loadFunction = loadFunction
-    
-    -- Reiniciar elementos visuales
+    local state = LoadingScreen.state
+    state.active = true
+    state.progress = 0
+    state.smoothProgress = 0
+    state.currentStep = "Initiating Hyperspace Drive..."
+    state.subStep = "Synchronizing Event Horizon"
+    state.startTime = love.timer.getTime()
+    state.elapsedTime = 0
+    state.animationTime = 0
+    state.fadeAlpha = 0
+    state.fadeState = "in"
+    state.currentStepIndex = 1
+    state.stepsCompleted = 0
+    state.totalSteps = #LoadingScreen.gameLoadSteps
+
+    -- Recuperar semilla cósmica activa
+    local seed = (GameState and GameState.state and GameState.state.currentSeed) or "3HY6E8X36H"
+    state.targetSeed = seed
+    state.displaySeed = "----------"
+    state.seedLockIndex = 0
+
+    state.onComplete = onComplete
+    state.loadFunction = loadFunction
+
     LoadingScreen.generateStars()
     LoadingScreen.generateNebulae()
-    LoadingScreen.initLoadingRing()
-    
-    -- Seleccionar tip aleatorio si está inicializado
+
     if LoadingScreen.tips and #LoadingScreen.tips > 0 then
         LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
-    else
-        LoadingScreen.currentTip = "Preparando el universo..."
     end
-    
-    print("Loading screen started")
+
+    print("★ LoadingScreen: Hyperspace jump started for seed: " .. tostring(seed))
 end
 
--- Actualizar progreso
+-- Actualizar progreso de carga
 function LoadingScreen.updateProgress(stepId, subStep)
-    -- Buscar el paso actual
     for i, step in ipairs(LoadingScreen.gameLoadSteps) do
         if step.id == stepId then
             LoadingScreen.state.currentStepIndex = i
             LoadingScreen.state.currentStep = step.name
             LoadingScreen.state.subStep = subStep or ""
-            
-            -- Calcular progreso ponderado
+
             local progressSoFar = 0
             for j = 1, i - 1 do
                 progressSoFar = progressSoFar + LoadingScreen.gameLoadSteps[j].weight
             end
-            
-            -- Añadir progreso parcial del paso actual si hay substep
+
             if subStep then
                 local subProgress = tonumber(string.match(subStep, "(%d+)%%")) or 0
                 progressSoFar = progressSoFar + (LoadingScreen.gameLoadSteps[i].weight * subProgress / 100)
             end
-            
-            LoadingScreen.state.progress = math.min(1, progressSoFar)
+
+            LoadingScreen.state.progress = math.min(1.0, math.max(0.0, progressSoFar))
             LoadingScreen.state.stepsCompleted = i - 1
             break
         end
     end
 end
 
--- Actualizar
+-- Ciclo principal de actualización
 function LoadingScreen.update(dt)
-    if not LoadingScreen.state.active then return false end
-    
-    -- Actualizar subsistema de audio para recoger generación en segundo plano
+    local state = LoadingScreen.state
+    if not state.active then return false end
+
+    -- Actualizar subsistema de audio
     local AudioManager = require 'src.audio.audio_manager'
     if AudioManager and AudioManager.update then
         AudioManager.update(dt)
     end
 
-    -- Procesar tareas asíncronas
     LoadingScreen.processAsyncTasks(dt)
-    
-    -- Limpiar cache de recursos si es necesario
     LoadingScreen.cleanupResourceCache()
-    
-    LoadingScreen.state.elapsedTime = LoadingScreen.state.elapsedTime + dt
-    LoadingScreen.state.animationTime = LoadingScreen.state.animationTime + dt
-    
-    -- Actualizar fade
-    if LoadingScreen.state.fadeState == "in" then
-        LoadingScreen.state.fadeAlpha = math.min(1, LoadingScreen.state.fadeAlpha + dt / LoadingScreen.config.fadeInTime)
-        if LoadingScreen.state.fadeAlpha >= 1 then
-            LoadingScreen.state.fadeState = "loading"
-            -- Comenzar la carga real
-            if LoadingScreen.state.loadFunction then
+
+    state.elapsedTime = state.elapsedTime + dt
+    state.animationTime = state.animationTime + dt
+
+    -- Interpolación continua LERP a 60 FPS (cero tirones en el progreso visual)
+    local targetP = state.progress
+    local lerpRate = (state.fadeState == "out") and 16.0 or 8.5
+    state.smoothProgress = state.smoothProgress + (targetP - state.smoothProgress) * math.min(1.0, dt * lerpRate)
+
+    -- Decodificación procedural de la semilla (efecto de descifrado hexadecimal)
+    local tgtSeed = state.targetSeed
+    if tgtSeed and #tgtSeed > 0 then
+        local hexChars = "0123456789ABCDEF"
+        local chars = {}
+        local numChars = #tgtSeed
+        local lockP = math.min(numChars, math.floor(state.smoothProgress * (numChars + 1)))
+
+        for i = 1, numChars do
+            if i <= lockP or state.elapsedTime > (0.12 * i) then
+                chars[i] = tgtSeed:sub(i, i)
+            else
+                local rIdx = math.random(1, #hexChars)
+                chars[i] = hexChars:sub(rIdx, rIdx)
+            end
+        end
+        state.displaySeed = table.concat(chars)
+    end
+
+    -- Dinámica del Astrolabio 3D
+    local p = state.smoothProgress
+    local warpFactor = 1.0 + p * 2.5
+    state.astrolabe.yaw   = state.astrolabe.yaw + dt * (1.10 * warpFactor)
+    state.astrolabe.roll  = state.astrolabe.roll - dt * (0.75 * warpFactor)
+    state.astrolabe.pitch = math.sin(state.animationTime * 1.4) * 0.42
+    state.astrolabe.pulse = 1.0 + 0.06 * math.sin(state.animationTime * 4.5 * warpFactor)
+
+    -- Dinámica del campo estelar Warp 3D (Star Streaks)
+    local baseSpd = LoadingScreen.config.warp.baseSpeed
+    local maxBoost = LoadingScreen.config.warp.maxSpeedBoost
+    local currentSpeed = baseSpd + maxBoost * (p ^ 1.35)
+    if state.fadeState == "out" then
+        currentSpeed = currentSpeed + 2400.0 -- Impulso culminante al salir del salto
+    end
+
+    local maxZ = LoadingScreen.config.warp.maxDepth
+    for _, star in ipairs(state.stars) do
+        star.z = star.z - currentSpeed * star.speedMul * dt
+        if star.z <= 6 then
+            star.z = maxZ
+            local angle = math.random() * math.pi * 2
+            local dist = (math.random() ^ 0.65) * 1100 + 35
+            star.x = math.cos(angle) * dist
+            star.y = math.sin(angle) * dist
+        end
+    end
+
+    -- Rotación de nebulosa focal
+    for _, neb in ipairs(state.nebulae) do
+        neb.rotation = neb.rotation + dt * neb.rotationSpeed * (1.0 + p)
+    end
+
+    -- Máquina de estados de fade
+    if state.fadeState == "in" then
+        state.fadeAlpha = math.min(1.0, state.fadeAlpha + dt / LoadingScreen.config.fadeInTime)
+        if state.fadeAlpha >= 1.0 then
+            state.fadeState = "loading"
+            if state.loadFunction then
                 LoadingScreen.executeLoadSteps()
             end
         end
-    elseif LoadingScreen.state.fadeState == "loading" then
-        -- Continuar ejecutando pasos respetando el presupuesto de tiempo por frame (12ms) para 60 FPS estables
-        local frameStartTime = love.timer.getTime()
-        local maxBudget = 0.012
-        while LoadingScreen.loadIterator and (love.timer.getTime() - frameStartTime) < maxBudget do
+    elseif state.fadeState == "loading" then
+        -- Presupuesto seguro de tiempo por frame (12ms) para 60 FPS estables
+        local tStart = love.timer.getTime()
+        while LoadingScreen.loadIterator and (love.timer.getTime() - tStart) < 0.012 do
             LoadingScreen.resumeLoading()
         end
-    elseif LoadingScreen.state.fadeState == "out" then
-        LoadingScreen.state.fadeAlpha = math.max(0, LoadingScreen.state.fadeAlpha - dt / LoadingScreen.config.fadeOutTime)
-        if LoadingScreen.state.fadeAlpha <= 0 then
-            LoadingScreen.state.fadeState = "done"
-            LoadingScreen.state.active = false
-            if LoadingScreen.state.onComplete then
-                LoadingScreen.state.onComplete()
+    elseif state.fadeState == "out" then
+        state.fadeAlpha = math.max(0.0, state.fadeAlpha - dt / LoadingScreen.config.fadeOutTime)
+        if state.fadeAlpha <= 0.0 then
+            state.fadeState = "done"
+            state.active = false
+            if state.onComplete then
+                state.onComplete()
             end
             return false
         end
     end
-    
-    -- Actualizar animaciones
-    LoadingScreen.updateAnimations(dt)
-    
-    -- Cambiar tip cada 3 segundos
+
+    -- Rotación de tips
     LoadingScreen.tipChangeTime = (LoadingScreen.tipChangeTime or 0) + dt
-    if LoadingScreen.tipChangeTime > 3 then
-        LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
+    if LoadingScreen.tipChangeTime > 3.5 then
+        if LoadingScreen.tips and #LoadingScreen.tips > 0 then
+            LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
+        end
         LoadingScreen.tipChangeTime = 0
     end
-    
-    -- Verificar si la carga está completa
-    if LoadingScreen.state.fadeState == "loading" and LoadingScreen.state.progress >= 1 then
-        local minTimeElapsed = LoadingScreen.state.elapsedTime >= LoadingScreen.config.minLoadTime
-        if minTimeElapsed then
-            LoadingScreen.state.fadeState = "out"
+
+    -- Condición de finalización
+    if state.fadeState == "loading" and state.progress >= 1.0 and state.smoothProgress >= 0.99 then
+        if state.elapsedTime >= LoadingScreen.config.minLoadTime then
+            state.fadeState = "out"
         end
     end
-    
+
     return true
 end
 
--- Ejecutar pasos de carga (llamado una vez cuando comienza la carga real)
 function LoadingScreen.executeLoadSteps()
-    -- Crear el iterador de pasos de carga
     if LoadingScreen.state.loadFunction then
         LoadingScreen.loadIterator = LoadingScreen.state.loadFunction(LoadingScreen.updateProgress)
     end
 end
 
--- Continuar la carga
 function LoadingScreen.resumeLoading()
     if LoadingScreen.loadIterator then
         local completed = LoadingScreen.loadIterator()
         if completed then
-            -- Carga completa
-            LoadingScreen.state.progress = 1
+            LoadingScreen.state.progress = 1.0
             LoadingScreen.loadIterator = nil
         end
     end
 end
 
--- Actualizar animaciones
-function LoadingScreen.updateAnimations(dt)
-    local time = LoadingScreen.state.animationTime
-    
-    -- Actualizar estrellas
-    for _, star in ipairs(LoadingScreen.state.stars) do
-        star.twinklePhase = star.twinklePhase + dt * star.twinkleSpeed
-    end
-    
-    -- Actualizar nebulosas
-    for _, nebula in ipairs(LoadingScreen.state.nebulae) do
-        nebula.rotation = nebula.rotation + dt * nebula.rotationSpeed
-        nebula.x = nebula.x + dt * 5 * nebula.rotationSpeed
-        if nebula.x > love.graphics.getWidth() + nebula.size then
-            nebula.x = -nebula.size
-        end
-    end
-    
-    -- Actualizar anillo de carga
-    local ring = LoadingScreen.state.loadingRing
-    ring.rotation = ring.rotation + dt * LoadingScreen.config.animation.rotationSpeed
-    ring.pulseScale = 1 + math.sin(time * LoadingScreen.config.animation.pulseSpeed) * 0.1
-    
-    -- Activar segmentos según progreso
-    local activeSegments = math.floor(LoadingScreen.state.progress * #ring.segments)
-    for i, segment in ipairs(ring.segments) do
-        if i <= activeSegments then
-            segment.active = true
-            segment.brightness = math.min(1, segment.brightness + dt * 3)
-            segment.size = 1 + math.sin(time * LoadingScreen.config.animation.waveSpeed + segment.angle) * 0.2
-        else
-            segment.active = false
-            segment.brightness = math.max(0.2, segment.brightness - dt * 2)
-            segment.size = 1
-        end
-    end
-end
-
--- Dibujar
+-- ============================================================================
+-- RENDERIZADO VISUAL: TÚNEL HIPERESPACIAL Y ASTROLABIO HOLOGRÁFICO
+-- ============================================================================
 function LoadingScreen.draw()
-    if not LoadingScreen.state.active then return end
-    
-    local width = love.graphics.getWidth()
-    local height = love.graphics.getHeight()
-    local alpha = LoadingScreen.state.fadeAlpha
-    
-    -- Guardar estado
+    local state = LoadingScreen.state
+    if not state.active then return end
+
+    local width, height
+    local curCanvas = love.graphics.getCanvas()
+    if curCanvas then
+        width, height = curCanvas:getDimensions()
+    else
+        width, height = love.graphics.getDimensions()
+    end
+
+    local alpha = state.fadeAlpha
+    local colors = LoadingScreen.config.colors
+
     love.graphics.push()
-    love.graphics.reset() -- Reset transformations to ensure full screen coverage
-    
-    -- Fondo completo (asegurar que cubra toda la pantalla)
-    love.graphics.setColor(LoadingScreen.config.colors.background[1],
-                          LoadingScreen.config.colors.background[2],
-                          LoadingScreen.config.colors.background[3],
-                          1) -- Fondo siempre opaco
+    love.graphics.origin()
+
+    -- 1. Fondo de vacío cósmico profundo (siempre opaco para evitar parpadeos)
+    love.graphics.setColor(colors.background[1], colors.background[2], colors.background[3], 1.0)
     love.graphics.rectangle("fill", 0, 0, width, height)
-    
-    -- Aplicar alpha para los elementos
-    love.graphics.setColor(1, 1, 1, alpha)
-    
-    -- Dibujar estrellas
-    LoadingScreen.drawStars(alpha)
-    
-    -- Dibujar nebulosas
-    LoadingScreen.drawNebulae(alpha)
-    
-    -- ========================================================================
-    -- CÁLCULO DE COORDENADAS RELATIVAS Y RESPONSIVAS (CERO COLISIONES DE TEXTO)
-    -- ========================================================================
-    local cx = math.floor(width / 2)
-    local ringRadius = 75
-    local cy = math.floor(height * 0.40)
-    
-    -- 1. Título principal situado arriba del anillo con respiro vertical
-    local titleY = math.max(28, cy - ringRadius - 82)
-    
-    -- 2. Anillo de carga
-    LoadingScreen.drawLoadingRing(cx, cy, ringRadius, alpha)
-    
-    -- 3. Porcentaje centrado matemáticamente dentro del anillo
-    local pFont = LoadingScreen.fonts.progress
-    love.graphics.setFont(pFont)
-    love.graphics.setColor(LoadingScreen.config.colors.accent[1],
-                          LoadingScreen.config.colors.accent[2],
-                          LoadingScreen.config.colors.accent[3],
-                          alpha)
-    local percentage = math.floor(LoadingScreen.state.progress * 100)
-    local pctH = pFont:getHeight()
-    love.graphics.printf(percentage .. "%", cx - 80, cy - math.floor(pctH / 2), 160, "center")
-    
-    -- 4. Título ("GENERATING UNIVERSE")
-    love.graphics.setFont(LoadingScreen.fonts.title)
-    love.graphics.setColor(LoadingScreen.config.colors.text[1],
-                          LoadingScreen.config.colors.text[2],
-                          LoadingScreen.config.colors.text[3],
-                          alpha)
-    love.graphics.printf("GENERATING UNIVERSE", 0, titleY, width, "center")
-    
-    -- Subtítulo fino bajo el título principal
-    love.graphics.setFont(LoadingScreen.fonts.small)
-    love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                          LoadingScreen.config.colors.textDim[2],
-                          LoadingScreen.config.colors.textDim[3],
-                          0.65 * alpha)
-    love.graphics.printf("PROCEDURAL GALAXY ENGINE", 0, titleY + LoadingScreen.fonts.title:getHeight() + 4, width, "center")
 
-    -- 5. Textos de paso actual y substep bajo el anillo
-    local stepY = cy + ringRadius + 26
-    love.graphics.setFont(LoadingScreen.fonts.step)
-    love.graphics.setColor(LoadingScreen.config.colors.primary[1],
-                          LoadingScreen.config.colors.primary[2],
-                          LoadingScreen.config.colors.primary[3],
-                          alpha)
-    love.graphics.printf(LoadingScreen.state.currentStep, 0, stepY, width, "center")
-    
-    local subStepY = stepY + LoadingScreen.fonts.step:getHeight() + 6
-    if LoadingScreen.state.subStep and LoadingScreen.state.subStep ~= "" then
-        love.graphics.setFont(LoadingScreen.fonts.small)
-        love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                              LoadingScreen.config.colors.textDim[2],
-                              LoadingScreen.config.colors.textDim[3],
-                              0.85 * alpha)
-        love.graphics.printf(LoadingScreen.state.subStep, 0, subStepY, width, "center")
+    -- Centro focal del túnel hiperespacial
+    local cx = math.floor(width * 0.50)
+    local cy = math.floor(height * 0.46)
+    local p = state.smoothProgress
+
+    -- 2. Nebulosa cuántica en el punto de fuga del túnel
+    LoadingScreen.drawFocalNebula(cx, cy, alpha)
+
+    -- 3. Campo estelar Warp 3D con trazas hiperespaciales (Star Streaks)
+    LoadingScreen.drawWarpStarfield(cx, cy, width, height, alpha)
+
+    -- 4. Interfaz HUD: Telemetría superior (solo la semilla)
+    LoadingScreen.drawTopTelemetry(width, alpha)
+
+    -- 5. Interfaz HUD: Paso de inicialización y barra cuántica
+    LoadingScreen.drawProgressSection(cx, cy, width, height, alpha)
+
+    -- 6. Interfaz HUD: Sección de tips desactivada por ahora
+    -- local tipY = math.min(height - 40, math.floor(height * 0.88))
+    -- LoadingScreen.drawTipCard(cx, tipY, width, alpha)
+
+    -- 8. Destello culminante de salida hiperespacial (Warp Exit Flash)
+    if state.fadeState == "out" then
+        local exitT = 1.0 - state.fadeAlpha -- 0 a 1
+        local flashAlpha = math.sin(exitT * math.pi) * 0.95
+        local maxR = math.max(width, height) * 0.95 * exitT
+
+        love.graphics.setBlendMode("add", "alphamultiply")
+        love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], flashAlpha * 0.70)
+        love.graphics.circle("fill", cx, cy, maxR)
+        love.graphics.setColor(1.0, 1.0, 1.0, flashAlpha * 0.90)
+        love.graphics.circle("fill", cx, cy, maxR * 0.45)
+        love.graphics.setBlendMode("alpha", "alphamultiply")
     end
 
-    -- 6. Barra de progreso situada con distancia garantizada respecto al substep
-    local barWidth = math.min(480, math.floor(width * 0.65))
-    local barHeight = 8
-    local barY = math.max(subStepY + LoadingScreen.fonts.small:getHeight() + 24, math.floor(height * 0.68))
-    LoadingScreen.drawProgressBar(cx, barY, barWidth, barHeight, alpha)
-
-    -- 7. Tip contenedor glassmorphic
-    local stepCounterY = barY + barHeight + 12
-    local tipY = math.max(stepCounterY + LoadingScreen.fonts.small:getHeight() + 22, math.floor(height * 0.85))
-    LoadingScreen.drawTip(cx, tipY, alpha)
-    
-    -- Restaurar estado
     love.graphics.pop()
 end
 
--- Dibujar estrellas
-function LoadingScreen.drawStars(alpha)
-    for _, star in ipairs(LoadingScreen.state.stars) do
-        local twinkle = 0.5 + 0.5 * math.sin(star.twinklePhase)
-        local brightness = star.brightness * twinkle
-        
-        love.graphics.setColor(1, 1, 1, brightness * alpha * 0.8)
-        love.graphics.circle("fill", star.x, star.y, star.size)
+-- Render de nebulosa cuántica en el punto de fuga
+function LoadingScreen.drawFocalNebula(cx, cy, alpha)
+    local neb = LoadingScreen.state.nebulae[1]
+    if not neb then return end
+
+    local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula")
+    local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle")
+
+    if shader and img then
+        local NebulasShaders = require 'src.shaders.nebulas_shaders'
+        love.graphics.setShader(shader)
+        if NebulasShaders and NebulasShaders.configureForNebula then
+            NebulasShaders.configureForNebula({
+                seed = neb.seed,
+                noiseScale = 2.4,
+                warpAmp = 0.75,
+                warpFreq = 1.35,
+                softness = 0.35,
+                intensity = 0.85,
+                brightness = 1.25,
+                parallax = 0.95,
+                sparkleStrength = 0.0,
+                coreColor = neb.coreColor,
+                speed = 0.40
+            }, love.timer.getTime())
+        end
+
+        local pulse = 1.0 + 0.08 * math.sin(LoadingScreen.state.animationTime * 1.8)
+        local scale = (neb.size * pulse * 2.2) / img:getWidth()
+
+        love.graphics.setColor(neb.color[1], neb.color[2], neb.color[3], neb.color[4] * alpha * 0.75)
+        love.graphics.draw(img, cx, cy, neb.rotation, scale, scale, img:getWidth() * 0.5, img:getHeight() * 0.5)
+        love.graphics.setShader()
+    else
+        -- Fallback suave
+        love.graphics.setColor(neb.color[1], neb.color[2], neb.color[3], neb.color[4] * alpha * 0.30)
+        love.graphics.circle("fill", cx, cy, neb.size * 0.70)
     end
 end
 
--- Dibujar nebulosas
-function LoadingScreen.drawNebulae(alpha)
-    for _, nebula in ipairs(LoadingScreen.state.nebulae) do
-        love.graphics.push()
-        love.graphics.translate(nebula.x, nebula.y)
-        love.graphics.rotate(nebula.rotation)
-        
-        -- Intentar usar el shader actual de nebulosa
-        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("nebula") or nil
-        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
-        
-        if shader and img then
-            -- Seed persistente por nebulosa
-            nebula.seed = nebula.seed or (math.random() * 1000)
-            
-            love.graphics.setShader(shader)
-            local NebulasShaders = require 'src.shaders.nebulas_shaders'
-            if NebulasShaders and NebulasShaders.configureForNebula then
-                NebulasShaders.configureForNebula({
-                    seed = nebula.seed,
-                    parallax = 0.0,
-                    sparkleStrength = 0.0,
-                    brightness = 1.0,
-                    intensity = 0.8
-                }, love.timer.getTime())
-            else
-                if shader:hasUniform("u_time") then shader:send("u_time", love.timer.getTime()) end
-                if shader:hasUniform("u_seed") then shader:send("u_seed", nebula.seed) end
-                if shader:hasUniform("u_parallax") then shader:send("u_parallax", 0.0) end
-                if shader:hasUniform("u_sparkleStrength") then shader:send("u_sparkleStrength", 0.0) end
-            end
-            -- Mantener intensidad/brillo en defaults (configurados en ShaderManager),
-            -- el fade lo manejamos vía setColor
-            
-            -- Color + fade del loading
-            love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3], nebula.color[4] * alpha)
-            
-            -- Dibujar textura base centrada y escalada
-            local scale = (nebula.size * 2) / img:getWidth()
-            love.graphics.draw(img, 0, 0, 0, scale, scale, img:getWidth() / 2, img:getHeight() / 2)
-            
-            love.graphics.setShader()
-        else
-            -- Fallback: gradiente de círculos (modo anterior)
-            for i = 10, 1, -1 do
-                local scale = i / 10
-                local alphaScale = (1 - scale) * 0.5
-                love.graphics.setColor(nebula.color[1], nebula.color[2], nebula.color[3],
-                                       nebula.color[4] * alphaScale * alpha)
-                love.graphics.circle("fill", 0, 0, nebula.size * scale)
+-- Render del campo estelar 3D con Star Streaks
+function LoadingScreen.drawWarpStarfield(cx, cy, width, height, alpha)
+    local state = LoadingScreen.state
+    local fov = LoadingScreen.config.warp.fov
+    local p = state.smoothProgress
+    local warpSpeed = LoadingScreen.config.warp.baseSpeed + LoadingScreen.config.warp.maxSpeedBoost * (p ^ 1.35)
+    local streakScale = math.max(12.0, (warpSpeed / 75.0))
+
+    local oldBlend, oldAlphaMode = love.graphics.getBlendMode()
+    love.graphics.setBlendMode("add", "alphamultiply")
+
+    for _, star in ipairs(state.stars) do
+        local z = star.z
+        if z > 8 then
+            local k = fov / z
+            local sx = cx + star.x * k
+            local sy = cy + star.y * k
+
+            -- Verificar si la estrella está dentro o cerca de la pantalla
+            if sx >= -40 and sx <= width + 40 and sy >= -40 and sy <= height + 40 then
+                -- Cola de la traza hiperespacial (proyectada en Z lejana)
+                local tailLength = streakScale * star.speedMul
+                local tailZ = z + tailLength
+                local tailK = fov / tailZ
+                local tx = cx + star.x * tailK
+                local ty = cy + star.y * tailK
+
+                -- Atenuación por profundidad y fade global
+                local depthNorm = math.max(0.0, math.min(1.0, 1.0 - (z / LoadingScreen.config.warp.maxDepth)))
+                local stAlpha = depthNorm * alpha * (0.45 + p * 0.55)
+                local col = star.color
+
+                -- Trazado del rayo de luz
+                love.graphics.setColor(col[1], col[2], col[3], stAlpha * 0.85)
+                love.graphics.setLineWidth(math.max(1.0, star.baseSize * depthNorm * (1.0 + p * 0.5)))
+                love.graphics.line(tx, ty, sx, sy)
+
+                -- Núcleo brillante en el punto delantero
+                if depthNorm > 0.40 then
+                    love.graphics.setColor(1.0, 1.0, 1.0, stAlpha * 0.95)
+                    love.graphics.circle("fill", sx, sy, math.max(1.0, star.baseSize * depthNorm))
+                end
             end
         end
-        
-        love.graphics.pop()
     end
+
+    love.graphics.setBlendMode(oldBlend, oldAlphaMode)
 end
 
--- Dibujar anillo de carga
-function LoadingScreen.drawLoadingRing(x, y, radius, alpha)
-    local ring = LoadingScreen.state.loadingRing
-    radius = radius or 80
-    alpha = alpha or 1.0
-    
+-- Render del Astrolabio / Giroscopio Holográfico 3D en el centro
+function LoadingScreen.draw3DAstrolabe(cx, cy, alpha)
+    local state = LoadingScreen.state
+    local ast = state.astrolabe
+    local colors = LoadingScreen.config.colors
+    local baseR = LoadingScreen.config.warp.coreRadius * ast.pulse
+    local p = state.smoothProgress
+
     love.graphics.push()
-    love.graphics.translate(x, y)
-    love.graphics.rotate(ring.rotation)
-    love.graphics.scale(ring.pulseScale, ring.pulseScale)
-    
-    -- Dibujar segmentos
-    for i, segment in ipairs(ring.segments) do
-        local angle = segment.angle
-        
-        -- Color del segmento
-        if segment.active then
-            love.graphics.setColor(LoadingScreen.config.colors.primary[1],
-                                  LoadingScreen.config.colors.primary[2],
-                                  LoadingScreen.config.colors.primary[3],
-                                  segment.brightness * alpha)
-        else
-            love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                                  LoadingScreen.config.colors.textDim[2],
-                                  LoadingScreen.config.colors.textDim[3],
-                                  segment.brightness * alpha * 0.3)
-        end
-        
-        -- Dibujar segmento como línea gruesa
-        local x1 = math.cos(angle) * radius
-        local y1 = math.sin(angle) * radius
-        local x2 = math.cos(angle) * (radius + 10 * segment.size)
-        local y2 = math.sin(angle) * (radius + 10 * segment.size)
-        
-        love.graphics.setLineWidth(3)
-        love.graphics.line(x1, y1, x2, y2)
-        
-        -- Punto brillante en segmentos activos
-        if segment.active and segment.brightness > 0.8 then
-            love.graphics.setColor(1, 1, 1, segment.brightness * alpha)
-            love.graphics.circle("fill", x2, y2, 2)
-        end
-    end
-    
-    -- Círculo interior
-    love.graphics.setColor(LoadingScreen.config.colors.primary[1],
-                          LoadingScreen.config.colors.primary[2],
-                          LoadingScreen.config.colors.primary[3],
-                          0.3 * alpha)
+    love.graphics.translate(cx, cy)
+
+    -- ------------------------------------------------------------------------
+    -- 1. Anillo Exterior: Brújula Náutica Galáctica (Roll Axis)
+    -- ------------------------------------------------------------------------
+    local r1 = baseR * 1.25
+    local roll = ast.roll
+
+    -- Halo de fondo del anillo
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.18 * alpha)
     love.graphics.setLineWidth(2)
-    love.graphics.circle("line", 0, 0, radius - 5)
-    
-    -- Círculo exterior
-    love.graphics.circle("line", 0, 0, radius + 15)
-    
+    love.graphics.circle("line", 0, 0, r1)
+
+    -- Marcas angulares graduadas (cada 30 grados)
+    for deg = 0, 330, 30 do
+        local rad = math.rad(deg) + roll
+        local len = (deg % 90 == 0) and 9 or 4
+        local x1 = math.cos(rad) * (r1 - len)
+        local y1 = math.sin(rad) * (r1 - len)
+        local x2 = math.cos(rad) * (r1 + len)
+        local y2 = math.sin(rad) * (r1 + len)
+
+        local isCardinal = (deg % 90 == 0)
+        local col = isCardinal and colors.warpAmber or colors.warpCyan
+        love.graphics.setColor(col[1], col[2], col[3], (isCardinal and 0.85 or 0.40) * alpha)
+        love.graphics.setLineWidth(isCardinal and 2 or 1)
+        love.graphics.line(x1, y1, x2, y2)
+    end
+
+    -- Arco graduado de progreso exterior
+    if p > 0.01 then
+        love.graphics.setColor(colors.warpAmber[1], colors.warpAmber[2], colors.warpAmber[3], 0.90 * alpha)
+        love.graphics.setLineWidth(3)
+        local startAng = -math.pi * 0.5
+        local endAng = startAng + (math.pi * 2 * p)
+        love.graphics.arc("line", "open", 0, 0, r1 + 5, startAng, endAng, 48)
+    end
+
+    -- ------------------------------------------------------------------------
+    -- 2. Anillo Intermedio: Bobina Cuántica 3D (Pitch / Yaw Gyroscope)
+    -- ------------------------------------------------------------------------
+    local r2 = baseR * 0.98
+    local yaw = ast.yaw
+    local pitch = ast.pitch
+
+    local numPts = 36
+    local pts = {}
+    for i = 0, numPts do
+        local ang = (i / numPts) * math.pi * 2
+        -- Coordenadas 3D del anillo
+        local x = math.cos(ang) * r2
+        local y = math.sin(ang) * r2 * math.cos(pitch)
+        local z = math.sin(ang) * r2 * math.sin(pitch)
+
+        -- Rotación Yaw en Y
+        local xRot = x * math.cos(yaw) - z * math.sin(yaw)
+        local yRot = y
+        table.insert(pts, xRot)
+        table.insert(pts, yRot)
+    end
+
+    love.graphics.setColor(colors.warpPurple[1], colors.warpPurple[2], colors.warpPurple[3], 0.70 * alpha)
+    love.graphics.setLineWidth(2)
+    love.graphics.polygon("line", pts)
+
+    -- Nodos luminosos en la bobina intermedia
+    for i = 0, 7 do
+        local ang = (i / 8) * math.pi * 2
+        local x = math.cos(ang) * r2
+        local y = math.sin(ang) * r2 * math.cos(pitch)
+        local z = math.sin(ang) * r2 * math.sin(pitch)
+        local nx = x * math.cos(yaw) - z * math.sin(yaw)
+        local ny = y
+        local nodeActive = (i / 8) <= p
+        local ncol = nodeActive and colors.warpCyan or colors.warpPurple
+        love.graphics.setColor(ncol[1], ncol[2], ncol[3], (nodeActive and 0.95 or 0.35) * alpha)
+        love.graphics.circle("fill", nx, ny, nodeActive and 3.0 or 1.8)
+    end
+
+    -- ------------------------------------------------------------------------
+    -- 3. Anillo Interior: Horizonte de Eventos (Contragiro 3D)
+    -- ------------------------------------------------------------------------
+    local r3 = baseR * 0.70
+    local yawRev = -ast.yaw * 1.25
+    local pitchRev = -ast.pitch * 0.85
+    local pts3 = {}
+    for i = 0, numPts do
+        local ang = (i / numPts) * math.pi * 2
+        local x = math.cos(ang) * r3
+        local y = math.sin(ang) * r3 * math.cos(pitchRev)
+        local z = math.sin(ang) * r3 * math.sin(pitchRev)
+        local xRot = x * math.cos(yawRev) - z * math.sin(yawRev)
+        local yRot = y
+        table.insert(pts3, xRot)
+        table.insert(pts3, yRot)
+    end
+
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.65 * alpha)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.polygon("line", pts3)
+
+    -- ------------------------------------------------------------------------
+    -- 4. Núcleo Cuántico Central y Porcentaje
+    -- ------------------------------------------------------------------------
+    local rCore = baseR * 0.44
+    -- Resplandor del núcleo
+    local oldBlend, oldAlpha = love.graphics.getBlendMode()
+    love.graphics.setBlendMode("add", "alphamultiply")
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.22 * alpha)
+    love.graphics.circle("fill", 0, 0, rCore * 1.25)
+    love.graphics.setColor(colors.warpPurple[1], colors.warpPurple[2], colors.warpPurple[3], 0.28 * alpha)
+    love.graphics.circle("fill", 0, 0, rCore)
+    love.graphics.setBlendMode(oldBlend, oldAlpha)
+
+    -- Borde nítido del núcleo
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.80 * alpha)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.circle("line", 0, 0, rCore)
+
+    -- Texto del porcentaje centrado matemáticamente
+    local pctFont = LoadingScreen.fonts.progress
+    love.graphics.setFont(pctFont)
+    local pctVal = math.floor(p * 100)
+    local pctText = pctVal .. "%"
+    local pctH = pctFont:getHeight()
+    love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], alpha)
+    love.graphics.printf(pctText, -60, -math.floor(pctH * 0.5) - 3, 120, "center")
+
+    -- Glifo 'WARP' bajo el porcentaje
+    local gFont = LoadingScreen.fonts.coreGlyph
+    love.graphics.setFont(gFont)
+    love.graphics.setColor(colors.warpAmber[1], colors.warpAmber[2], colors.warpAmber[3], 0.85 * alpha)
+    love.graphics.printf("WARP CONDUIT", -60, math.floor(pctH * 0.5) - 1, 120, "center")
+
     love.graphics.pop()
 end
 
--- Compatibilidad: el texto ahora se dibuja de forma responsiva y coordinada en LoadingScreen.draw
-function LoadingScreen.drawText(x, y, alpha)
-    -- Integrado en LoadingScreen.draw para evitar colisiones
+-- Render de telemetría superior (solo la semilla)
+function LoadingScreen.drawTopTelemetry(width, alpha)
+    local colors = LoadingScreen.config.colors
+    local state = LoadingScreen.state
+    local padX = 36
+    local topY = 28
+
+    -- Mostrar exclusivamente la semilla del sector
+    local seedText = "SECTOR SEED: [" .. tostring(state.displaySeed) .. "]"
+    local rightFont = LoadingScreen.fonts.telemetry
+    love.graphics.setFont(rightFont)
+    local seedW = rightFont:getWidth(seedText)
+    local rightX = width - padX - seedW
+
+    local isLocked = (state.displaySeed == state.targetSeed)
+    local lockCol = isLocked and colors.warpAmber or colors.warpCyan
+    love.graphics.setColor(lockCol[1], lockCol[2], lockCol[3], 0.90 * alpha)
+    love.graphics.print(seedText, rightX, topY)
 end
 
--- Dibujar barra de progreso con hitos reales acumulativos
-function LoadingScreen.drawProgressBar(x, y, barWidth, barHeight, alpha)
-    barWidth = barWidth or 420
-    barHeight = barHeight or 8
-    local cornerRadius = 4
-    alpha = alpha or 1.0
-    
-    -- Fondo de la barra
-    love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                          LoadingScreen.config.colors.textDim[2],
-                          LoadingScreen.config.colors.textDim[3],
-                          0.25 * alpha)
-    love.graphics.rectangle("fill", x - barWidth/2, y - barHeight/2, barWidth, barHeight, cornerRadius)
-    
-    -- Barra de progreso con gradiente continuo
-    local progress = LoadingScreen.state.progress
-    if progress > 0 then
-        local r = LoadingScreen.config.colors.secondary[1] * (1 - progress) + LoadingScreen.config.colors.accent[1] * progress
-        local g = LoadingScreen.config.colors.secondary[2] * (1 - progress) + LoadingScreen.config.colors.accent[2] * progress
-        local b = LoadingScreen.config.colors.secondary[3] * (1 - progress) + LoadingScreen.config.colors.accent[3] * progress
-        
-        love.graphics.setColor(r, g, b, alpha)
-        local fillW = math.max(cornerRadius * 2, barWidth * progress)
-        love.graphics.rectangle("fill", x - barWidth/2, y - barHeight/2, fillW, barHeight, cornerRadius)
-        
-        -- Brillo en el borde delantero
-        love.graphics.setColor(1, 1, 1, 0.65 * alpha)
-        love.graphics.rectangle("fill", x - barWidth/2 + fillW - 2, y - barHeight/2, 2, barHeight)
+-- Render de la sección de progreso y barra cuántica
+function LoadingScreen.drawProgressSection(cx, cy, width, height, alpha)
+    local state = LoadingScreen.state
+    local colors = LoadingScreen.config.colors
+    local p = state.smoothProgress
+
+    -- Posicionamiento armónico en el tercio inferior
+    local barWidth = math.min(560, math.floor(width * 0.60))
+    local barHeight = 6
+    local barY = math.floor(height * 0.78)
+    local barX = cx - math.floor(barWidth * 0.5)
+    local corner = 3
+
+    local stepH = LoadingScreen.fonts.stepTitle:getHeight()
+    local subH = LoadingScreen.fonts.stepSub:getHeight()
+    local textStartY = barY - (stepH + subH + 14)
+
+    -- 1. Nombre del paso actual
+    love.graphics.setFont(LoadingScreen.fonts.stepTitle)
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.95 * alpha)
+    love.graphics.printf(state.currentStep or "Synchronizing...", 0, textStartY, width, "center")
+
+    -- 2. Substep o detalle
+    local subY = textStartY + stepH + 4
+    if state.subStep and state.subStep ~= "" then
+        love.graphics.setFont(LoadingScreen.fonts.stepSub)
+        love.graphics.setColor(colors.textDim[1], colors.textDim[2], colors.textDim[3], 0.85 * alpha)
+        love.graphics.printf(state.subStep, 0, subY, width, "center")
     end
-    
-    -- Indicadores de hitos acumulados a lo largo de la barra
+
+    -- Contenedor y marco biselado
+    love.graphics.setColor(0.04, 0.08, 0.16, 0.65 * alpha)
+    love.graphics.rectangle("fill", barX, barY, barWidth, barHeight, corner, corner)
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.30 * alpha)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", barX, barY, barWidth, barHeight, corner, corner)
+
+    -- Relleno de barra con gradiente cuántico
+    if p > 0.005 then
+        local fillW = math.max(corner * 2, barWidth * p)
+        local r = colors.warpCyan[1] * (1.0 - p) + colors.warpAmber[1] * p
+        local g = colors.warpCyan[2] * (1.0 - p) + colors.warpAmber[2] * p
+        local b = colors.warpCyan[3] * (1.0 - p) + colors.warpAmber[3] * p
+
+        love.graphics.setColor(r, g, b, 0.95 * alpha)
+        love.graphics.rectangle("fill", barX, barY, fillW, barHeight, corner, corner)
+
+        -- Cursor de avance de alta intensidad en el borde delantero
+        local oldB, oldA = love.graphics.getBlendMode()
+        love.graphics.setBlendMode("add", "alphamultiply")
+        love.graphics.setColor(1.0, 1.0, 1.0, 0.90 * alpha)
+        love.graphics.rectangle("fill", barX + fillW - 3, barY - 1, 3, barHeight + 2)
+        love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.60 * alpha)
+        love.graphics.circle("fill", barX + fillW - 1, barY + barHeight * 0.5, 4.5)
+        love.graphics.setBlendMode(oldB, oldA)
+    end
+
+    -- Hitos discretos de los 12 pasos de generación
     local cumWeight = 0
     for i, step in ipairs(LoadingScreen.gameLoadSteps) do
-        local dotX = (x - barWidth/2) + barWidth * cumWeight
-        local isCompleted = (i <= LoadingScreen.state.stepsCompleted)
-        local isCurrent = (i == LoadingScreen.state.currentStepIndex)
-        
-        if isCompleted then
-            love.graphics.setColor(LoadingScreen.config.colors.accent[1],
-                                  LoadingScreen.config.colors.accent[2],
-                                  LoadingScreen.config.colors.accent[3],
-                                  0.95 * alpha)
-            love.graphics.circle("fill", dotX, y, 3)
-        elseif isCurrent then
-            love.graphics.setColor(LoadingScreen.config.colors.primary[1],
-                                  LoadingScreen.config.colors.primary[2],
-                                  LoadingScreen.config.colors.primary[3],
-                                  alpha)
-            love.graphics.circle("fill", dotX, y, 4.5)
-            love.graphics.setColor(1, 1, 1, 0.75 * alpha)
-            love.graphics.circle("line", dotX, y, 5.5)
-        else
-            love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                                  LoadingScreen.config.colors.textDim[2],
-                                  LoadingScreen.config.colors.textDim[3],
-                                  0.35 * alpha)
-            love.graphics.circle("fill", dotX, y, 2)
-        end
+        local dotX = barX + barWidth * cumWeight
+        local isDone = (i <= state.stepsCompleted)
+        local isCurr = (i == state.currentStepIndex)
+        local dotCol = isDone and colors.warpAmber or (isCurr and colors.warpCyan or colors.textDim)
+        local dotAlpha = isDone and 0.95 or (isCurr and 0.85 or 0.35)
+
+        love.graphics.setColor(dotCol[1], dotCol[2], dotCol[3], dotAlpha * alpha)
+        love.graphics.circle("fill", dotX, barY + barHeight * 0.5, isCurr and 3.5 or 2.0)
         cumWeight = cumWeight + step.weight
     end
-    
-    -- Texto de paso ("Step X of Y") situado holgadamente debajo de la barra
-    love.graphics.setFont(LoadingScreen.fonts.small)
-    love.graphics.setColor(LoadingScreen.config.colors.textDim[1],
-                          LoadingScreen.config.colors.textDim[2],
-                          LoadingScreen.config.colors.textDim[3],
-                          0.85 * alpha)
-    local stepText = string.format("Step %d of %d", LoadingScreen.state.currentStepIndex, LoadingScreen.state.totalSteps)
-    love.graphics.printf(stepText, 0, y + barHeight/2 + 10, love.graphics.getWidth(), "center")
+
+    -- Sub-telemetría debajo de la barra
+    local metaY = barY + barHeight + 10
+    love.graphics.setFont(LoadingScreen.fonts.telemetry)
+    love.graphics.setColor(colors.textDim[1], colors.textDim[2], colors.textDim[3], 0.75 * alpha)
+    local stepStr = string.format("PHASE %02d / %02d", state.currentStepIndex, state.totalSteps)
+    love.graphics.print(stepStr, barX, metaY)
+
+    local warpFactorStr = string.format("WARP FACTOR: %.1f c", 1.0 + p * 8.9)
+    local wfW = LoadingScreen.fonts.telemetry:getWidth(warpFactorStr)
+    love.graphics.setColor(colors.warpAmber[1], colors.warpAmber[2], colors.warpAmber[3], 0.85 * alpha)
+    love.graphics.print(warpFactorStr, barX + barWidth - wfW, metaY)
 end
 
--- Dibujar tip en contenedor glassmorphic con estilo premium
-function LoadingScreen.drawTip(cx, cy, alpha)
-    local tipText = "TIP: " .. tostring(LoadingScreen.currentTip)
-    local font = LoadingScreen.fonts.tips
-    local screenW = love.graphics.getWidth()
-    local textW = font:getWidth(tipText)
-    local boxW = math.min(screenW - 60, math.max(380, textW + 44))
-    local boxH = 34
-    local boxX = cx - boxW / 2
-    local boxY = cy - boxH / 2
-    alpha = alpha or 1.0
+-- Render de la tarjeta de astrogación / Tip inferior glassmorphic
+function LoadingScreen.drawTipCard(cx, cy, width, alpha)
+    local colors = LoadingScreen.config.colors
+    local tipText = "// ASTROGATION LOG: " .. tostring(LoadingScreen.currentTip)
+    local font = LoadingScreen.fonts.tip
+    local cardW = math.min(width - 64, math.max(480, math.floor(width * 0.70)))
+    local _, wrappedLines = font:getWrap(tipText, cardW - 36)
+    local lineCount = math.max(1, #wrappedLines)
+    local cardH = math.max(34, lineCount * (font:getHeight() + 3) + 14)
+    local cardX = cx - math.floor(cardW * 0.5)
+    local cardY = cy - math.floor(cardH * 0.5)
 
-    -- Fondo translúcido glassmorphic
-    love.graphics.setColor(0.04, 0.06, 0.12, 0.70 * alpha)
-    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8, 8)
+    -- Fondo translúcido glassmorphic con gradiente sutil
+    love.graphics.setColor(0.015, 0.035, 0.080, 0.72 * alpha)
+    love.graphics.rectangle("fill", cardX, cardY, cardW, cardH, 6, 6)
 
-    -- Borde sutil cian
-    love.graphics.setColor(LoadingScreen.config.colors.primary[1],
-                          LoadingScreen.config.colors.primary[2],
-                          LoadingScreen.config.colors.primary[3],
-                          0.25 * alpha)
+    -- Borde holográfico biselado
+    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.28 * alpha)
     love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 8, 8)
+    love.graphics.rectangle("line", cardX, cardY, cardW, cardH, 6, 6)
 
-    -- Texto del Tip centrado en la caja
+    -- Texto del Tip centrado
     love.graphics.setFont(font)
-    love.graphics.setColor(LoadingScreen.config.colors.text[1],
-                          LoadingScreen.config.colors.text[2],
-                          LoadingScreen.config.colors.text[3],
-                          0.88 * alpha)
-    love.graphics.printf(tipText, boxX + 16, boxY + (boxH - font:getHeight()) / 2, boxW - 32, "center")
+    love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.90 * alpha)
+    love.graphics.printf(tipText, cardX + 18, cardY + math.floor((cardH - lineCount * font:getHeight()) * 0.5), cardW - 36, "center")
 end
 
--- Gestión de carga asíncrona
+-- ============================================================================
+-- UTILIDADES, CARGA ASÍNCRONA Y RETROCOMPATIBILIDAD DE MÉTODOS
+-- ============================================================================
+function LoadingScreen.drawStars(alpha)
+    local w = love.graphics.getWidth()
+    local h = love.graphics.getHeight()
+    LoadingScreen.drawWarpStarfield(math.floor(w * 0.5), math.floor(h * 0.40), w, h, alpha or 1.0)
+end
+
+function LoadingScreen.drawNebulae(alpha)
+    local w = love.graphics.getWidth()
+    local h = love.graphics.getHeight()
+    LoadingScreen.drawFocalNebula(math.floor(w * 0.5), math.floor(h * 0.40), alpha or 1.0)
+end
+
+function LoadingScreen.drawLoadingRing(x, y, radius, alpha)
+    LoadingScreen.draw3DAstrolabe(x or love.graphics.getWidth() * 0.5, y or love.graphics.getHeight() * 0.4, alpha or 1.0)
+end
+
+function LoadingScreen.drawProgressBar(x, y, barWidth, barHeight, alpha)
+    -- Integrado en LoadingScreen.drawProgressSection
+end
+
+function LoadingScreen.drawText(x, y, alpha)
+    -- Integrado en LoadingScreen.draw
+end
+
+function LoadingScreen.drawTip(cx, cy, alpha)
+    LoadingScreen.drawTipCard(cx, cy, love.graphics.getWidth(), alpha)
+end
+
+function LoadingScreen.updateAnimations(dt)
+    -- Administrado de forma integrada en LoadingScreen.update
+end
+
 function LoadingScreen.addAsyncTask(taskFunction, taskName)
     table.insert(LoadingScreen.state.asyncLoader.taskQueue, {
         func = taskFunction,
@@ -733,37 +899,26 @@ end
 
 function LoadingScreen.processAsyncTasks(dt)
     if not LoadingScreen.state.asyncLoader.enabled then return end
-    
     local startTime = love.timer.getTime()
     local maxTime = LoadingScreen.state.asyncLoader.maxTimePerFrame
-    
+
     while #LoadingScreen.state.asyncLoader.taskQueue > 0 do
-        local currentTime = love.timer.getTime()
-        if currentTime - startTime > maxTime then
-            break -- Evitar bloquear el frame
-        end
-        
+        if love.timer.getTime() - startTime > maxTime then break end
         local task = table.remove(LoadingScreen.state.asyncLoader.taskQueue, 1)
         LoadingScreen.state.asyncLoader.currentTask = task
-        
-        -- Ejecutar tarea
         local success, result = pcall(task.func)
         if not success then
             print("Error in async task '" .. task.name .. "': " .. tostring(result))
         end
-        
         LoadingScreen.state.asyncLoader.currentTask = nil
     end
-    
     LoadingScreen.state.asyncLoader.lastFrameTime = love.timer.getTime() - startTime
 end
 
--- Gestión de cache de recursos
 function LoadingScreen.preloadAsset(assetPath, assetType)
     if LoadingScreen.state.resourceCache.preloadedAssets[assetPath] then
         return LoadingScreen.state.resourceCache.preloadedAssets[assetPath]
     end
-    
     local asset = nil
     if assetType == "image" then
         asset = love.graphics.newImage(assetPath)
@@ -772,31 +927,25 @@ function LoadingScreen.preloadAsset(assetPath, assetType)
     elseif assetType == "font" then
         asset = love.graphics.newFont(assetPath)
     end
-    
     if asset then
         LoadingScreen.state.resourceCache.preloadedAssets[assetPath] = asset
-        -- Estimar uso de memoria (aproximado)
         LoadingScreen.state.resourceCache.memoryUsage = LoadingScreen.state.resourceCache.memoryUsage + 1024
     end
-    
     return asset
 end
 
 function LoadingScreen.cleanupResourceCache()
     local memoryUsage = LoadingScreen.state.resourceCache.memoryUsage
     local maxMemory = LoadingScreen.state.resourceCache.maxMemoryUsage
-    
     if memoryUsage > maxMemory then
-        -- Limpiar assets menos utilizados
         LoadingScreen.state.resourceCache.preloadedAssets = {}
         LoadingScreen.state.resourceCache.memoryUsage = 0
         print("LoadingScreen: Resource cache cleaned due to memory limit")
     end
 end
 
--- Función para actualizar el progreso
 function LoadingScreen.setProgress(progress)
-    LoadingScreen.state.progress = math.max(0, math.min(1, progress))
+    LoadingScreen.state.progress = math.max(0.0, math.min(1.0, progress))
 end
 
 function LoadingScreen.setStep(stepName)
@@ -809,21 +958,18 @@ function LoadingScreen.setStep(stepName)
     end
 end
 
--- Verificar si está activo
 function LoadingScreen.isActive()
     return LoadingScreen.state.active
 end
 
--- Forzar completado (para debug)
 function LoadingScreen.forceComplete()
-    LoadingScreen.state.progress = 1
+    LoadingScreen.state.progress = 1.0
+    LoadingScreen.state.smoothProgress = 1.0
     LoadingScreen.state.fadeState = "out"
 end
 
--- Manejar redimensionamiento de ventana
 function LoadingScreen.resize(w, h)
     if LoadingScreen.state.active then
-        -- Regenerar elementos visuales para el nuevo tamaño
         LoadingScreen.generateStars()
         LoadingScreen.generateNebulae()
     end
