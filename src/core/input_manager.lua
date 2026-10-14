@@ -35,8 +35,9 @@ function InputManager.keypressed(key)
     local Map = World.getMap()
     local SeedSystem = package.loaded['src.utils.seed_system']
 
-    -- 1. CASO: CARGANDO (Prioridad máxima)
-    if gameState and (gameState.isLoading or not gameState.loaded) then
+    -- 1. CASO: CARGANDO O SALTO HIPERESPACIAL (Prioridad máxima)
+    local LoadingScreen = package.loaded['src.ui.loading_screen']
+    if (gameState and (gameState.isLoading or not gameState.loaded)) or (LoadingScreen and LoadingScreen.isActive and LoadingScreen.isActive()) then
         if key == "escape" then
             love.event.quit()
         elseif (key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))) or key == "f11" then
@@ -282,6 +283,9 @@ function InputManager.mousepressed(x, y, button)
     
     local gameState = World.getState()
     if not gameState or not gameState.loaded then return end
+
+    local LoadingScreen = package.loaded['src.ui.loading_screen']
+    if LoadingScreen and LoadingScreen.isActive and LoadingScreen.isActive() then return end
 
     local stateManager = World.get('stateManager')
     local player = World.getPlayer()

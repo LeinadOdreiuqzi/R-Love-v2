@@ -97,8 +97,22 @@ local function launchSublevel(levelDef, subworldDef)
 
         local stateManager = World.get('stateManager')
         if stateManager then
+            PauseMenu.close()
             local scene = SubLevelScene:new(cfg)
-            stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
+            local LoadingScreen = require 'src.ui.loading_screen'
+            local targetSeed = string.format("%08X", cfg.numericSeed or 0)
+            if #targetSeed < 10 then
+                targetSeed = targetSeed .. string.sub(currentSeed or "99", 1, 10 - #targetSeed)
+            end
+            LoadingScreen.startWarpJump({
+                seed = targetSeed,
+                title = "SALTO HIPERESPACIAL",
+                destination = (cfg.meta and cfg.meta.name) or "Submundo",
+                duration = 2.0,
+                onMidpoint = function()
+                    stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0 })
+                end
+            })
         end
     end)
 

@@ -60,6 +60,7 @@ function InteractionSystem.tryEnterStationOrSublevel()
         
         if closest and (not minDist or minDist <= allowed) then
             local scx, scy = Map.getChunkInfo(closestWorldX or activeEntity.x, closestWorldY or activeEntity.y)
+            local portalSeed = tostring(closest.entranceKey or ((closest.cx or scx) .. ":" .. (closest.cy or scy)))
             local cfg = SubLevelManager.createConfig({
                 parentSeed = GameState.state.currentSeed,
                 type = SubLevelManager.Types.Generic,
@@ -69,10 +70,28 @@ function InteractionSystem.tryEnterStationOrSublevel()
                 height = 8,
                 entryX = 0,
                 entryY = 0,
-                context = "entrance|" .. tostring(closest.entranceKey or ((closest.cx or scx) .. ":" .. (closest.cy or scy)))
+                context = "entrance|" .. portalSeed
             })
-            local scene = SubLevelScene:new(cfg)
-            stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0.25 })
+
+            local LoadingScreen = require 'src.ui.loading_screen'
+            local targetSeed = string.format("%08X", cfg.numericSeed or 0)
+            if #targetSeed < 10 then
+                targetSeed = targetSeed .. string.sub(GameState.state.currentSeed or "99", 1, 10 - #targetSeed)
+            end
+
+            LoadingScreen.startWarpJump({
+                seed = targetSeed,
+                title = "SALTO HIPERESPACIAL",
+                destination = "Submundo Sector [" .. portalSeed .. "]",
+                duration = 2.0,
+                onMidpoint = function()
+                    local scene = SubLevelScene:new(cfg)
+                    stateManager:push(scene, { suspendUnderlying = true, fadeDuration = 0 })
+                end,
+                onComplete = function()
+                    print("✓ Entrada exitosa al submundo: " .. portalSeed)
+                end
+            })
             return
         end
     end

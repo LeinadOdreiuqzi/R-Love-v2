@@ -52,6 +52,12 @@ LoadingScreen.state = {
     -- Control de fases
     fadeAlpha = 0,
     fadeState = "in", -- "in", "loading", "out", "done"
+    isWarpJump = false,
+    warpDuration = 1.95,
+    warpTitle = "",
+    warpDestination = "",
+    onMidpoint = nil,
+    midpointExecuted = false,
 
     -- Pasos de carga
     currentStepIndex = 1,
@@ -232,10 +238,54 @@ function LoadingScreen.initLoadingRing()
     end
 end
 
+-- Iniciar secuencia cinemática de salto hiperespacial para portales de submundos
+function LoadingScreen.startWarpJump(options)
+    options = options or {}
+    local state = LoadingScreen.state
+    state.active = true
+    state.isWarpJump = true
+    state.progress = 0
+    state.smoothProgress = 0
+    state.elapsedTime = 0
+    state.animationTime = 0
+    state.fadeAlpha = 0
+    state.fadeState = "in"
+    state.currentStepIndex = 1
+    state.stepsCompleted = 0
+    state.totalSteps = 4
+
+    -- Semilla determinista del portal / submundo
+    local seed = options.seed or "HYPERSPACE"
+    state.targetSeed = seed
+    state.displaySeed = "----------"
+    state.seedLockIndex = 0
+
+    state.warpDuration = options.duration or 1.95
+    state.warpTitle = options.title or "CONDUIT HYPERSPACE JUMP"
+    state.warpDestination = options.destination or "Submundo Cuántico"
+    state.currentStep = state.warpTitle
+    state.subStep = "Sincronizando Horizonte de Eventos..."
+
+    state.onMidpoint = options.onMidpoint
+    state.midpointExecuted = false
+    state.onComplete = options.onComplete
+    state.loadFunction = nil
+    state.loadIterator = nil
+
+    local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
+    HyperspaceTunnel.setSeed(seed)
+
+    LoadingScreen.generateStars()
+    LoadingScreen.generateNebulae()
+
+    print("★ LoadingScreen: Portal warp jump initiated to seed [" .. tostring(seed) .. "] destination: " .. tostring(state.warpDestination))
+end
+
 -- Iniciar secuencia de carga
 function LoadingScreen.start(loadFunction, onComplete, seedOverride)
     local state = LoadingScreen.state
     state.active = true
+    state.isWarpJump = false
     state.progress = 0
     state.smoothProgress = 0
     state.currentStep = "Initiating Hyperspace Drive..."
@@ -348,12 +398,17 @@ function LoadingScreen.update(dt)
     state.astrolabe.pitch = math.sin(state.animationTime * 1.4) * 0.42
     state.astrolabe.pulse = 1.0 + 0.06 * math.sin(state.animationTime * 4.5 * warpFactor)
 
-    -- Dinámica del campo estelar Warp 3D (Star Streaks)
+    -- Dinámica del campo estelar Warp 3D (Star Streaks con desaceleración relativista de llegada)
     local baseSpd = LoadingScreen.config.warp.baseSpeed
     local maxBoost = LoadingScreen.config.warp.maxSpeedBoost
     local currentSpeed = baseSpd + maxBoost * (p ^ 1.35)
-    if state.fadeState == "out" then
-        currentSpeed = currentSpeed + 2400.0 -- Impulso culminante al salir del salto
+    if p > 0.72 and state.fadeState ~= "out" then
+        -- Desaceleración al aproximarse al horizonte de llegada
+        local brakeT = (p - 0.72) / 0.28
+        currentSpeed = baseSpd + maxBoost * (1.0 - 0.75 * (brakeT ^ 1.8))
+    elseif state.fadeState == "out" then
+        local exitT = 1.0 - state.fadeAlpha
+        currentSpeed = baseSpd * (1.0 - exitT * 0.8)
     end
 
     local maxZ = LoadingScreen.config.warp.maxDepth
@@ -383,16 +438,54 @@ function LoadingScreen.update(dt)
             end
         end
     elseif state.fadeState == "loading" then
-        -- Presupuesto seguro de tiempo por frame (12ms) para 60 FPS estables
-        local tStart = love.timer.getTime()
-        while LoadingScreen.loadIterator and (love.timer.getTime() - tStart) < 0.012 do
-            LoadingScreen.resumeLoading()
+        if state.isWarpJump then
+            local dur = state.warpDuration or 1.95
+            local p = math.min(1.0, state.elapsedTime / dur)
+            state.progress = p
+
+            if p < 0.25 then
+                state.subStep = "Sincronizando Horizonte de Eventos..."
+                state.stepsCompleted = 0
+                state.currentStepIndex = 1
+            elseif p < 0.55 then
+                state.subStep = "Túnel cuántico activo — Aceleración a Hipervelocidad"
+                state.stepsCompleted = 1
+                state.currentStepIndex = 2
+            elseif p < 0.85 then
+                state.subStep = "Aproximación a destino: " .. tostring(state.warpDestination or "Submundo")
+                state.stepsCompleted = 2
+                state.currentStepIndex = 3
+            else
+                state.subStep = "Materialización inminente — Desacelerando salto"
+                state.stepsCompleted = 3
+                state.currentStepIndex = 4
+            end
+
+            -- Al alcanzar el 45% del salto (con pantalla 100% cubierta), ejecutamos el callback de escena si aún no se ejecutó
+            if p >= 0.45 and not state.midpointExecuted then
+                state.midpointExecuted = true
+                if state.onMidpoint then
+                    state.onMidpoint()
+                end
+            end
+
+            -- Si se completó el tiempo del salto
+            if p >= 1.0 and state.smoothProgress >= 0.98 then
+                state.fadeState = "out"
+            end
+        else
+            -- Presupuesto seguro de tiempo por frame (12ms) para 60 FPS estables (Carga inicial)
+            local tStart = love.timer.getTime()
+            while LoadingScreen.loadIterator and (love.timer.getTime() - tStart) < 0.012 do
+                LoadingScreen.resumeLoading()
+            end
         end
     elseif state.fadeState == "out" then
         state.fadeAlpha = math.max(0.0, state.fadeAlpha - dt / LoadingScreen.config.fadeOutTime)
         if state.fadeAlpha <= 0.0 then
             state.fadeState = "done"
             state.active = false
+            state.isWarpJump = false
             if state.onComplete then
                 state.onComplete()
             end
@@ -400,17 +493,19 @@ function LoadingScreen.update(dt)
         end
     end
 
-    -- Rotación de tips
-    LoadingScreen.tipChangeTime = (LoadingScreen.tipChangeTime or 0) + dt
-    if LoadingScreen.tipChangeTime > 3.5 then
-        if LoadingScreen.tips and #LoadingScreen.tips > 0 then
-            LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
+    -- Rotación de tips (solo en carga inicial de universo)
+    if not state.isWarpJump then
+        LoadingScreen.tipChangeTime = (LoadingScreen.tipChangeTime or 0) + dt
+        if LoadingScreen.tipChangeTime > 3.5 then
+            if LoadingScreen.tips and #LoadingScreen.tips > 0 then
+                LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
+            end
+            LoadingScreen.tipChangeTime = 0
         end
-        LoadingScreen.tipChangeTime = 0
     end
 
-    -- Condición de finalización
-    if state.fadeState == "loading" and state.progress >= 1.0 and state.smoothProgress >= 0.99 then
+    -- Condición de finalización para carga normal de mundo
+    if not state.isWarpJump and state.fadeState == "loading" and state.progress >= 1.0 and state.smoothProgress >= 0.99 then
         if state.elapsedTime >= LoadingScreen.config.minLoadTime then
             state.fadeState = "out"
         end
@@ -427,8 +522,8 @@ end
 
 function LoadingScreen.resumeLoading()
     if LoadingScreen.loadIterator then
-        local completed = LoadingScreen.loadIterator()
-        if completed then
+        local ok, completed = pcall(LoadingScreen.loadIterator)
+        if not ok or completed then
             LoadingScreen.state.progress = 1.0
             LoadingScreen.loadIterator = nil
         end
@@ -456,8 +551,9 @@ function LoadingScreen.draw()
     love.graphics.push()
     love.graphics.origin()
 
-    -- 1. Fondo de vacío cósmico profundo (siempre opaco para evitar parpadeos)
-    love.graphics.setColor(colors.background[1], colors.background[2], colors.background[3], 1.0)
+    -- 1. Fondo de vacío cósmico profundo (opaco en carga inicial, modulado por fadeAlpha en salto de portal)
+    local bgAlpha = state.isWarpJump and alpha or 1.0
+    love.graphics.setColor(colors.background[1], colors.background[2], colors.background[3], bgAlpha)
     love.graphics.rectangle("fill", 0, 0, width, height)
 
     -- Centro focal del túnel hiperespacial
@@ -465,9 +561,20 @@ function LoadingScreen.draw()
     local cy = math.floor(height * 0.46)
     local p = state.smoothProgress
 
-    -- 2. Túnel hiperespacial 3D (Shader procedural estilo Destiny 2)
+    -- Micro-turbulencia cinemática en cabina al aproximarse al horizonte de llegada ("cuando se está por llegar")
+    if p > 0.72 and state.fadeState ~= "out" then
+        local surgeT = (p - 0.72) / 0.28
+        local shakeAmp = (surgeT ^ 2.2) * 4.8
+        local shakeFreq = state.animationTime * 48.0
+        cx = cx + math.sin(shakeFreq) * shakeAmp
+        cy = cy + math.cos(shakeFreq * 1.33) * shakeAmp * 0.7
+    end
+
+    local exitT = (state.fadeState == "out") and (1.0 - state.fadeAlpha) or 0.0
+
+    -- 2. Túnel hiperespacial 3D (Shader procedural estilo Destiny 2 con llegada y rotura cuántica en GPU)
     local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
-    local tunnelOk = HyperspaceTunnel.draw(cx, cy, width, height, alpha, p)
+    local tunnelOk = HyperspaceTunnel.draw(cx, cy, width, height, alpha, p, exitT)
 
     if not tunnelOk then
         -- Fallback de seguridad si el shader no estuviese disponible
@@ -475,31 +582,51 @@ function LoadingScreen.draw()
         LoadingScreen.drawWarpStarfield(cx, cy, width, height, alpha)
     end
 
-    -- 4. Interfaz HUD: Telemetría superior (solo la semilla)
-    LoadingScreen.drawTopTelemetry(width, alpha)
+    -- 4. Interfaz HUD: Telemetría superior (solo la semilla) - OMITIR EN SALTOS DE SUBMUNDOS
+    if not state.isWarpJump then
+        LoadingScreen.drawTopTelemetry(width, alpha)
+    end
 
-    -- 5. Interfaz HUD: Paso de inicialización y barra cuántica
-    LoadingScreen.drawProgressSection(cx, cy, width, height, alpha)
+    -- 5. Interfaz HUD: Paso de inicialización y barra cuántica - OMITIR EN SALTOS DE SUBMUNDOS
+    if not state.isWarpJump then
+        LoadingScreen.drawProgressSection(cx, cy, width, height, alpha)
+    end
 
-    -- 6. Interfaz HUD: Sección de tips desactivada por ahora
-    -- local tipY = math.min(height - 40, math.floor(height * 0.88))
-    -- LoadingScreen.drawTipCard(cx, tipY, width, alpha)
-
-    -- 8. Destello culminante de salida hiperespacial (Warp Exit Flash)
+    -- 8. Destello culminante de llegada hiperespacial (Atmospheric Wash suplementario)
     if state.fadeState == "out" then
-        local exitT = 1.0 - state.fadeAlpha -- 0 a 1
-        local flashAlpha = math.sin(exitT * math.pi) * 0.95
-        local maxR = math.max(width, height) * 0.95 * exitT
-
-        love.graphics.setBlendMode("add", "alphamultiply")
-        love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], flashAlpha * 0.70)
-        love.graphics.circle("fill", cx, cy, maxR)
-        love.graphics.setColor(1.0, 1.0, 1.0, flashAlpha * 0.90)
-        love.graphics.circle("fill", cx, cy, maxR * 0.45)
-        love.graphics.setBlendMode("alpha", "alphamultiply")
+        LoadingScreen.drawArrivalBreakout(cx, cy, width, height, alpha)
     end
 
     love.graphics.pop()
+end
+
+-- ============================================================================
+-- RENDERIZADO VISUAL: ROTURA DE HORIZONTE CUÁNTICO (ARRIVAL BREAKOUT FX)
+-- ============================================================================
+function LoadingScreen.drawArrivalBreakout(cx, cy, width, height, alpha)
+    local state = LoadingScreen.state
+    if state.fadeState ~= "out" then return end
+
+    local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
+    local themeCols = HyperspaceTunnel.getCurrentColors and HyperspaceTunnel.getCurrentColors()
+    local flareCol = (themeCols and themeCols.flare) or {0.40, 0.85, 1.00}
+
+    local exitT = 1.0 - state.fadeAlpha -- 0.0 al llegar hasta 1.0 al terminar la disipación
+
+    local oldBlend, oldAlphaMode = love.graphics.getBlendMode()
+    love.graphics.setBlendMode("add", "alphamultiply")
+
+    -- Resplandor ambiental de descompresión cinemática (Full-Screen Atmospheric Wash)
+    local washAlpha = (math.sin(exitT * math.pi) ^ 1.8) * 0.35 * alpha
+    if washAlpha > 0.002 then
+        local wr = flareCol[1] * 0.3 + 0.7
+        local wg = flareCol[2] * 0.3 + 0.7
+        local wb = flareCol[3] * 0.3 + 0.7
+        love.graphics.setColor(wr, wg, wb, washAlpha)
+        love.graphics.rectangle("fill", 0, 0, width, height)
+    end
+
+    love.graphics.setBlendMode(oldBlend, oldAlphaMode)
 end
 
 -- Render de nebulosa cuántica en el punto de fuga
@@ -744,8 +871,9 @@ function LoadingScreen.drawTopTelemetry(width, alpha)
     local padX = 36
     local topY = 28
 
-    -- Mostrar exclusivamente la semilla del sector
-    local seedText = "SECTOR SEED: [" .. tostring(state.displaySeed) .. "]"
+    -- Mostrar exclusivamente la semilla del sector o submundo
+    local prefix = state.isWarpJump and "CONDUIT SEED: [" or "SECTOR SEED: ["
+    local seedText = prefix .. tostring(state.displaySeed) .. "]"
     local rightFont = LoadingScreen.fonts.telemetry
     love.graphics.setFont(rightFont)
     local seedW = rightFont:getWidth(seedText)
@@ -814,25 +942,45 @@ function LoadingScreen.drawProgressSection(cx, cy, width, height, alpha)
         love.graphics.setBlendMode(oldB, oldA)
     end
 
-    -- Hitos discretos de los 12 pasos de generación
-    local cumWeight = 0
-    for i, step in ipairs(LoadingScreen.gameLoadSteps) do
-        local dotX = barX + barWidth * cumWeight
-        local isDone = (i <= state.stepsCompleted)
-        local isCurr = (i == state.currentStepIndex)
-        local dotCol = isDone and colors.warpAmber or (isCurr and colors.warpCyan or colors.textDim)
-        local dotAlpha = isDone and 0.95 or (isCurr and 0.85 or 0.35)
+    if state.isWarpJump then
+        -- 4 hitos discretos para el salto cuántico del portal de submundo
+        local conduitNodes = { 0.0, 0.33, 0.66, 1.0 }
+        for _, nodeP in ipairs(conduitNodes) do
+            local dotX = barX + barWidth * nodeP
+            local isDone = (p >= nodeP)
+            local isCurr = (p >= nodeP - 0.15 and p < nodeP + 0.15)
+            local dotCol = isDone and colors.warpAmber or (isCurr and colors.warpCyan or colors.textDim)
+            local dotAlpha = isDone and 0.95 or (isCurr and 0.85 or 0.35)
 
-        love.graphics.setColor(dotCol[1], dotCol[2], dotCol[3], dotAlpha * alpha)
-        love.graphics.circle("fill", dotX, barY + barHeight * 0.5, isCurr and 3.5 or 2.0)
-        cumWeight = cumWeight + step.weight
+            love.graphics.setColor(dotCol[1], dotCol[2], dotCol[3], dotAlpha * alpha)
+            love.graphics.circle("fill", dotX, barY + barHeight * 0.5, isCurr and 3.5 or 2.0)
+        end
+    else
+        -- Hitos discretos de los 12 pasos de generación
+        local cumWeight = 0
+        for i, step in ipairs(LoadingScreen.gameLoadSteps) do
+            local dotX = barX + barWidth * cumWeight
+            local isDone = (i <= state.stepsCompleted)
+            local isCurr = (i == state.currentStepIndex)
+            local dotCol = isDone and colors.warpAmber or (isCurr and colors.warpCyan or colors.textDim)
+            local dotAlpha = isDone and 0.95 or (isCurr and 0.85 or 0.35)
+
+            love.graphics.setColor(dotCol[1], dotCol[2], dotCol[3], dotAlpha * alpha)
+            love.graphics.circle("fill", dotX, barY + barHeight * 0.5, isCurr and 3.5 or 2.0)
+            cumWeight = cumWeight + step.weight
+        end
     end
 
     -- Sub-telemetría debajo de la barra
     local metaY = barY + barHeight + 10
     love.graphics.setFont(LoadingScreen.fonts.telemetry)
     love.graphics.setColor(colors.textDim[1], colors.textDim[2], colors.textDim[3], 0.75 * alpha)
-    local stepStr = string.format("PHASE %02d / %02d", state.currentStepIndex, state.totalSteps)
+    local stepStr
+    if state.isWarpJump then
+        stepStr = string.format("CONDUIT TRANSIT // STAGE %02d / %02d", state.currentStepIndex or 1, state.totalSteps or 4)
+    else
+        stepStr = string.format("PHASE %02d / %02d", state.currentStepIndex, state.totalSteps)
+    end
     love.graphics.print(stepStr, barX, metaY)
 
     local warpFactorStr = string.format("WARP FACTOR: %.1f c", 1.0 + p * 8.9)

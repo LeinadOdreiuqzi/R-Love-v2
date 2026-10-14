@@ -167,6 +167,25 @@ local Synthesizers = {
         return sd
     end,
 
+    -- Salto hiperespacial / túnel cuántico: barrido ascendente resonante con subgraves y destello de salida
+    hyperspace_jump = function()
+        local duration = 1.6
+        local samples = math.floor(SAMPLE_RATE * duration)
+        local sd = love.sound.newSoundData(samples, SAMPLE_RATE, 16, 1)
+        for i = 0, samples - 1 do
+            local t = i / SAMPLE_RATE
+            local progress = t / duration
+            local freq = 48 + 420 * (progress^2.2)
+            local env = math.sin(progress * math.pi)^0.75
+            local sub = math.sin(2 * math.pi * freq * t) * 0.50
+            local harm = math.sin(2 * math.pi * (freq * 1.5) * t) * 0.25
+            local shimmer = math.sin(2 * math.pi * (freq * 3.0 + 8 * math.sin(t * 26)) * t) * 0.15
+            local sample = (sub + harm + shimmer) * env * 0.70
+            sd:setSample(i, clampSample(sample))
+        end
+        return sd
+    end,
+
     -- Alarma de advertencia de escudo crítico
     warning = function()
         local duration = 0.26
@@ -469,7 +488,7 @@ function AudioManager.init()
     end
 
     -- Pre-sintetizar efectos esenciales para evitar picos de frame durante el gameplay
-    local preloadList = {"laser", "plasma", "shotgun", "hit", "explosion", "boost", "warning", "ui_click", "item_equip"}
+    local preloadList = {"laser", "plasma", "shotgun", "hit", "explosion", "boost", "warning", "ui_click", "item_equip", "hyperspace_jump"}
     for _, sfx in ipairs(preloadList) do
         getOrCreateVoicePool(sfx)
     end

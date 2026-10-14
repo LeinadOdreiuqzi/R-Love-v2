@@ -22,9 +22,12 @@ function GameLoop.update(dt)
     local state = GameState.state
     local physics = GameState.physics
     
-    -- 1. Pantalla de carga
-    if state.isLoading then
+    -- 1. Pantalla de carga o salto hiperespacial de portal
+    if state.isLoading or (LoadingScreen and LoadingScreen.isActive and LoadingScreen.isActive()) then
         LoadingScreen.update(dt)
+        if AudioManager and AudioManager.update then
+            AudioManager.update(dt)
+        end
         return
     end
 
@@ -165,6 +168,9 @@ function GameLoop.draw()
     if stateManager and stateManager:blocksUnderlying() then
         love.graphics.clear(0, 0, 0, 1)
         stateManager:draw()
+        if LoadingScreen and LoadingScreen.isActive and LoadingScreen.isActive() then
+            LoadingScreen.draw()
+        end
         return
     end
 
@@ -237,6 +243,11 @@ function GameLoop.draw()
     local PauseMenu = require 'src.ui.pause_menu'
     if PauseMenu.isOpen() then
         PauseMenu.draw()
+    end
+
+    -- Renderizar salto hiperespacial en primer plano sobre el mapa espacial
+    if LoadingScreen and LoadingScreen.isActive and LoadingScreen.isActive() then
+        LoadingScreen.draw()
     end
 end
 

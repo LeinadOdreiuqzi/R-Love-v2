@@ -241,6 +241,15 @@ function HyperspaceTunnel.setArchetype(archIdx)
     print(string.format("★ HyperspaceTunnel: Explicit archetype set: %s", arch.name))
 end
 
+function HyperspaceTunnel.getCurrentColors()
+    return {
+        core = proceduralState.coreColor or {1.0, 0.98, 0.92},
+        flare = proceduralState.flareColor or {0.40, 0.85, 1.00},
+        accent = proceduralState.col3 or {0.35, 0.75, 1.00},
+        secondary = proceduralState.col6 or {1.00, 0.78, 0.30}
+    }
+end
+
 -- Código del shader GLSL para LÖVE
 local shaderSource = [[
     #ifdef GL_ES
@@ -260,6 +269,7 @@ local shaderSource = [[
     extern float u_progress;
     extern float u_alpha;
     extern float u_seedOffset;
+    extern float u_breakout; // 0.0 en viaje normal, 0.0..1.0 durante la rotura cuántica de llegada
 
     // 6 Colores del espectro nebular multidimensional
     extern vec3 u_col1;
@@ -474,30 +484,97 @@ local shaderSource = [[
             streaksOut += emberCol * emberDot * emberTrail * smoothstep(0.08, 0.35, r) * 0.70;
         }
 
-        // 6. Singularidad Central Deslumbrante (Blinding White-Hot Singularity)
-        float coreR = r;
-        float coreInner = exp(-coreR * 42.0);
-        float coreMid   = exp(-coreR * 14.0);
-        float coreAura  = 0.0035 / (coreR * coreR + 0.0018);
-        vec3 coreLight = u_coreColor * coreInner * 3.8 +
-                         mix(u_coreColor, u_flareColor, 0.30) * coreMid * 1.6 +
-                         u_flareColor * coreAura * 0.35;
+        // Sobretensión Cinematográfica de Llegada (Arrival Surge: cuando se está por llegar)
+        float arrivalSurge = smoothstep(0.55, 1.0, u_progress);
+        float surgeExpo = pow(arrivalSurge, 2.4);
 
-        // 7. Destello Anamórfico Horizontal (Anamorphic Lens Flare)
+        // A. Curvatura de Lente Gravitacional del Horizonte de Salida
+        float lensPull = surgeExpo * 0.16 * exp(-r * 3.2);
+        vec2 warpedP = p * (1.0 - lensPull);
+        float warpedR = length(warpedP);
+
+        // B. Anillo de Apertura Cuántica del Horizonte de Eventos (Opening Stargate Aperture)
+        float apRadius = 0.05 + 0.16 * arrivalSurge;
+        float apDist = abs(r - apRadius);
+        float apRing = exp(-apDist * apDist * 220.0);
+        float apCorona = (0.0035 * surgeExpo) / (apDist * apDist + 0.0010);
+        float apUndulation = 1.0 + 0.10 * sin(angle * 8.0 + u_time * 6.0) * arrivalSurge;
+        vec3 apLight = mix(u_flareColor, vec3(1.0, 0.98, 0.92), 0.65) * (apRing * 2.2 + apCorona * 0.6) * apUndulation * surgeExpo;
+
+        // C. Dispersión Cromática Prismática Relativista (Prismatic Fringe)
+        float chromaDist = surgeExpo * 0.035 * smoothstep(0.02, 0.40, r) * exp(-r * 2.5);
+        vec3 chromaPrism = vec3(
+            1.0 + sin(angle) * chromaDist * 4.0,
+            1.0,
+            1.0 - sin(angle) * chromaDist * 4.0
+        );
+
+        // 6. Singularidad Central Deslumbrante (Blinding White-Hot Singularity)
+        float coreScale = 1.0 + surgeExpo * 1.8;
+        float coreR = warpedR / coreScale;
+        float coreInner = exp(-coreR * 38.0);
+        float coreMid   = exp(-coreR * 12.0);
+        float coreAura  = (0.0035 + surgeExpo * 0.018) / (coreR * coreR + 0.0014);
+        vec3 coreLight = (u_coreColor * coreInner * (3.8 + surgeExpo * 4.5) +
+                         mix(u_coreColor, u_flareColor, 0.35) * coreMid * (1.6 + surgeExpo * 2.8) +
+                         u_flareColor * coreAura * (0.35 + surgeExpo * 1.4));
+
+        // 7. Destello Anamórfico Horizontal y Espículas de Difracción en Cruz
         float flareY = abs(p.y);
         float flareX = abs(p.x);
-        float flareCore = exp(-flareY * 85.0) * exp(-flareX * 3.2);
-        float flareGlow = exp(-flareY * 22.0) * exp(-flareX * 1.6) * 0.25;
-        vec3 flareLight = u_flareColor * (flareCore + flareGlow) * 1.4;
+        float flareXScale = 2.6 / (1.0 + surgeExpo * 2.2);
+        float flareCore = exp(-flareY * 85.0) * exp(-flareX * flareXScale);
+        float flareGlow = exp(-flareY * 18.0) * exp(-flareX * (flareXScale * 0.40)) * 0.36;
+        vec3 flareLight = u_flareColor * (flareCore + flareGlow) * (1.5 + surgeExpo * 3.6);
 
-        // 8. Composición Multicapa
-        vec3 finalColor = cloudsOut + rayLight + streaksOut + coreLight + flareLight;
+        // Espículas de Difracción Relativistas en Cruz (45 grados)
+        float dCross1 = abs(p.x + p.y) * 0.7071;
+        float dCross2 = abs(p.x - p.y) * 0.7071;
+        float crossSpike = (exp(-dCross1 * 60.0) + exp(-dCross2 * 60.0)) * exp(-r * 3.2) * (surgeExpo * 0.75);
+        flareLight += mix(u_coreColor, u_flareColor, 0.5) * crossSpike;
 
-        // 9. Viñeta Cinematográfica (Enmarca el túnel con oscuridad espacial en los bordes)
-        float vignette = smoothstep(1.45, 0.45, length(p));
+        // 8. Resplandor Cósmico de Inserción (Arrival Flash Bloom)
+        vec3 arrivalBloom = mix(vec3(1.0, 0.98, 0.92), u_flareColor, 0.4) * exp(-r * 1.8) * (surgeExpo * 1.8);
+
+        // 9. Rotura Cuántica de Llegada (Breakout Flash & Relativistic Shockwave)
+        vec3 breakoutLight = vec3(0.0);
+        if (u_breakout > 0.0001) {
+            float b = u_breakout;
+            float bEnv = sin(b * 3.14159265);
+
+            // Onda de choque relativista expansiva continua con separación cromática
+            float waveR = 1.75 * pow(b, 0.62);
+            float dWaveCore = abs(r - waveR);
+            float dWaveCyan = abs(r - waveR * 0.975);
+            float dWaveAmber = abs(r - waveR * 1.025);
+
+            float waveCore = exp(-dWaveCore * dWaveCore * 110.0);
+            float waveCyan = exp(-dWaveCyan * dWaveCyan * 80.0);
+            float waveAmber = exp(-dWaveAmber * dWaveAmber * 80.0);
+
+            vec3 waveCol = (vec3(waveCore) + u_flareColor * waveCyan * 0.85 + mix(u_col5, u_col6, 0.5) * waveAmber * 0.65);
+            float waveFade = (1.0 - b) * bEnv;
+            breakoutLight += waveCol * waveFade * 4.2;
+
+            // Inundación fotónica de singularidad (soft volumetric bloom)
+            float burstFalloff = exp(-r * (1.8 + b * 2.8));
+            breakoutLight += mix(vec3(1.0, 0.98, 0.95), u_flareColor, 0.30) * burstFalloff * bEnv * 4.8;
+
+            // Cuchilla anamórfica horizontal en disipación
+            float bladeH = abs(p.y);
+            float bladeInt = exp(-bladeH * (55.0 / (1.0 + b * 2.5))) * bEnv * (1.0 - b * 0.45) * 3.2;
+            breakoutLight += mix(u_flareColor, vec3(1.0), 0.75) * bladeInt;
+        }
+
+        // Composición Multicapa con Dispersión Prismática
+        vec3 finalColor = (cloudsOut * chromaPrism) + rayLight * (1.0 + surgeExpo * 1.8) + streaksOut + coreLight + flareLight + apLight + arrivalBloom + breakoutLight;
+
+        // 10. Viñeta Cinematográfica (se dilata suavemente para que la luz inunde los bordes al llegar)
+        float vignetteLimit = 1.45 + surgeExpo * 0.85;
+        float vignette = smoothstep(vignetteLimit, 0.45, length(p));
         finalColor *= vignette;
 
-        // 10. ACES Filmic Tone Mapping (Conserva el contraste profundo y el resplandor cálido)
+        // 11. ACES Filmic Tone Mapping (Conserva el contraste profundo y el resplandor cálido)
         vec3 x = max(vec3(0.0), finalColor);
         vec3 tonemapped = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
 
@@ -548,12 +625,13 @@ function HyperspaceTunnel.update(dt, progress)
 end
 
 -- Renderizado a pantalla completa del túnel hiperespacial
-function HyperspaceTunnel.draw(cx, cy, width, height, alpha, progress)
+function HyperspaceTunnel.draw(cx, cy, width, height, alpha, progress, exitProgress)
     if not initialized or not shader then
         if not HyperspaceTunnel.init() then return false end
     end
 
     local p = progress or 0
+    local b = exitProgress or 0.0
     local speed = HyperspaceTunnel.config.baseSpeed + HyperspaceTunnel.config.maxSpeedBoost * (p ^ 1.2)
     local time = HyperspaceTunnel.config.time
     local flowPos = HyperspaceTunnel.config.flowPos or (time * speed)
@@ -587,6 +665,9 @@ function HyperspaceTunnel.draw(cx, cy, width, height, alpha, progress)
     end
     if shader:hasUniform("u_seedOffset") then
         shader:send("u_seedOffset", proceduralState.seedOffset)
+    end
+    if shader:hasUniform("u_breakout") then
+        shader:send("u_breakout", b)
     end
 
     -- Envío del espectro cromático de 6 bandas

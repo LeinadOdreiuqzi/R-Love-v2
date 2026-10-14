@@ -479,8 +479,22 @@ function SubLevelScene:keypressed(key)
                 self:jumpToTier(beacon.targetTier)
                 return true
             elseif beacon.isExit then
-                SubLevelManager.exit()
-                if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
+                local LoadingScreen = require 'src.ui.loading_screen'
+                local GameState = require 'src.core.game_state'
+                local mainSeed = (GameState and GameState.state and GameState.state.currentSeed) or "GALACTIC"
+                LoadingScreen.startWarpJump({
+                    seed = mainSeed,
+                    title = "REGRESO AL ESPACIO PROFUNDO",
+                    destination = "Mapa Estelar Principal",
+                    duration = 1.8,
+                    onMidpoint = function()
+                        SubLevelManager.exit()
+                        if self.manager then self.manager:pop({ fadeDuration = 0 }) end
+                    end,
+                    onComplete = function()
+                        print("✓ Regreso exitoso al mapa principal")
+                    end
+                })
                 return true
             end
         end
@@ -504,11 +518,7 @@ function SubLevelScene:keypressed(key)
     return false
 end
 
-function SubLevelScene:jumpToTier(targetTier)
-    local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
-    local tierDef = TauCetiDef.tiers[targetTier]
-    if not tierDef then return end
-
+function SubLevelScene:_applyTier(targetTier, tierDef)
     local SublevelWorld = require 'src.sublevels.sublevel_world'
     local World = require 'src.core.world'
 
@@ -525,23 +535,11 @@ function SubLevelScene:jumpToTier(targetTier)
     local camX, camY = 0, 0
     local targetZoom = 0.55
     if targetTier == 1 then
-        entryX = 0
-        entryY = 0
-        camX = 0
-        camY = 0
-        targetZoom = 0.45
+        entryX = 0; entryY = 0; camX = 0; camY = 0; targetZoom = 0.45
     elseif targetTier == 2 then
-        entryX = 0
-        entryY = 4900
-        camX = 0
-        camY = 4900
-        targetZoom = 0.40
+        entryX = 0; entryY = 4900; camX = 0; camY = 4900; targetZoom = 0.40
     elseif targetTier == 3 then
-        entryX = 0
-        entryY = 2900
-        camX = 0
-        camY = 2900
-        targetZoom = 0.45
+        entryX = 0; entryY = 2900; camX = 0; camY = 2900; targetZoom = 0.45
     end
 
     self.config.entry = { x = entryX, y = entryY }
@@ -570,11 +568,23 @@ function SubLevelScene:jumpToTier(targetTier)
     end
 
     self.world = SublevelWorld.new(self.config)
+end
 
-    local ok, am = pcall(require, 'src.audio.audio_manager')
-    if ok and am and am.play then
-        pcall(function() am.play("ui_click", { pitch = 1.3, volume = 0.20 }) end)
-    end
+function SubLevelScene:jumpToTier(targetTier)
+    local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
+    local tierDef = TauCetiDef.tiers[targetTier]
+    if not tierDef then return end
+
+    local LoadingScreen = require 'src.ui.loading_screen'
+    LoadingScreen.startWarpJump({
+        seed = tostring(tierDef.id) .. "T" .. tostring(targetTier),
+        title = "TRANSICIÓN HIPERESPACIAL DE TIER",
+        destination = "Tau Ceti - " .. tierDef.name,
+        duration = 1.6,
+        onMidpoint = function()
+            self:_applyTier(targetTier, tierDef)
+        end
+    })
 end
 
 function SubLevelScene:mousepressed(x, y, button)
