@@ -19,6 +19,7 @@ local GasGiantShader = require 'src.shaders.gas_giant'
 local PlanetaryRingShader = require 'src.shaders.planetary_ring'
 local DeimosMoonShader = require 'src.shaders.deimos_moon'
 local RockyPlanetShader = require 'src.shaders.rocky_planet'
+local LunaEosShader = require 'src.shaders.luna_eos'
 local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
 
 function CelestialRenderer.init()
@@ -31,6 +32,7 @@ function CelestialRenderer.init()
     PlanetaryRingShader.init()
     DeimosMoonShader.init()
     RockyPlanetShader.init()
+    LunaEosShader.init()
 
     -- Imagen blanca 1x1 para transmitir UVs (0..1) completas a los shaders GLSL en quads
     if not CelestialRenderer.whiteImage then
@@ -515,23 +517,28 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
     -- ─── 2. LUNAS SECUNDARIAS DE FONDO Y LUNA MAGENTA ─────────────────────────
     if def.backgroundMoons then
         local pShader = PlanetSphereShader.getShader()
+        local eosShader = LunaEosShader.getShader()
         for _, moon in ipairs(def.backgroundMoons) do
             local psMoon = moon.parallax or 0.015
             local mX = gasX + (moon.screenOffset.x or 0) * scenicScale - (camX * (psMoon - 0.008))
             local mY = gasY + (moon.screenOffset.y or 0) * scenicScale - ((camY - 2900) * (psMoon - 0.008))
             local mR = moon.radius * scenicScale
-            local mPad = mR * 1.25
+            local isEos = (moon.id == "moon_magenta") or (moon.shader == "luna_eos")
+            local activeShader = isEos and eosShader or pShader
+            local mPad = mR * (isEos and 1.25 or 1.20)
 
-            if pShader and whiteImg then
-                love.graphics.setShader(pShader)
-                pShader:send("u_time", t)
-                pShader:send("u_lightDir", { 0.65, 0.45, 0.60 })
-                pShader:send("u_uvOffset", { 0.22, 0.38 })
-                pShader:send("u_atmosphereThickness", 0.16)
-                pShader:send("u_atmosphereColor", moon.color.atmosphere)
-                pShader:send("u_oceanColor", moon.color.ocean)
-                pShader:send("u_landColor", moon.color.land)
-                pShader:send("u_specular", 0.0)
+            if activeShader and whiteImg then
+                love.graphics.setShader(activeShader)
+                activeShader:send("u_time", t)
+                activeShader:send("u_lightDir", { 0.65, 0.45, 0.60 })
+                activeShader:send("u_uvOffset", { 0.22, 0.38 })
+                activeShader:send("u_atmosphereThickness", isEos and 0.18 or 0.16)
+                activeShader:send("u_atmosphereColor", moon.color.atmosphere)
+                activeShader:send("u_oceanColor", moon.color.ocean)
+                activeShader:send("u_landColor", moon.color.land)
+                if activeShader:hasUniform("u_specular") then
+                    activeShader:send("u_specular", 0.0)
+                end
 
                 love.graphics.setColor(1, 1, 1, 1)
                 love.graphics.draw(whiteImg, mX - mPad, mY - mPad, 0, mPad * 2, mPad * 2)
