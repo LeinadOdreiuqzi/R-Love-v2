@@ -266,28 +266,23 @@ local TauCeti = {
             accentColor = { 0.30, 0.90, 0.65 },
             bounds = { width = 16000, height = 16000 },
             entry = { x = 0, y = 2900 },
-            gasGiant = {
-                name = "Tau Ceti e (Gigante Gaseoso)",
+            centralPlanet = {
+                name = "Tau Ceti d (Super-Tierra Rocosa)",
                 radius = 580,
                 atmosphereThickness = 0.22,
                 screenPos = { xRatio = 0.68, yRatio = 0.82 },
                 lightDir = { 0.65, 0.45, 0.60 },
                 colors = {
-                    deep = { 0.05, 0.22, 0.38 },      -- Azul abisal profundo
-                    mid = { 0.16, 0.54, 0.78 },       -- Celeste cerúleo
-                    light = { 0.54, 0.86, 0.95 },     -- Celeste hielo brillante
-                    white = { 0.92, 0.98, 1.00 },     -- Blanco cirro polar
-                    atmosphere = { 0.30, 0.85, 1.00 } -- Resplandor Rayleigh celeste
-                },
-                rings = {
-                    tilt = -0.42,
-                    innerRadius = 660,
-                    outerRadius = 1450,
-                    yFlatten = 0.28,
-                    color = { 0.85, 0.96, 1.00, 0.70 }
+                    atmosphere = { 0.98, 0.86, 0.38 }, -- Amarillo dorado cálido
+                    terracotta = { 0.58, 0.25, 0.13 }, -- Continentes terracota rojizo / herrumbre
+                    plains = { 0.76, 0.62, 0.36 },     -- Llanuras ocres / arena
+                    basin = { 0.68, 0.84, 0.80 },      -- Cuencas verde-blanquecinas
+                    cloudWhite = { 0.94, 0.98, 0.95 }, -- Nubes blancas
+                    cloudGreen = { 0.74, 0.86, 0.78 }  -- Nubes verdosas
                 },
                 parallax = 0.008
             },
+            gasGiant = nil, -- Reemplazado por centralPlanet (planeta rocoso sin anillos)
             backgroundMoons = {
                 {
                     id = "moon_magenta",
@@ -384,5 +379,8 @@ local TauCeti = {
         }
     }
 }
+
+-- Alias retrocompatible para el planeta central de Tier 3
+TauCeti.tiers[3].gasGiant = TauCeti.tiers[3].centralPlanet
 
 return TauCeti

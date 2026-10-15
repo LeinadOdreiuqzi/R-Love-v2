@@ -18,6 +18,7 @@ local EclipticPlaneShader = require 'src.shaders.ecliptic_plane'
 local GasGiantShader = require 'src.shaders.gas_giant'
 local PlanetaryRingShader = require 'src.shaders.planetary_ring'
 local DeimosMoonShader = require 'src.shaders.deimos_moon'
+local RockyPlanetShader = require 'src.shaders.rocky_planet'
 local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
 
 function CelestialRenderer.init()
@@ -29,6 +30,7 @@ function CelestialRenderer.init()
     GasGiantShader.init()
     PlanetaryRingShader.init()
     DeimosMoonShader.init()
+    RockyPlanetShader.init()
 
     -- Imagen blanca 1x1 para transmitir UVs (0..1) completas a los shaders GLSL en quads
     if not CelestialRenderer.whiteImage then
@@ -475,57 +477,38 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
     local camZoom = (camera and camera.zoom) or 1.0
     local scenicScale = math.max(0.70, math.min(1.40, 1.0 + (camZoom - 0.45) * 0.45))
 
-    -- ─── 1. EL GIGANTE GASEOSO CELESTE COLOSAL (Parallax profundo: 0.008) ────────
-    local gasGiant = def.gasGiant
+    -- ─── 1. EL PLANETA CENTRAL ROCOSO (Parallax profundo: 0.008, Sin anillos) ──
+    local centralPlanet = def.centralPlanet or def.gasGiant
     local gasX, gasY, gasR = 0, 0, 0
-    if gasGiant then
-        local psGas = gasGiant.parallax or 0.008
-        local sp = gasGiant.screenPos or { xRatio = 0.68, yRatio = 0.82 }
-        gasX = sw * sp.xRatio - (camX * psGas)
-        gasY = sh * sp.yRatio - ((camY - 2900) * psGas)
-        gasR = (gasGiant.radius or 580) * scenicScale
-        local yFlatten = (gasGiant.rings and gasGiant.rings.yFlatten) or 0.25
+    if centralPlanet then
+        local psPlanet = centralPlanet.parallax or 0.008
+        local sp = centralPlanet.screenPos or { xRatio = 0.68, yRatio = 0.82 }
+        gasX = sw * sp.xRatio - (camX * psPlanet)
+        gasY = sh * sp.yRatio - ((camY - 2900) * psPlanet)
+        gasR = (centralPlanet.radius or 580) * scenicScale
 
-        -- 1.1 Anillos planetarios helados (MITAD POSTERIOR - Detrás del gigante gaseoso)
-        if gasGiant.rings then
-            local rCol = gasGiant.rings.color or { 0.75, 0.90, 1.00, 0.55 }
-            local tilt = gasGiant.rings.tilt or -0.38
-            local inR = (gasGiant.rings.innerRadius or 700) * scenicScale
-            local outR = (gasGiant.rings.outerRadius or 1420) * scenicScale
-
-            CelestialRenderer.drawRing(gasX, gasY, tilt, inR, outR, rCol, yFlatten, -1.0, scenicScale, t)
-        end
-
-        -- 1.2 Globo del Gigante Gaseoso con Shader GLSL
-        local gasShader = GasGiantShader.getShader()
-        local pad = gasR * (1.0 + gasGiant.atmosphereThickness) * 1.05
-        if gasShader and whiteImg then
-            love.graphics.setShader(gasShader)
-            gasShader:send("u_time", t)
-            gasShader:send("u_lightDir", gasGiant.lightDir or { 0.65, 0.45, 0.60 })
-            gasShader:send("u_atmosphereThickness", gasGiant.atmosphereThickness)
-            gasShader:send("u_atmosphereColor", gasGiant.colors.atmosphere)
-            gasShader:send("u_colorDeep", gasGiant.colors.deep)
-            gasShader:send("u_colorMid", gasGiant.colors.mid)
-            gasShader:send("u_colorLight", gasGiant.colors.light)
-            gasShader:send("u_colorWhite", gasGiant.colors.white)
+        -- Globo del Planeta Rocoso con Shader GLSL (Atmósfera amarilla, relieve terracota, cuencas minerales, nubes y relámpagos)
+        local rockyShader = RockyPlanetShader.getShader()
+        local pad = gasR * (1.0 + (centralPlanet.atmosphereThickness or 0.22)) * 1.05
+        if rockyShader and whiteImg then
+            love.graphics.setShader(rockyShader)
+            rockyShader:send("u_time", t)
+            rockyShader:send("u_lightDir", centralPlanet.lightDir or { 0.65, 0.45, 0.60 })
+            rockyShader:send("u_uvOffset", { 0.18 + t * 0.001, 0.22 })
+            rockyShader:send("u_atmosphereThickness", centralPlanet.atmosphereThickness or 0.22)
+            rockyShader:send("u_atmosphereColor", (centralPlanet.colors and centralPlanet.colors.atmosphere) or { 0.98, 0.86, 0.38 })
+            rockyShader:send("u_landTerracotta", (centralPlanet.colors and centralPlanet.colors.terracotta) or { 0.58, 0.25, 0.13 })
+            rockyShader:send("u_landPlains", (centralPlanet.colors and centralPlanet.colors.plains) or { 0.76, 0.62, 0.36 })
+            rockyShader:send("u_basinColor", (centralPlanet.colors and centralPlanet.colors.basin) or { 0.68, 0.84, 0.80 })
+            rockyShader:send("u_cloudWhite", (centralPlanet.colors and centralPlanet.colors.cloudWhite) or { 0.94, 0.98, 0.95 })
+            rockyShader:send("u_cloudGreen", (centralPlanet.colors and centralPlanet.colors.cloudGreen) or { 0.74, 0.86, 0.78 })
 
             love.graphics.setColor(1, 1, 1, 1)
             love.graphics.draw(whiteImg, gasX - pad, gasY - pad, 0, pad * 2, pad * 2)
             love.graphics.setShader()
         else
-            love.graphics.setColor(gasGiant.colors.mid[1], gasGiant.colors.mid[2], gasGiant.colors.mid[3], 0.95)
+            love.graphics.setColor(0.68, 0.45, 0.20, 0.95)
             love.graphics.circle("fill", gasX, gasY, gasR, 120)
-        end
-
-        -- 1.3 Anillos planetarios helados (MITAD FRONTAL - Pasa sobre el gigante gaseoso)
-        if gasGiant.rings then
-            local rCol = gasGiant.rings.color or { 0.75, 0.90, 1.00, 0.55 }
-            local tilt = gasGiant.rings.tilt or -0.38
-            local inR = (gasGiant.rings.innerRadius or 700) * scenicScale
-            local outR = (gasGiant.rings.outerRadius or 1420) * scenicScale
-
-            CelestialRenderer.drawRing(gasX, gasY, tilt, inR, outR, rCol, yFlatten, 1.0, scenicScale, t)
         end
     end
 
@@ -613,7 +596,7 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
         local function safeSend(name, val)
             if dShader:hasUniform(name) then dShader:send(name, val) end
         end
-        safeSend("u_lightDir", { 0.70, -0.62, 0.55 })
+        safeSend("u_lightDir", { 0.65, 0.45, 0.60 })
         safeSend("u_bounceColor", { 0.24, 0.15, 0.22 })
         safeSend("u_sunColor", { 1.00, 0.96, 0.90 })
         safeSend("u_rockLight", { 0.46, 0.46, 0.52 })
