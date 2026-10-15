@@ -17,6 +17,7 @@ local StarCoronaShader = require 'src.shaders.star_corona'
 local EclipticPlaneShader = require 'src.shaders.ecliptic_plane'
 local GasGiantShader = require 'src.shaders.gas_giant'
 local PlanetaryRingShader = require 'src.shaders.planetary_ring'
+local DeimosMoonShader = require 'src.shaders.deimos_moon'
 local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
 
 function CelestialRenderer.init()
@@ -27,6 +28,7 @@ function CelestialRenderer.init()
     EclipticPlaneShader.init()
     GasGiantShader.init()
     PlanetaryRingShader.init()
+    DeimosMoonShader.init()
 
     -- Imagen blanca 1x1 para transmitir UVs (0..1) completas a los shaders GLSL en quads
     if not CelestialRenderer.whiteImage then
@@ -599,26 +601,51 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
     love.graphics.rotate(shipAngle)
     love.graphics.scale(shipScale, shipScale)
 
-    local deimosX = -16
-    local deimosY = 0
-    local deimosR = 20.0
+    local deimosX = -16.0
+    local deimosY = 0.0
+    local deimosW = 58.0
+    local deimosH = 52.0
+
+    local dShader = DeimosMoonShader.getShader()
+    local whiteImg = CelestialRenderer.whiteImage
+
+    local function sendDeimosUniforms(pass)
+        local function safeSend(name, val)
+            if dShader:hasUniform(name) then dShader:send(name, val) end
+        end
+        safeSend("u_lightDir", { 0.70, -0.62, 0.55 })
+        safeSend("u_bounceColor", { 0.24, 0.15, 0.22 })
+        safeSend("u_sunColor", { 1.00, 0.96, 0.90 })
+        safeSend("u_rockLight", { 0.46, 0.46, 0.52 })
+        safeSend("u_rockMid", { 0.24, 0.24, 0.28 })
+        safeSend("u_rockDark", { 0.09, 0.09, 0.12 })
+        safeSend("u_seed", 42.1)
+        safeSend("u_pass", pass)
+    end
 
     -- ========================================================================
-    -- 1. EL ESPINAZO CONTINUO DE LA NAVE (PASA POR DENTRO DE DEIMOS)
-    --    Se dibuja primero la nave entera de punta a punta, limpia y rectilínea.
-    --    Luego Deimos se dibuja encima, cubriendo y ocultando la sección interna.
+    -- 1. FONDO INTERIOR CÓNCAVO DE LA CAVERNA (DETRÁS DE LA NAVE)
+    -- ========================================================================
+    if dShader and whiteImg then
+        love.graphics.setShader(dShader)
+        sendDeimosUniforms(1.0)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(whiteImg, deimosX - deimosW * 0.5, deimosY - deimosH * 0.5, 0, deimosW, deimosH)
+        love.graphics.setShader()
+    end
+
+    -- ========================================================================
+    -- 2. EL ESPINAZO CONTINUO DE LA NAVE MARATHON (PRESERVADO INTACTO)
     -- ========================================================================
 
-    -- 1.1 Popa / cola rectangular trasera (sale por la parte izquierda de Deimos)
-    -- De x = -48 a x = -16 (donde entra a Deimos)
+    -- 2.1 Popa / cola rectangular trasera (sale por la parte izquierda de Deimos)
     love.graphics.setColor(0.16, 0.38, 0.80, 1.0) -- Azul UESC
     love.graphics.rectangle("fill", -48, -2.2, 34, 4.4)
-    -- Extremo plano de la popa (tapa de motores oscura, SIN CONO NI RESPLANDOR)
+    -- Extremo plano de la popa (tapa de motores oscura)
     love.graphics.setColor(0.12, 0.14, 0.18, 1.0)
     love.graphics.rectangle("fill", -51, -2.6, 3.2, 5.2)
 
-    -- 1.2 Aguja delantera principal (sale por la parte derecha de Deimos)
-    -- De x = 0 a x = 74
+    -- 2.2 Aguja delantera principal (sale por la parte derecha de Deimos)
     -- Quilla ventral oscura
     love.graphics.setColor(0.10, 0.12, 0.16, 1.0)
     love.graphics.polygon("fill", 0, 2.0, 74, 1.0, 74, 2.5, 0, 3.5)
@@ -627,7 +654,7 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
     love.graphics.setColor(0.18, 0.42, 0.84, 1.0)
     love.graphics.polygon("fill", 0, 0.3, 74, 0.2, 74, 2.0, 0, 2.0)
 
-    -- Canal central longitudinal oscuro (ranura divisoria de vigas paralelas)
+    -- Canal central longitudinal oscuro
     love.graphics.setColor(0.08, 0.10, 0.14, 1.0)
     love.graphics.polygon("fill", 0, -0.3, 74, -0.2, 74, 0.3, 0, 0.3)
 
@@ -640,13 +667,9 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
     love.graphics.rectangle("fill", 48, -2.0, 18, 0.8)
     love.graphics.rectangle("fill", 14, -2.0, 12, 0.8)
 
-    -- Tapa frontal de la proa (punta recta/biselada de grafito, SIN LÍNEAS QUE SOBRESALGAN)
+    -- Tapa frontal de la proa (punta biselada de grafito)
     love.graphics.setColor(0.12, 0.14, 0.18, 1.0)
     love.graphics.polygon("fill", 74, -2.0, 77, -1.4, 77, 1.4, 74, 2.0)
-
-    -- Franja de seguridad naranja/amarilla en la unión con la roca
-    love.graphics.setColor(0.98, 0.65, 0.12, 1.0)
-    love.graphics.rectangle("fill", 3.0, -2.2, 2.2, 4.4)
 
     -- Letrero auténtico "UESC" en blanco sobre la aguja azul
     love.graphics.setColor(0.98, 0.98, 1.0, 0.98)
@@ -673,70 +696,66 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
     love.graphics.setLineWidth(1.0)
 
     -- ========================================================================
-    -- 2. LUNA DE DEIMOS (CUBRE Y OCULTA COMPLETAMENTE LA PARTE INTERIOR DE LA NAVE)
+    -- 3. CAPARAZÓN EXTERIOR DE DEIMOS (PRIMER PLANO)
+    -- ========================================================================
+    if dShader and whiteImg then
+        love.graphics.setShader(dShader)
+        sendDeimosUniforms(2.0)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(whiteImg, deimosX - deimosW * 0.5, deimosY - deimosH * 0.5, 0, deimosW, deimosH)
+        love.graphics.setShader()
+    end
+
+    -- ========================================================================
+    -- 5. INCRUSTACIÓN SENCILLA Y ELEGANTE (SIN CAJAS TOLETERAS)
     -- ========================================================================
 
-    -- 2.1 Fragmentos de roca / escombros desprendidos orbitando alrededor de Deimos
-    local rockFragments = {
-        { x = -10, y = -26, w = 3.8, h = 2.8, rot = 0.4 },
-        { x = 7,   y = -20, w = 3.2, h = 2.2, rot = -0.3 },
-        { x = -32, y = -18, w = 3.5, h = 2.5, rot = 0.8 },
-        { x = -40, y = 16,  w = 3.6, h = 2.8, rot = -0.6 },
-        { x = -8,  y = 25,  w = 4.0, h = 3.0, rot = 0.2 },
-        { x = 9,   y = 17,  w = 3.0, h = 2.0, rot = 0.5 },
-        { x = -26, y = 26,  w = 3.2, h = 2.4, rot = -0.4 },
-        { x = -18, y = -29, w = 2.8, h = 2.2, rot = 0.1 }
+    -- Franja de seguridad naranja en la salida de la aguja hacia el espacio
+    love.graphics.setColor(0.98, 0.65, 0.12, 1.0)
+    love.graphics.rectangle("fill", 1.8, -2.2, 2.0, 4.4)
+
+    -- Sombra de contacto natural en la boca derecha
+    love.graphics.setColor(0.06, 0.07, 0.09, 0.85)
+    love.graphics.rectangle("fill", 0.6, -2.0, 1.2, 4.0)
+
+    -- Sutil resalte de roca solar en el brocal superior derecho
+    love.graphics.setColor(0.85, 0.82, 0.75, 0.80)
+    love.graphics.line(0.4, -2.4, 1.8, -2.2)
+
+    -- Sombra de contacto en la entrada de la popa izquierda
+    love.graphics.setColor(0.05, 0.05, 0.07, 0.90)
+    love.graphics.rectangle("fill", -35.2, -2.2, 1.4, 4.4)
+
+    -- ========================================================================
+    -- 6. ESCOMBROS ROCOSOS Y PARTÍCULAS FLOTANTES (REFERENCIA 3D)
+    -- ========================================================================
+    local debris = {
+        { x = 5,   y = 11,  w = 2.4, h = 1.7, rot = 0.4 },
+        { x = 12,  y = 15,  w = 2.8, h = 2.1, rot = -0.3 },
+        { x = 20,  y = 13,  w = 2.0, h = 1.5, rot = 0.8 },
+        { x = 28,  y = 17,  w = 2.5, h = 1.9, rot = -0.2 },
+        { x = 36,  y = 14,  w = 1.8, h = 1.4, rot = 0.5 },
+        { x = 46,  y = 18,  w = 2.2, h = 1.6, rot = -0.6 },
+        { x = -4,  y = 23,  w = 2.7, h = 2.0, rot = 0.2 },
+        { x = -15, y = 26,  w = 2.3, h = 1.7, rot = -0.5 },
+        { x = -29, y = 22,  w = 2.5, h = 1.9, rot = 0.6 },
+        { x = -11, y = -27, w = 3.0, h = 2.2, rot = 0.3 },
+        { x = 6,   y = -23, w = 2.4, h = 1.8, rot = -0.4 },
+        { x = -34, y = -17, w = 2.6, h = 2.0, rot = 0.7 }
     }
 
-    for _, rf in ipairs(rockFragments) do
+    for _, rf in ipairs(debris) do
         love.graphics.push()
         love.graphics.translate(rf.x, rf.y)
         love.graphics.rotate(rf.rot)
-        -- Cara iluminada
-        love.graphics.setColor(0.74, 0.70, 0.62, 0.95)
-        love.graphics.polygon("fill", -rf.w * 0.5, 0, 0, -rf.h * 0.5, rf.w * 0.5, 0, 0, rf.h * 0.5)
-        -- Cara en sombra
-        love.graphics.setColor(0.34, 0.32, 0.28, 0.95)
-        love.graphics.polygon("fill", -rf.w * 0.5, 0, 0, rf.h * 0.5, rf.w * 0.5, 0)
+        love.graphics.setColor(0.46, 0.46, 0.52, 0.95)
+        love.graphics.polygon("fill", -rf.w * 0.4, -rf.h * 0.5, rf.w * 0.5, -rf.h * 0.3, rf.w * 0.3, rf.h * 0.2, 0, 0)
+        love.graphics.setColor(0.24, 0.24, 0.28, 0.95)
+        love.graphics.polygon("fill", -rf.w * 0.5, 0, -rf.w * 0.4, -rf.h * 0.5, 0, 0, -rf.w * 0.3, rf.h * 0.4)
+        love.graphics.setColor(0.10, 0.10, 0.13, 0.95)
+        love.graphics.polygon("fill", -rf.w * 0.3, rf.h * 0.4, 0, 0, rf.w * 0.3, rf.h * 0.2, rf.w * 0.1, rf.h * 0.5)
         love.graphics.pop()
     end
-
-    -- 2.2 Cuerpo esférico sólido de Deimos (tapa completamente el interior de la nave)
-    love.graphics.setColor(0.60, 0.56, 0.50, 1.0)
-    love.graphics.circle("fill", deimosX, deimosY, deimosR, 64)
-
-    -- Sombra volumétrica esférica (fase lunar natural)
-    love.graphics.setColor(0.24, 0.22, 0.20, 0.88)
-    love.graphics.arc("fill", deimosX, deimosY, deimosR, math.pi * 0.12, math.pi * 1.18)
-
-    -- Borde y relieve iluminado superior exterior
-    love.graphics.setColor(0.82, 0.78, 0.70, 0.95)
-    love.graphics.setLineWidth(2.0)
-    love.graphics.arc("line", deimosX, deimosY, deimosR - 0.6, -math.pi * 0.88, -math.pi * 0.12)
-
-    -- Cráteres y textura geológica en la superficie sólida de la luna
-    love.graphics.setColor(0.38, 0.35, 0.30, 0.80)
-    love.graphics.circle("fill", deimosX - 8, deimosY - 8, 3.6)
-    love.graphics.setColor(0.72, 0.68, 0.60, 0.85)
-    love.graphics.arc("line", deimosX - 8, deimosY - 8, 3.6, -math.pi * 0.85, -math.pi * 0.10)
-
-    love.graphics.setColor(0.34, 0.31, 0.28, 0.80)
-    love.graphics.circle("fill", deimosX - 10, deimosY + 7, 3.0)
-    love.graphics.setColor(0.70, 0.66, 0.58, 0.85)
-    love.graphics.arc("line", deimosX - 10, deimosY + 7, 3.0, -math.pi * 0.85, -math.pi * 0.10)
-
-    -- 2.3 Cráteres de impacto/perforación en los puntos de entrada y salida de la aguja
-    -- Punto de entrada (lado derecho de Deimos, de donde emerge la aguja hacia la derecha)
-    love.graphics.setColor(0.36, 0.33, 0.29, 0.95)
-    love.graphics.ellipse("fill", deimosX + deimosR - 1.5, 0, 3.2, 5.0)
-    love.graphics.setColor(0.78, 0.74, 0.66, 0.90)
-    love.graphics.ellipse("line", deimosX + deimosR - 1.5, 0, 3.2, 5.0)
-
-    -- Punto de salida (lado izquierdo de Deimos, de donde emerge la popa hacia la izquierda)
-    love.graphics.setColor(0.28, 0.26, 0.23, 0.95)
-    love.graphics.ellipse("fill", deimosX - deimosR + 1.5, 0, 2.8, 4.4)
-    love.graphics.setColor(0.68, 0.64, 0.56, 0.85)
-    love.graphics.ellipse("line", deimosX - deimosR + 1.5, 0, 2.8, 4.4)
 
     love.graphics.setLineWidth(1.0)
     love.graphics.pop()
