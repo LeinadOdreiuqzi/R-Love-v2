@@ -65,86 +65,49 @@ local TauCeti = {
                 },
                 {
                     id = "tau_ceti_d",
-                    name = "Tau Ceti d",
-                    orbitRadius = 2280,
+                    name = "Tau Ceti d (Super-Tierra Rocosa)",
+                    orbitRadius = 2450,
                     phase = 2.20,
-                    speed = 0.022,
-                    size = 21,
-                    type = "ice",
-                    colors = {
-                        ocean = { 0.20, 0.44, 0.65 },      -- Fisuras oceánicas heladas
-                        land = { 0.85, 0.92, 0.98 },       -- Placas glaciares de nieve reflectante
-                        atmosphere = { 0.65, 0.84, 1.00 }  -- Corona de bruma criogénica
-                    },
-                    atmThickness = 0.19,
-                    specular = 1.8,
-                    rotSpeed = 0.015
-                },
-                {
-                    id = "tau_ceti_e",
-                    name = "Tau Ceti e (Gigante Gaseoso)",
-                    orbitRadius = 3200,
-                    phase = 0.42,
-                    speed = 0.014,
-                    size = 46,
-                    isGasGiant = true,
+                    speed = 0.020,
+                    size = 34,
+                    type = "super_earth",
                     isTarget = true,
-                    atmosphereThickness = 0.22,
                     colors = {
-                        deep = { 0.05, 0.22, 0.38 },      -- Azul abisal profundo
-                        mid = { 0.16, 0.54, 0.78 },       -- Celeste cerúleo
-                        light = { 0.54, 0.86, 0.95 },     -- Celeste hielo brillante
-                        white = { 0.92, 0.98, 1.00 },     -- Blanco cirro polar
-                        atmosphere = { 0.30, 0.85, 1.00 } -- Resplandor Rayleigh celeste
+                        atmosphere = { 0.98, 0.86, 0.38 }, -- Amarillo dorado cálido
+                        terracotta = { 0.58, 0.25, 0.13 }, -- Continentes terracota rojizo / herrumbre
+                        plains = { 0.76, 0.62, 0.36 },     -- Llanuras ocres / arena
+                        basin = { 0.68, 0.84, 0.80 },      -- Cuencas verde-blanquecinas
+                        cloudWhite = { 0.94, 0.98, 0.95 }, -- Nubes blancas
+                        cloudGreen = { 0.74, 0.86, 0.78 }, -- Nubes verdosas
+                        land = { 0.58, 0.25, 0.13 },
+                        ocean = { 0.68, 0.84, 0.80 }
                     },
-                    rings = {
-                        tilt = -0.38,
-                        innerRatio = 1.25,
-                        outerRatio = 2.30,
-                        yFlatten = 0.25,
-                        color = { 0.80, 0.94, 1.00, 0.65 }
-                    },
+                    atmThickness = 0.22,
+                    rotSpeed = 0.015,
                     moons = {
-                        {
-                            id = "tau_ceti_iv",
-                            name = "Tau Ceti IV",
-                            orbitRadius = 66,
-                            speed = 0.28,
-                            phase = 0.85,
-                            size = 8.5,
-                            isTarget = true,
-                            colors = {
-                                ocean = { 0.08, 0.28, 0.62 },
-                                land = { 0.20, 0.62, 0.38 },
-                                atmosphere = { 0.40, 0.85, 1.00 }
-                            },
-                            atmThickness = 0.24,
-                            specular = 1.4,
-                            rotSpeed = 0.02
-                        },
                         {
                             id = "eos",
                             name = "Luna Eos",
-                            orbitRadius = 112,
-                            speed = 0.18,
+                            orbitRadius = 54,
+                            speed = 0.28,
                             phase = 3.45,
-                            size = 5.8,
+                            size = 7.0,
+                            shader = "luna_eos",
                             colors = {
-                                ocean = { 0.35, 0.10, 0.25 },
-                                land = { 0.85, 0.42, 0.62 },
-                                atmosphere = { 0.98, 0.55, 0.80 }
+                                ocean = { 0.35, 0.10, 0.25 },      -- Sombras ciruela profunda / amatista
+                                land = { 0.85, 0.42, 0.62 },       -- Rosa cuarzo / magenta polvoriento
+                                atmosphere = { 0.98, 0.55, 0.80 }  -- Corona atmosférica rosa brillante
                             },
-                            atmThickness = 0.16,
-                            specular = 0.2,
+                            atmThickness = 0.18,
                             rotSpeed = 0.015
                         },
                         {
                             id = "celere",
                             name = "Luna Célere",
-                            orbitRadius = 38,
-                            speed = 0.44,
+                            orbitRadius = 86,
+                            speed = 0.18,
                             phase = 1.95,
-                            size = 3.2,
+                            size = 4.2,
                             colors = {
                                 ocean = { 0.12, 0.18, 0.28 },
                                 land = { 0.68, 0.78, 0.88 },
@@ -153,6 +116,38 @@ local TauCeti = {
                             atmThickness = 0.08,
                             specular = 0.7,
                             rotSpeed = 0.025
+                        },
+                        {
+                            id = "ares",
+                            name = "Luna Ares",
+                            orbitRadius = 114,
+                            speed = 0.12,
+                            phase = 4.25,
+                            size = 3.8,
+                            colors = {
+                                ocean = { 0.30, 0.11, 0.08 },
+                                land = { 0.88, 0.38, 0.18 },
+                                atmosphere = { 0.96, 0.46, 0.22 }
+                            },
+                            atmThickness = 0.12,
+                            specular = 0.0,
+                            rotSpeed = 0.012
+                        },
+                        {
+                            id = "phobos",
+                            name = "Luna Phobos",
+                            orbitRadius = 140,
+                            speed = 0.08,
+                            phase = 1.15,
+                            size = 2.2,
+                            colors = {
+                                ocean = { 0.22, 0.08, 0.06 },
+                                land = { 0.78, 0.32, 0.15 },
+                                atmosphere = { 0.88, 0.40, 0.18 }
+                            },
+                            atmThickness = 0.08,
+                            specular = 0.0,
+                            rotSpeed = 0.020
                         }
                     }
                 },
@@ -192,7 +187,7 @@ local TauCeti = {
                 },
                 {
                     id = "beacon_planet",
-                    name = "Inserción Orbital Tau Ceti IV (Tier 3)",
+                    name = "Inserción Orbital Tau Ceti d (Tier 3)",
                     x = 680,
                     y = 540,
                     radius = 95,
@@ -249,7 +244,7 @@ local TauCeti = {
                 },
                 {
                     id = "beacon_slingshot",
-                    name = "Tirachinas Gravitacional hacia Tau Ceti IV (Tier 3)",
+                    name = "Tirachinas Gravitacional hacia Tau Ceti d (Tier 3)",
                     x = 5600,
                     y = 0,
                     radius = 120,
@@ -261,7 +256,7 @@ local TauCeti = {
         [3] = {
             id = "tau_ceti_3",
             tier = 3,
-            name = "Tau Ceti - Órbita Baja",
+            name = "Tau Ceti - Órbita Baja de Tau Ceti d",
             ambientColor = { 0.012, 0.018, 0.035 },
             accentColor = { 0.30, 0.90, 0.65 },
             bounds = { width = 16000, height = 16000 },
@@ -284,6 +279,42 @@ local TauCeti = {
             },
             gasGiant = nil, -- Reemplazado por centralPlanet (planeta rocoso sin anillos)
             backgroundMoons = {
+                -- ─── LUNAS MARCIANAS LEJANAS (SOLAMENTE EN EL CUADRANTE IZQUIERDO SUPERIOR) ───
+                {
+                    id = "moon_mars_major",
+                    name = "Luna Ares (Planetoide Herrumbre Marciano Lejano)",
+                    radius = 42,                            -- Escala reducida para transmitir lejanía en el fondo cósmico
+                    shader = "mars_moon",
+                    renderBehind = true,                    -- Se renderiza antes del planeta central para situarse detrás
+                    screenOffset = { x = -440, y = -460 },  -- Cuadrante izquierdo superior exclusivamente
+                    parallax = 0.003,                       -- Parallax muy profundo (apenas se desplaza -> gran lejanía)
+                    atmosphereThickness = 0.12,
+                    uvOffset = { 0.18, 0.25 },
+                    color = {
+                        land = { 0.88, 0.38, 0.18 },       -- Terracota óxido de hierro / desiertos marcianos
+                        ocean = { 0.30, 0.11, 0.08 },      -- Basalto volcánico oscuro / cuencas de impacto
+                        atmosphere = { 0.96, 0.46, 0.22 }, -- Corona difusa tenue de polvo
+                        ambient = { 0.22, 0.11, 0.08 }     -- Planet-shine cálido para visibilidad nítida en la sombra
+                    }
+                },
+                {
+                    id = "moon_mars_minor",
+                    name = "Luna Phobos (Luna Menor Lejana de Basalto Rojizo)",
+                    radius = 22,                            -- Dimensión pequeña de cuerpo cósmico remoto
+                    shader = "mars_moon",
+                    renderBehind = true,                    -- Se renderiza antes del planeta central para situarse detrás
+                    screenOffset = { x = -580, y = -530 },  -- Cuadrante izquierdo superior más distante
+                    parallax = 0.002,                       -- Fondo cósmico ultra-profundo
+                    atmosphereThickness = 0.08,
+                    uvOffset = { 0.45, 0.60 },
+                    color = {
+                        land = { 0.78, 0.32, 0.15 },       -- Roca férrica oxidada oscura
+                        ocean = { 0.22, 0.08, 0.06 },      -- Umber basáltico profundo
+                        atmosphere = { 0.88, 0.40, 0.18 }, -- Atmósfera muy tenue
+                        ambient = { 0.18, 0.09, 0.06 }     -- Luz ambiental cálida visible
+                    }
+                },
+                -- ─── LUNAS EN PRIMER PLANO (FRENTE AL PLANETA) ─────────────────────────
                 {
                     id = "moon_magenta",
                     name = "Luna Eos (Tonalidad Magenta / Rosa)",
@@ -324,32 +355,6 @@ local TauCeti = {
                     arches = { 0.08, 0.52, 1.00 },
                     strobe = { 0.40, 1.00, 0.60 }
                 }
-            },
-            planet = {
-                x = 0,
-                y = 0,
-                radius = 2600,
-                atmosphereThickness = 0.24,
-                lightDir = { 0.65, 0.55, 0.52 }, -- Iluminación frontal diurna hacia la órbita baja
-                surface = {
-                    oceanColor = { 0.08, 0.24, 0.58 },
-                    coastColor = { 0.15, 0.52, 0.72 },
-                    landColor = { 0.22, 0.60, 0.35 },
-                    mountainColor = { 0.45, 0.42, 0.34 },
-                    iceColor = { 0.90, 0.95, 1.00 },
-                    specularIntensity = 1.10
-                },
-                atmosphere = {
-                    dayColor = { 0.38, 0.80, 1.00 },
-                    twilightColor = { 1.00, 0.55, 0.25 },
-                    rayleighStrength = 1.4
-                },
-                clouds = {
-                    speed = 0.012,
-                    density = 0.65,
-                    shadowOffset = 22
-                },
-                rotationSpeed = 0.006
             },
             orbitalDebris = {
                 count = 75,

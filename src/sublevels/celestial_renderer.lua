@@ -20,6 +20,7 @@ local PlanetaryRingShader = require 'src.shaders.planetary_ring'
 local DeimosMoonShader = require 'src.shaders.deimos_moon'
 local RockyPlanetShader = require 'src.shaders.rocky_planet'
 local LunaEosShader = require 'src.shaders.luna_eos'
+local MarsMoonShader = require 'src.shaders.mars_moon'
 local TauCetiDef = require 'src.sublevels.definitions.tau_ceti'
 
 function CelestialRenderer.init()
@@ -33,6 +34,7 @@ function CelestialRenderer.init()
     DeimosMoonShader.init()
     RockyPlanetShader.init()
     LunaEosShader.init()
+    MarsMoonShader.init()
 
     -- Imagen blanca 1x1 para transmitir UVs (0..1) completas a los shaders GLSL en quads
     if not CelestialRenderer.whiteImage then
@@ -176,6 +178,46 @@ function CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, radius, sc
     local landCol = colors.land or { 0.58, 0.52, 0.44 }
     local atmCol = colors.atmosphere or { 0.50, 0.75, 1.00 }
 
+    -- 1. Calcular órbitas si el planeta telúrico posee lunas (ej. Tau Ceti d con Eos y Célere)
+    local moonData = {}
+    if p.moons then
+        local tilt = -0.32
+        local rotCos = math.cos(tilt)
+        local rotSin = math.sin(tilt)
+        local yFlatten = 0.28
+        for _, m in ipairs(p.moons) do
+            local mAngle = (m.phase or 0) + t * (m.speed or 0.25)
+            local mCos = math.cos(mAngle)
+            local mSin = math.sin(mAngle)
+            local mDist = m.orbitRadius * scenicScale
+
+            local unrotX = mCos * mDist
+            local unrotY = mSin * mDist * yFlatten
+            local mx = px + (unrotX * rotCos - unrotY * rotSin)
+            local my = py + (unrotX * rotSin + unrotY * rotCos)
+            local mRadius = math.max(2.0, m.size * scenicScale * 0.70)
+
+            table.insert(moonData, {
+                moon = m,
+                x = mx,
+                y = my,
+                sinA = mSin,
+                radius = mRadius
+            })
+        end
+
+        -- Lunas en la mitad posterior (sinA < 0)
+        for _, md in ipairs(moonData) do
+            if md.sinA < 0 then
+                local distCenter = math.sqrt((md.x - px)^2 + (md.y - py)^2)
+                if distCenter > radius * 0.90 then
+                    CelestialRenderer.drawProceduralTerrestrialPlanet(md.moon, md.x, md.y, md.radius, scenicScale, t, sunScreenX, sunScreenY, depth * 0.85)
+                end
+            end
+        end
+    end
+
+    -- 2. Globo planetario
     if pShader and whiteImg then
         love.graphics.setShader(pShader)
         pShader:send("u_time", t)
@@ -197,6 +239,163 @@ function CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, radius, sc
         local shadowAngle = math.atan2(py - sunScreenY, px - sunScreenX)
         love.graphics.setColor(0.010, 0.015, 0.025, 0.85)
         love.graphics.arc("fill", px, py, radius + 0.5, shadowAngle - math.pi * 0.5, shadowAngle + math.pi * 0.5)
+    end
+
+    -- 3. Lunas en la mitad frontal (sinA >= 0)
+    if p.moons and #moonData > 0 then
+        for _, md in ipairs(moonData) do
+            if md.sinA >= 0 then
+                CelestialRenderer.drawProceduralTerrestrialPlanet(md.moon, md.x, md.y, md.radius, scenicScale, t, sunScreenX, sunScreenY, depth)
+            end
+        end
+    end
+
+    -- 4. Si el planeta es objetivo de salto (isTarget), dibujar retículo indicador sutil
+    if p.isTarget then
+        local retPulse = 0.65 + 0.35 * math.sin(t * 3.5)
+        love.graphics.setColor(0.30, 0.90, 0.65, 0.60 * retPulse)
+        love.graphics.setLineWidth(1.4)
+        local rPad = radius + 9 * scenicScale
+        love.graphics.circle("line", px, py, rPad, 32)
+        local cLen = 6 * scenicScale
+        love.graphics.line(px - rPad - cLen, py, px - rPad + cLen * 0.3, py)
+        love.graphics.line(px + rPad - cLen * 0.3, py, px + rPad + cLen, py)
+        love.graphics.line(px, py - rPad - cLen, px, py - rPad + cLen * 0.3)
+        love.graphics.line(px, py + rPad - cLen * 0.3, px, py + rPad + cLen)
+    end
+end
+
+-- ─── RENDERER DE SUPER-TIERRA ROCOSA (TIER 1 - TAU CETI d Y LUNAS EOS / CÉLERE) ─
+
+function CelestialRenderer.drawRockyPlanetSystem(p, px, py, radius, scenicScale, t, sunScreenX, sunScreenY, depth)
+    local whiteImg = CelestialRenderer.whiteImage
+    local rockyShader = RockyPlanetShader.getShader()
+    local eosShader = LunaEosShader.getShader()
+    local atmThick = p.atmThickness or (p.atmosphereThickness or 0.22)
+    local pPad = radius * (1.0 + atmThick) * 1.08
+
+    -- Dirección solar dinámica 3D relativa a la estrella central Tau Ceti
+    local ldx = (sunScreenX - px)
+    local ldy = (sunScreenY - py)
+    local ldist = math.max(1.0, math.sqrt(ldx * ldx + ldy * ldy))
+    local lightDir = { ldx / ldist, ldy / ldist, 0.55 }
+
+    local colors = p.colors or {}
+    local atmCol = colors.atmosphere or { 0.98, 0.86, 0.38 }
+    local landTerracotta = colors.terracotta or colors.land or { 0.58, 0.25, 0.13 }
+    local landPlains = colors.plains or { 0.76, 0.62, 0.36 }
+    local basinCol = colors.basin or colors.ocean or { 0.68, 0.84, 0.80 }
+    local cloudWhite = colors.cloudWhite or { 0.94, 0.98, 0.95 }
+    local cloudGreen = colors.cloudGreen or { 0.74, 0.86, 0.78 }
+
+    -- 1. Calcular órbitas e inclinación 3D para cada luna (Luna Eos y Luna Célere)
+    local moonData = {}
+    if p.moons then
+        local tilt = -0.32
+        local rotCos = math.cos(tilt)
+        local rotSin = math.sin(tilt)
+        local yFlatten = 0.28
+        for _, m in ipairs(p.moons) do
+            local mAngle = (m.phase or 0) + t * (m.speed or 0.25)
+            local mCos = math.cos(mAngle)
+            local mSin = math.sin(mAngle)
+            local mDist = m.orbitRadius * scenicScale
+
+            local unrotX = mCos * mDist
+            local unrotY = mSin * mDist * yFlatten
+            local mx = px + (unrotX * rotCos - unrotY * rotSin)
+            local my = py + (unrotX * rotSin + unrotY * rotCos)
+            local mRadius = math.max(2.2, (m.size or 5.0) * scenicScale * 0.75)
+
+            table.insert(moonData, {
+                moon = m,
+                x = mx,
+                y = my,
+                sinA = mSin,
+                radius = mRadius
+            })
+        end
+    end
+
+    local function drawRockyMoon(md, mDepth)
+        local m = md.moon
+        local isEos = (m.id == "eos" or m.id == "moon_magenta" or m.shader == "luna_eos")
+        if isEos and eosShader and whiteImg then
+            local mAtm = m.atmThickness or 0.18
+            local mPad = md.radius * (1.0 + mAtm) * 1.10
+            local mColors = m.colors or {}
+            love.graphics.setShader(eosShader)
+            eosShader:send("u_time", t)
+            eosShader:send("u_lightDir", lightDir)
+            eosShader:send("u_uvOffset", { 0.22 + t * (m.rotSpeed or 0.015), 0.38 })
+            eosShader:send("u_atmosphereThickness", mAtm)
+            eosShader:send("u_atmosphereColor", mColors.atmosphere or { 0.98, 0.55, 0.80 })
+            eosShader:send("u_landColor", mColors.land or { 0.85, 0.42, 0.62 })
+            eosShader:send("u_oceanColor", mColors.ocean or { 0.35, 0.10, 0.25 })
+            if eosShader:hasUniform("u_specular") then
+                eosShader:send("u_specular", 0.0)
+            end
+
+            love.graphics.setColor(mDepth, mDepth, mDepth, 1.0)
+            love.graphics.draw(whiteImg, md.x - mPad, md.y - mPad, 0, mPad * 2, mPad * 2)
+            love.graphics.setShader()
+        else
+            CelestialRenderer.drawProceduralTerrestrialPlanet(m, md.x, md.y, md.radius, scenicScale, t, sunScreenX, sunScreenY, mDepth)
+        end
+    end
+
+    -- 2. Lunas en la mitad posterior (sinA < 0)
+    for _, md in ipairs(moonData) do
+        if md.sinA < 0 then
+            local distCenter = math.sqrt((md.x - px)^2 + (md.y - py)^2)
+            if distCenter > radius * 0.90 then
+                drawRockyMoon(md, depth * 0.85)
+            end
+        end
+    end
+
+    -- 3. Globo de la Super-Tierra Rocosa con RockyPlanetShader
+    if rockyShader and whiteImg then
+        love.graphics.setShader(rockyShader)
+        rockyShader:send("u_time", t)
+        rockyShader:send("u_lightDir", lightDir)
+        rockyShader:send("u_uvOffset", { 0.18 + t * (p.rotSpeed or 0.008), 0.22 })
+        rockyShader:send("u_atmosphereThickness", atmThick)
+        rockyShader:send("u_atmosphereColor", atmCol)
+        rockyShader:send("u_landTerracotta", landTerracotta)
+        rockyShader:send("u_landPlains", landPlains)
+        rockyShader:send("u_basinColor", basinCol)
+        rockyShader:send("u_cloudWhite", cloudWhite)
+        rockyShader:send("u_cloudGreen", cloudGreen)
+
+        love.graphics.setColor(depth, depth, depth, 1.0)
+        love.graphics.draw(whiteImg, px - pPad, py - pPad, 0, pPad * 2, pPad * 2)
+        love.graphics.setShader()
+    else
+        love.graphics.setColor(landTerracotta[1] * depth, landTerracotta[2] * depth, landTerracotta[3] * depth, 1.0)
+        love.graphics.circle("fill", px, py, radius, 48)
+    end
+
+    -- 4. Lunas en la mitad frontal (sinA >= 0)
+    for _, md in ipairs(moonData) do
+        if md.sinA >= 0 then
+            drawRockyMoon(md, depth)
+        end
+    end
+
+    -- 5. Retículo holográfico indicador de objetivo hacia Tier 3 (isTarget)
+    if p.isTarget then
+        local retPulse = 0.65 + 0.35 * math.sin(t * 3.5)
+        love.graphics.setColor(0.30, 0.90, 0.65, 0.65 * retPulse * depth)
+        love.graphics.setLineWidth(1.4)
+        local rPad = radius + 9 * scenicScale
+        love.graphics.circle("line", px, py, rPad, 32)
+        local cLen = 6 * scenicScale
+        love.graphics.line(px - rPad - cLen, py, px - rPad + cLen * 0.3, py)
+        love.graphics.line(px + rPad - cLen * 0.3, py, px + rPad + cLen, py)
+        love.graphics.line(px, py - rPad - cLen, px, py - rPad + cLen * 0.3)
+        love.graphics.line(px, py + rPad - cLen * 0.3, px, py + rPad + cLen)
+        love.graphics.setLineWidth(1.0)
     end
 end
 
@@ -362,7 +561,9 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
 
             local depth = 0.62 + 0.18 * (sinA * 0.5 + 0.5)
             local pRadius = p.size * 0.55 * scenicScale
-            if p.isGasGiant then
+            if p.type == "super_earth" or p.id == "tau_ceti_d" or p.shader == "rocky_planet" then
+                CelestialRenderer.drawRockyPlanetSystem(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
+            elseif p.isGasGiant then
                 CelestialRenderer.drawGasGiantSystem(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
             else
                 CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
@@ -403,7 +604,7 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
         end
     end
 
-    -- ─── CAPA 6: PLANETAS ANTERIORES Y SISTEMA JOVIANO (sin >= 0) ──────────────
+    -- ─── CAPA 6: PLANETAS ANTERIORES Y SUPER-TIERRA ROCOSA (sin >= 0) ──────────
     for _, p in ipairs(def.planets) do
         local curAngle = (p.phase or 0) + t * p.speed
         local sinA = math.sin(curAngle)
@@ -414,7 +615,9 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
 
             local depth = 0.85 + 0.15 * (sinA * 0.5 + 0.5)
             local pRadius = p.size * 0.68 * scenicScale
-            if p.isGasGiant then
+            if p.type == "super_earth" or p.id == "tau_ceti_d" or p.shader == "rocky_planet" then
+                CelestialRenderer.drawRockyPlanetSystem(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
+            elseif p.isGasGiant then
                 CelestialRenderer.drawGasGiantSystem(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
             else
                 CelestialRenderer.drawProceduralTerrestrialPlanet(p, px, py, pRadius, scenicScale, t, sunScreenX, sunScreenY, depth)
@@ -479,7 +682,7 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
     local camZoom = (camera and camera.zoom) or 1.0
     local scenicScale = math.max(0.70, math.min(1.40, 1.0 + (camZoom - 0.45) * 0.45))
 
-    -- ─── 1. EL PLANETA CENTRAL ROCOSO (Parallax profundo: 0.008, Sin anillos) ──
+    -- ─── 1. CÁLCULO DE POSICIÓN DEL PLANETA CENTRAL ROCOSO (Tau Ceti d) ───────
     local centralPlanet = def.centralPlanet or def.gasGiant
     local gasX, gasY, gasR = 0, 0, 0
     if centralPlanet then
@@ -488,8 +691,90 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
         gasX = sw * sp.xRatio - (camX * psPlanet)
         gasY = sh * sp.yRatio - ((camY - 2900) * psPlanet)
         gasR = (centralPlanet.radius or 580) * scenicScale
+    end
 
-        -- Globo del Planeta Rocoso con Shader GLSL (Atmósfera amarilla, relieve terracota, cuencas minerales, nubes y relámpagos)
+    -- Shaders para lunas
+    local pShader = PlanetSphereShader.getShader()
+    local eosShader = LunaEosShader.getShader()
+    local marsShader = MarsMoonShader.getShader()
+
+    -- Función auxiliar unificada para renderizado de cada luna
+    local function drawSingleMoon(moon)
+        local psMoon = moon.parallax or 0.015
+        local mX = gasX + (moon.screenOffset.x or 0) * scenicScale - (camX * (psMoon - 0.008))
+        local mY = gasY + (moon.screenOffset.y or 0) * scenicScale - ((camY - 2900) * (psMoon - 0.008))
+        local mR = moon.radius * scenicScale
+
+        local isMars = (moon.shader == "mars_moon") or (moon.isMars == true)
+        local isEos = (moon.id == "moon_magenta") or (moon.shader == "luna_eos")
+        local activeShader = isMars and marsShader or (isEos and eosShader or pShader)
+
+        local atmThick = moon.atmosphereThickness or (isEos and 0.18 or (isMars and 0.15 or 0.16))
+        local mPad = mR * (1.0 + atmThick) * 1.06
+
+        if activeShader and whiteImg then
+            love.graphics.setShader(activeShader)
+            if activeShader:hasUniform("u_time") then
+                activeShader:send("u_time", t)
+            end
+            if activeShader:hasUniform("u_lightDir") then
+                activeShader:send("u_lightDir", (centralPlanet and centralPlanet.lightDir) or { 0.65, 0.45, 0.60 })
+            end
+            if activeShader:hasUniform("u_uvOffset") then
+                activeShader:send("u_uvOffset", moon.uvOffset or (isMars and { 0.18, 0.25 } or { 0.22, 0.38 }))
+            end
+            if activeShader:hasUniform("u_atmosphereThickness") then
+                activeShader:send("u_atmosphereThickness", atmThick)
+            end
+
+            if activeShader:hasUniform("u_atmosphereColor") and moon.color and moon.color.atmosphere then
+                activeShader:send("u_atmosphereColor", moon.color.atmosphere)
+            end
+            if activeShader:hasUniform("u_oceanColor") and moon.color and moon.color.ocean then
+                activeShader:send("u_oceanColor", moon.color.ocean)
+            end
+            if activeShader:hasUniform("u_basinColor") and moon.color then
+                activeShader:send("u_basinColor", moon.color.basin or moon.color.ocean or { 0.30, 0.11, 0.08 })
+            end
+            if activeShader:hasUniform("u_landColor") and moon.color and moon.color.land then
+                activeShader:send("u_landColor", moon.color.land)
+            end
+            if activeShader:hasUniform("u_ambientColor") and moon.color then
+                activeShader:send("u_ambientColor", moon.color.ambient or { 0.24, 0.12, 0.08 })
+            end
+            if activeShader:hasUniform("u_specular") then
+                activeShader:send("u_specular", moon.specular or 0.0)
+            end
+
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(whiteImg, mX - mPad, mY - mPad, 0, mPad * 2, mPad * 2)
+            love.graphics.setShader()
+        else
+            if moon.color and moon.color.land then
+                love.graphics.setColor(moon.color.land[1], moon.color.land[2], moon.color.land[3], 1.0)
+            else
+                love.graphics.setColor(0.8, 0.4, 0.2, 1.0)
+            end
+            love.graphics.circle("fill", mX, mY, mR, 64)
+        end
+
+        -- Tributo a Marathon (si la luna tiene la nave incrustada)
+        if moon.hasMarathon and def.marathonShip then
+            CelestialRenderer.drawMarathonShip(def.marathonShip, mX, mY, mR, scenicScale, t)
+        end
+    end
+
+    -- ─── 2. FASE A: LUNAS DE FONDO PROFUNDO (Detrás del planeta, en la zona de sombra) ───
+    if def.backgroundMoons then
+        for _, moon in ipairs(def.backgroundMoons) do
+            if moon.renderBehind then
+                drawSingleMoon(moon)
+            end
+        end
+    end
+
+    -- ─── 3. FASE B: EL PLANETA CENTRAL ROCOSO (Super-Tierra Tau Ceti d) ────────
+    if centralPlanet then
         local rockyShader = RockyPlanetShader.getShader()
         local pad = gasR * (1.0 + (centralPlanet.atmosphereThickness or 0.22)) * 1.05
         if rockyShader and whiteImg then
@@ -514,43 +799,11 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
         end
     end
 
-    -- ─── 2. LUNAS SECUNDARIAS DE FONDO Y LUNA MAGENTA ─────────────────────────
+    -- ─── 4. FASE C: LUNAS EN PRIMER PLANO (Luna Eos con Marathon, Luna Célere) ───
     if def.backgroundMoons then
-        local pShader = PlanetSphereShader.getShader()
-        local eosShader = LunaEosShader.getShader()
         for _, moon in ipairs(def.backgroundMoons) do
-            local psMoon = moon.parallax or 0.015
-            local mX = gasX + (moon.screenOffset.x or 0) * scenicScale - (camX * (psMoon - 0.008))
-            local mY = gasY + (moon.screenOffset.y or 0) * scenicScale - ((camY - 2900) * (psMoon - 0.008))
-            local mR = moon.radius * scenicScale
-            local isEos = (moon.id == "moon_magenta") or (moon.shader == "luna_eos")
-            local activeShader = isEos and eosShader or pShader
-            local mPad = mR * (isEos and 1.25 or 1.20)
-
-            if activeShader and whiteImg then
-                love.graphics.setShader(activeShader)
-                activeShader:send("u_time", t)
-                activeShader:send("u_lightDir", { 0.65, 0.45, 0.60 })
-                activeShader:send("u_uvOffset", { 0.22, 0.38 })
-                activeShader:send("u_atmosphereThickness", isEos and 0.18 or 0.16)
-                activeShader:send("u_atmosphereColor", moon.color.atmosphere)
-                activeShader:send("u_oceanColor", moon.color.ocean)
-                activeShader:send("u_landColor", moon.color.land)
-                if activeShader:hasUniform("u_specular") then
-                    activeShader:send("u_specular", 0.0)
-                end
-
-                love.graphics.setColor(1, 1, 1, 1)
-                love.graphics.draw(whiteImg, mX - mPad, mY - mPad, 0, mPad * 2, mPad * 2)
-                love.graphics.setShader()
-            else
-                love.graphics.setColor(moon.color.land[1], moon.color.land[2], moon.color.land[3], 1.0)
-                love.graphics.circle("fill", mX, mY, mR, 64)
-            end
-
-            -- ─── 3. TRIBUTO A MARATHON: NAVE "MARATHON" INCRUSTADA EN DEIMOS ───────
-            if moon.hasMarathon and def.marathonShip then
-                CelestialRenderer.drawMarathonShip(def.marathonShip, mX, mY, mR, scenicScale, t)
+            if not moon.renderBehind then
+                drawSingleMoon(moon)
             end
         end
     end
@@ -855,45 +1108,13 @@ function CelestialRenderer.drawTier2(def, camera, player, t)
     end
 end
 
--- ─── TIER 3: ÓRBITA BAJA DE TAU CETI IV (PSEUDO-ESFERA RAYMARCHED) ──────────
+-- ─── TIER 3: ÓRBITA BAJA DE TAU CETI d (ESPACIO ORBITAL JUGABLE) ───────────
 
 function CelestialRenderer.drawTier3(def, camera, player, t)
-    local planet = def.planet
-    local shader = PlanetSphereShader.getShader()
-    local whiteImg = CelestialRenderer.whiteImage
-
-    -- 1. Globo Gigante de Tau Ceti IV en Órbita Baja
-    if shader and whiteImg then
-        love.graphics.setShader(shader)
-
-        local px = (player and player.x) or 0
-        local py = (player and player.y) or 0
-        -- Mapeo UV rotatorio dinámico al navegar alrededor del planeta
-        local uvX = (px - planet.x) / (planet.radius * 6.5) + t * planet.rotationSpeed
-        local uvY = (py - planet.y) / (planet.radius * 6.5)
-
-        shader:send("u_time", t)
-        shader:send("u_lightDir", planet.lightDir)
-        shader:send("u_uvOffset", { uvX, uvY })
-        shader:send("u_atmosphereThickness", planet.atmosphereThickness)
-        shader:send("u_atmosphereColor", planet.atmosphere.dayColor)
-        shader:send("u_oceanColor", planet.surface.oceanColor)
-        shader:send("u_landColor", planet.surface.landColor)
-        shader:send("u_specular", planet.surface.specularIntensity)
-
-        local pad = planet.radius * (1.0 + planet.atmosphereThickness) * 1.08
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(whiteImg, planet.x - pad, planet.y - pad, 0, pad * 2, pad * 2)
-        love.graphics.setShader()
-    else
-        love.graphics.setColor(0.18, 0.45, 0.85, 0.95)
-        love.graphics.circle("fill", planet.x, planet.y, planet.radius, 120)
-    end
-
-    -- 2. Escombros orbitales y satélites de investigación
+    -- 1. Escombros orbitales y satélites de investigación en el espacio jugable
     for _, d in ipairs(CelestialRenderer.particles.debris) do
-        local dx = planet.x + math.cos(d.angle) * d.dist
-        local dy = planet.y + math.sin(d.angle) * d.dist
+        local dx = math.cos(d.angle) * d.dist
+        local dy = math.sin(d.angle) * d.dist
 
         if d.isSatellite then
             -- Cuerpo del satélite con paneles solares
@@ -915,7 +1136,7 @@ function CelestialRenderer.drawTier3(def, camera, player, t)
         end
     end
 
-    -- 4. Balizas de navegación y salto
+    -- 2. Balizas de navegación y salto
     CelestialRenderer.drawBeacons(def.beacons, player, t)
 end
 
