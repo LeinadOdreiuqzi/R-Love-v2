@@ -7,8 +7,7 @@ local CelestialRenderer = {
     particles = {
         solarWind = {},
         asteroids = {},
-        debris = {},
-        foregroundDust = {}
+        debris = {}
     }
 }
 
@@ -57,21 +56,7 @@ function CelestialRenderer.init()
         })
     end
 
-    -- 2. Inicializar motes de polvo cósmico en primer plano (Foreground space dust) para Parallax dinámico
-    for i = 1, 110 do
-        table.insert(CelestialRenderer.particles.foregroundDust, {
-            x = math.random() * 3000 - 1500,
-            y = math.random() * 2000 - 1000,
-            vx = (math.random() - 0.5) * 12,
-            vy = (math.random() - 0.5) * 8,
-            size = 1.0 + math.random() * 2.2,
-            alpha = 0.20 + math.random() * 0.50,
-            twinklePhase = math.random() * math.pi * 2,
-            twinkleSpeed = 1.2 + math.random() * 2.0
-        })
-    end
-
-    -- 3. Inicializar partículas de viento solar de alta energía (Tier 2)
+    -- 2. Inicializar partículas de viento solar de alta energía (Tier 2)
     local wind = TauCetiDef.tiers[2].solarWind
     for i = 1, (wind.particleCount or 260) do
         local angle = math.random() * math.pi * 2
@@ -86,7 +71,7 @@ function CelestialRenderer.init()
         })
     end
 
-    -- 4. Inicializar escombros y satélites orbitales (Tier 3)
+    -- 3. Inicializar escombros y satélites orbitales (Tier 3)
     local debrisConfig = TauCetiDef.tiers[3].orbitalDebris
     for i = 1, (debrisConfig.count or 75) do
         local angle = math.random() * math.pi * 2
@@ -114,15 +99,6 @@ function CelestialRenderer.update(dt)
         ast.angle = (ast.angle + ast.speed * dt) % (math.pi * 2)
     end
 
-    -- Actualizar motes de polvo cósmico en primer plano
-    for _, mote in ipairs(CelestialRenderer.particles.foregroundDust) do
-        mote.x = mote.x + mote.vx * dt
-        mote.y = mote.y + mote.vy * dt
-        if mote.x > 1800 then mote.x = -1800
-        elseif mote.x < -1800 then mote.x = 1800 end
-        if mote.y > 1200 then mote.y = -1200
-        elseif mote.y < -1200 then mote.y = 1200 end
-    end
 
     -- Actualizar viento solar radial
     for _, p in ipairs(CelestialRenderer.particles.solarWind) do
@@ -625,22 +601,6 @@ function CelestialRenderer.drawTier1ScenicBackground(def, camera, player, sw, sh
         end
     end
 
-    -- ─── CAPA 7: MOTES DE POLVO CÓSMICO EN PRIMER PLANO (Parallax dinámico: 0.22) ─
-    do
-        local psDust = 0.22
-        local dustOffX = - (camX * psDust)
-        local dustOffY = - (camY * psDust)
-        local wrapW = sw + 300
-        local wrapH = sh + 300
-
-        for _, mote in ipairs(CelestialRenderer.particles.foregroundDust) do
-            local sx = ((mote.x + dustOffX) % wrapW) - 150
-            local sy = ((mote.y + dustOffY) % wrapH) - 150
-            local tw = 0.70 + 0.30 * math.sin(t * mote.twinkleSpeed + mote.twinklePhase)
-            love.graphics.setColor(0.68, 0.85, 1.00, mote.alpha * tw * 0.65)
-            love.graphics.circle("fill", sx, sy, mote.size)
-        end
-    end
 end
 
 -- ─── ESCENARIO DE FONDO TIER 3: GIGANTE GASEOSO CELESTE, LUNAS Y NAVE MARATHON ─
@@ -808,22 +768,6 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
         end
     end
 
-    -- ─── 4. MOTES DE POLVO CÓSMICO EN PRIMER PLANO (Parallax: 0.22) ───────────
-    do
-        local psDust = 0.22
-        local dustOffX = - (camX * psDust)
-        local dustOffY = - ((camY - 2900) * psDust)
-        local wrapW = sw + 300
-        local wrapH = sh + 300
-
-        for _, mote in ipairs(CelestialRenderer.particles.foregroundDust) do
-            local sx = ((mote.x + dustOffX) % wrapW) - 150
-            local sy = ((mote.y + dustOffY) % wrapH) - 150
-            local tw = 0.70 + 0.30 * math.sin(t * mote.twinkleSpeed + mote.twinklePhase)
-            love.graphics.setColor(0.68, 0.85, 1.00, mote.alpha * tw * 0.65)
-            love.graphics.circle("fill", sx, sy, mote.size)
-        end
-    end
 end
 
 -- ─── TRIBUTO UESC MARATHON (NAVE INCRUSTADA EN LA LUNA DE DEIMOS) ───────────
