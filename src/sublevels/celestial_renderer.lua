@@ -125,7 +125,7 @@ function CelestialRenderer.drawScenicBackground(sublevelConfig, camera, player)
     end
 
     local meta = sublevelConfig and sublevelConfig.meta
-    local tier = (meta and meta.tier) or 1
+    local tier = (meta and meta.tier) or (sublevelConfig and sublevelConfig.tier) or 1
     local sw, sh = love.graphics.getWidth(), love.graphics.getHeight()
     local t = love.timer.getTime()
 

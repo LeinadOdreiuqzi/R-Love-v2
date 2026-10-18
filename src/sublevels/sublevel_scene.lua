@@ -95,6 +95,7 @@ function SubLevelScene:enter(params)
     end
 
     cfg.entry = { x = entryX, y = entryY }
+    self.config = cfg
 
     -- Entrar al subnivel: solo manejo de contexto (sin tocar el mapa principal)
     SubLevelManager.enter(cfg)
@@ -153,7 +154,23 @@ function SubLevelScene:update(dt)
     -- Actualizar fondo galáctico y estrellas profundas
     local BackgroundManager = require 'src.shaders.background_manager'
     if BackgroundManager and BackgroundManager.update and camera then
-        BackgroundManager.update(dt, camera)
+        local cfg = self.config or (SubLevelManager and SubLevelManager.state and SubLevelManager.state.current)
+        local meta = cfg and cfg.meta
+        local tier = (meta and meta.tier) or (cfg and cfg.tier) or 1
+        local isStaticStars = (tier == 3) or (meta and meta.subworldId == "tau_ceti" and meta.tier == 3) or (cfg and cfg.id == "tau_ceti_3")
+
+        local bgCamera = camera
+        if isStaticStars then
+            bgCamera = {
+                x = 0,
+                y = 0,
+                zoom = camera.zoom or 0.45,
+                screenWidth = camera.screenWidth or love.graphics.getWidth(),
+                screenHeight = camera.screenHeight or love.graphics.getHeight(),
+                _frustum = camera._frustum
+            }
+        end
+        BackgroundManager.update(dt, bgCamera)
     end
 
     -- Actualizar cámara
@@ -271,24 +288,43 @@ function SubLevelScene:draw()
     -- Fondo espacial base
     love.graphics.clear(0.012, 0.016, 0.025, 1)
 
+    -- Determinar si en este nivel las estrellas de fondo deben ser estáticas (Perspectiva orbital Tier 3)
+    local cfg = self.config or (SubLevelManager and SubLevelManager.state and SubLevelManager.state.current)
+    local meta = cfg and cfg.meta
+    local tier = (meta and meta.tier) or (cfg and cfg.tier) or 1
+    local isStaticStars = (tier == 3) or (meta and meta.subworldId == "tau_ceti" and meta.tier == 3) or (cfg and cfg.id == "tau_ceti_3")
+
+    -- En Tier 3 la perspectiva es orbital panorámica sobre el planeta: las estrellas de fondo son estáticas
+    local starCamera = camera
+    if isStaticStars and camera then
+        starCamera = {
+            x = 0,
+            y = 0,
+            zoom = camera.zoom or 0.45,
+            screenWidth = camera.screenWidth or love.graphics.getWidth(),
+            screenHeight = camera.screenHeight or love.graphics.getHeight(),
+            _frustum = camera._frustum
+        }
+    end
+
     -- Renderizar fondo galáctico profundo y estrellas de fondo antes de transformar cámara
     local BackgroundManager = require 'src.shaders.background_manager'
-    if BackgroundManager and BackgroundManager.render and camera then
-        BackgroundManager.render(camera)
+    if BackgroundManager and BackgroundManager.render and starCamera then
+        BackgroundManager.render(starCamera)
     end
     local MapRenderer = require 'src.maps.systems.map_renderer'
     if MapRenderer then
         if not MapRenderer._microStars or not MapRenderer._microStars.initialized then
             MapRenderer.init()
         end
-        MapRenderer.drawMicroStars(camera)
-        MapRenderer.drawSmallStars(camera)
+        MapRenderer.drawMicroStars(starCamera)
+        MapRenderer.drawSmallStars(starCamera)
     end
 
-    -- Renderizar escenario cósmico multi-capa con falso 3D y parallax (Tier 1 Tau Ceti)
+    -- Renderizar escenario cósmico multi-capa con falso 3D y parallax (Tier 1 y Tier 3 Tau Ceti)
     local CelestialRenderer = require 'src.sublevels.celestial_renderer'
     if CelestialRenderer and CelestialRenderer.drawScenicBackground then
-        CelestialRenderer.drawScenicBackground(self.config, camera, player)
+        CelestialRenderer.drawScenicBackground(cfg or self.config, camera, player)
     end
 
     -- Aplicar transformación de cámara
