@@ -261,11 +261,17 @@ function WeaponSystem:canShoot()
         return false
     end
     
-    -- Verificar rate of fire
+    -- Verificar rate of fire (incluyendo modificador pasivo fire_rate)
     local currentTime = love.timer.getTime()
     local timeSinceLastShot = currentTime - self.lastShotTime
     local fireRate = self.currentWeapon.fireRate or 1.0
-    local shotInterval = 1.0 / fireRate
+    local fireRateMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.fire_rate
+    if type(fireRateMod) == "table" then
+        fireRate = (fireRate + (fireRateMod.flat or 0)) * (1.0 + ((fireRateMod.percent or 0) / 100.0))
+    elseif type(fireRateMod) == "number" then
+        fireRate = fireRate * (1.0 + (fireRateMod > 1 and (fireRateMod / 100.0) or fireRateMod))
+    end
+    local shotInterval = 1.0 / math.max(0.05, fireRate)
     
     if timeSinceLastShot < shotInterval then
         return false

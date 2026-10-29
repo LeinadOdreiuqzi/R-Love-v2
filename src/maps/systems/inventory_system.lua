@@ -235,18 +235,22 @@ end
 
 -- Agregar item al inventario
 function InventorySystem:addItem(itemData, quantity)
-    quantity = quantity or 1
+    if not itemData then return false end
+    local rawData = (type(itemData) == "table" and itemData.data) or itemData
+    quantity = quantity or (type(itemData) == "table" and (itemData.quantity or (itemData.data and itemData.data.quantity))) or 1
     
     -- 1. Intentar apilar si es posible
-    if itemData.stackable then
-        local maxStack = itemData.maxStack or 99
+    if rawData.stackable then
+        local maxStack = rawData.maxStack or 99
         for i = 1, self.maxSlots do
             local existing = self.items[i]
-            if existing and existing.data and existing.data.id == itemData.id then
-                local currentQty = existing.quantity or 1
+            if existing and existing.data and existing.data.id == rawData.id then
+                local currentQty = existing.quantity or existing.data.quantity or 1
                 if currentQty < maxStack then
                     local canAdd = math.min(quantity, maxStack - currentQty)
-                    existing.quantity = currentQty + canAdd
+                    local newQty = currentQty + canAdd
+                    existing.quantity = newQty
+                    existing.data.quantity = newQty
                     quantity = quantity - canAdd
                     if quantity <= 0 then return true end
                 end
@@ -259,15 +263,17 @@ function InventorySystem:addItem(itemData, quantity)
     
     for i = 1, self.maxSlots do
         if not self.items[i] then
-            -- contra doble anidación
+            -- contra doble anidación y sincronización de quantity
             if type(itemData) == "table" and itemData.data then
                 self.items[i] = itemData
-                if quantity and quantity > 1 then
-                    self.items[i].quantity = quantity
-                end
+                self.items[i].quantity = quantity
+                self.items[i].data.quantity = quantity
             else
+                local clonedData = {}
+                for k, v in pairs(rawData) do clonedData[k] = v end
+                clonedData.quantity = quantity
                 self.items[i] = {
-                    data = itemData,
+                    data = clonedData,
                     quantity = quantity
                 }
             end
@@ -348,40 +354,43 @@ end
 
 function InventorySystem:addItemToCompartment(name, itemData, quantity)
     local c = self:getCompartment(name)
-    if not c or not c.items then return false end
+    if not c or not c.items or not itemData then return false end
     
+    local rawData = (type(itemData) == "table" and itemData.data) or itemData
+    quantity = quantity or (type(itemData) == "table" and (itemData.quantity or (itemData.data and itemData.data.quantity))) or 1
+
     -- Validaciones específicas para compartimento de armas
     if name == "weapons" then
-        return self:addWeaponToSlot(itemData, nil, quantity)
+        return self:addWeaponToSlot(rawData, nil, quantity)
     end
     
     -- Validaciones específicas para compartimento de pasivos
     if name == "passives" then
-        if not itemData or itemData.category ~= ItemSystem.CATEGORIES.PASSIVE then
+        if not rawData or rawData.category ~= ItemSystem.CATEGORIES.PASSIVE then
             return false
         end
     end
 
     -- Validación opcional de tipos permitidos en el compartimento
-    if c.allowedTypes and itemData then
-        local itemType = _mapCategoryToType(itemData)
+    if c.allowedTypes and rawData then
+        local itemType = _mapCategoryToType(rawData)
         if not c.allowedTypes[itemType] then
             return false
         end
     end
-
-    quantity = quantity or 1
     
     -- 1. Intentar apilar en este compartimento si el item lo permite
-    if itemData.stackable then
-        local maxStack = itemData.maxStack or 99
+    if rawData.stackable then
+        local maxStack = rawData.maxStack or 99
         for i = 1, c.maxSlots do
             local existing = c.items[i]
-            if existing and existing.data and existing.data.id == itemData.id then
-                local currentQty = existing.quantity or 1
+            if existing and existing.data and existing.data.id == rawData.id then
+                local currentQty = existing.quantity or existing.data.quantity or 1
                 if currentQty < maxStack then
                     local canAdd = math.min(quantity, maxStack - currentQty)
-                    existing.quantity = currentQty + canAdd
+                    local newQty = currentQty + canAdd
+                    existing.quantity = newQty
+                    existing.data.quantity = newQty
                     quantity = quantity - canAdd
                     if quantity <= 0 then return true end
                 end
@@ -395,15 +404,16 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
     for i = 1, c.maxSlots do
         if not c.items[i] then
             local newItem
-            -- Si itemData ya es una instancia (tiene campo 'data'), usarla directamente o extraer sus datos
+            -- Si itemData ya es una instancia (tiene campo 'data'), usarla directamente y sincronizar quantity
             if type(itemData) == "table" and itemData.data then
                 newItem = itemData
-                -- Asegurar que la cantidad esté sincronizada si se pasó una diferente
-                if quantity and quantity > 1 then
-                    newItem.quantity = quantity
-                end
+                newItem.quantity = quantity
+                newItem.data.quantity = quantity
             else
-                newItem = { data = itemData, quantity = quantity }
+                local clonedData = {}
+                for k, v in pairs(rawData) do clonedData[k] = v end
+                clonedData.quantity = quantity
+                newItem = { data = clonedData, quantity = quantity }
             end
             
             c.items[i] = newItem

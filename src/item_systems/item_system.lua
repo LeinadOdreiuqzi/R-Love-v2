@@ -151,12 +151,14 @@ function ItemSystem:createItemInstance(id, quantity)
         end
     end
     
-    instanceData.quantity = quantity or 1
+    local qty = quantity or 1
+    instanceData.quantity = qty
     instanceData.isInstance = true
     
-    -- Crear estructura compatible con el inventario
+    -- Crear estructura compatible con el inventario (sincronizando quantity en raíz y data)
     local instance = {
-        data = instanceData
+        data = instanceData,
+        quantity = qty
     }
     
     return instance
@@ -183,22 +185,53 @@ function ItemSystem:getTotalValue(item)
     return baseValue * (item.quantity or 1)
 end
 
--- Usar un item
+-- Usar un item (soporta llamada con ':' o '.' y recibe instancia, template o id)
 function ItemSystem:useItem(item, player)
+    -- Soportar llamada estática ItemSystem.useItem(item, player)
+    if self ~= ItemSystem then
+        player = item
+        item = self
+        self = ItemSystem
+    end
+
+    if type(item) == "string" then
+        item = self:getItem(item)
+    end
+    if not item then
+        return false, "Item no encontrado"
+    end
+
+    local targetItem = item.data or item
+    if not targetItem.use and targetItem.id and self.items[targetItem.id] then
+        targetItem = self.items[targetItem.id]
+    end
+
     -- Verificar que el item tenga una función use
-    if not item.use or type(item.use) ~= "function" then
+    if not targetItem.use or type(targetItem.use) ~= "function" then
         return false, "Este item no se puede usar"
     end
+
+    if targetItem.canUse and type(targetItem.canUse) == "function" then
+        local canUseOk, canUseRes = pcall(targetItem.canUse, targetItem, player)
+        if canUseOk and canUseRes == false then
+            return false, "No se puede usar en este momento"
+        end
+    end
     
-    local success, result = pcall(item.use, item, player)
+    local success, result = pcall(targetItem.use, targetItem, player)
     if not success then
         return false, "Error al usar el item: " .. tostring(result)
     end
     
-    -- Si es consumible, reducir cantidad
-    if self:isCategory(item, self.CATEGORIES.CONSUMABLE) then
-        item.quantity = (item.quantity or 1) - 1
-        if item.quantity <= 0 then
+    -- Si es consumible y se pasó una instancia con cantidad, reducir cantidad sincronizada
+    if type(item) == "table" and (item.isInstance or item.data) and self:isCategory(targetItem, self.CATEGORIES.CONSUMABLE) then
+        local currentQty = item.quantity or (item.data and item.data.quantity) or 1
+        local newQty = currentQty - 1
+        item.quantity = newQty
+        if item.data then
+            item.data.quantity = newQty
+        end
+        if newQty <= 0 then
             return true, "Item consumido completamente"
         end
     end

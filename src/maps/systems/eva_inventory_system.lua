@@ -121,10 +121,12 @@ function EVAInventorySystem:addItem(itemData, quantity)
         for i = 1, self.maxSlots do
             local existing = self.items[i]
             if existing and existing.data and existing.data.id == itemData.id then
-                local currentQty = existing.quantity or 1
+                local currentQty = existing.quantity or existing.data.quantity or 1
                 if currentQty < maxStack then
                     local canAdd = math.min(quantity, maxStack - currentQty)
-                    existing.quantity = currentQty + canAdd
+                    local newQty = currentQty + canAdd
+                    existing.quantity = newQty
+                    existing.data.quantity = newQty
                     quantity = quantity - canAdd
                     if quantity <= 0 then return true end
                 end
@@ -137,15 +139,17 @@ function EVAInventorySystem:addItem(itemData, quantity)
 
     for i = 1, self.maxSlots do
         if not self.items[i] then
-            -- Robustez contra doble anidación
+            -- Robustez contra doble anidación y sincronización de quantity
             if type(itemData) == "table" and itemData.data then
                 self.items[i] = itemData
-                if quantity and quantity > 1 then
-                    self.items[i].quantity = quantity
-                end
+                self.items[i].quantity = quantity
+                self.items[i].data.quantity = quantity
             else
+                local clonedData = {}
+                for k, v in pairs(itemData) do clonedData[k] = v end
+                clonedData.quantity = quantity
                 self.items[i] = {
-                    data = itemData,
+                    data = clonedData,
                     quantity = quantity
                 }
             end
@@ -219,10 +223,13 @@ function EVAInventorySystem:useItem(slotIndex)
     if slotIndex >= 1 and slotIndex <= self.maxSlots then
         local item = self.items[slotIndex]
         if item and item.data and item.data.category == "consumable" then
-            item.quantity = (item.quantity or 1) - 1
+            local currentQty = item.quantity or item.data.quantity or 1
+            local newQty = currentQty - 1
+            item.quantity = newQty
+            item.data.quantity = newQty
 
             -- Si se agotó, remover del slot
-            if item.quantity <= 0 then
+            if newQty <= 0 then
                 if self._invSystem and self._invSystem.removeItemFromCompartment then
                     self._invSystem:removeItemFromCompartment(self._compartmentName, slotIndex)
                 else

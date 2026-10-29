@@ -222,16 +222,25 @@ function InventoryModal.useItem(parentUI, slotIndex, slotType, player)
         
         if itemData then
             if itemData.category == "consumable" then
-                local success = ItemSystem.useItem(item.data.id, player)
+                local success = ItemSystem:useItem(itemData, player)
                 if success then
-                    local compName = parentUI:getCompartmentName(slotType)
-                    if compName and player.inventory and player.inventory.removeItemFromCompartment then
-                        player.inventory:removeItemFromCompartment(compName, slotIndex)
-                    else
-                        if slotType == "inventory" then shipComp.items[slotIndex] = nil
-                        elseif slotType == "eva" then
-                            local evaComp = player.inventory:getCompartment('eva')
-                            if evaComp then evaComp.items[slotIndex] = nil end
+                    local currentQty = item.quantity or (item.data and item.data.quantity) or 1
+                    local newQty = currentQty - 1
+                    item.quantity = newQty
+                    if item.data then
+                        item.data.quantity = newQty
+                    end
+
+                    if newQty <= 0 then
+                        local compName = parentUI:getCompartmentName(slotType)
+                        if compName and player.inventory and player.inventory.removeItemFromCompartment then
+                            player.inventory:removeItemFromCompartment(compName, slotIndex)
+                        else
+                            if slotType == "inventory" then shipComp.items[slotIndex] = nil
+                            elseif slotType == "eva" then
+                                local evaComp = player.inventory:getCompartment('eva')
+                                if evaComp then evaComp.items[slotIndex] = nil end
+                            end
                         end
                     end
                     local audio = getAudio()
@@ -400,7 +409,7 @@ function InventoryModal.dropItemFromModal(parentUI, slotIndex, slotType, player)
         return
     end
     
-    local quantity = item.data.quantity or 1
+    local quantity = item.quantity or (item.data and item.data.quantity) or 1
     local worldItem = WorldItems.drop(itemData, activeEntity.x, activeEntity.y, targetX, targetY, quantity)
     
     if worldItem then

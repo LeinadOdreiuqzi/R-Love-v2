@@ -370,11 +370,14 @@ function PassiveManager.reset()
     }
     
     -- Restaurar estadísticas del jugador a valores base
+    local World = package.loaded['src.core.world']
+    local player = World and (World.getPlayer and World.getPlayer() or World.get('player'))
     if player and player.stats then
         -- Restaurar sistema de vida a valores base
         if player.stats.health then
+            local baseMaxHealth = (player.shipConfig and player.shipConfig.maxHealth) or 10
             player.stats.health.maxHearts = 5      -- Valor base
-            player.stats.health.maxHealth = 10     -- Valor base (5 corazones * 2)
+            player.stats.health.maxHealth = baseMaxHealth
             -- Ajustar vida actual si excede el nuevo máximo
             player.stats.health.currentHealth = math.min(player.stats.health.currentHealth, player.stats.health.maxHealth)
             -- Actualizar display de corazones

@@ -23,16 +23,16 @@ AncientRuinsRenderer.config = {
             medium = 0.35,  -- 35% probabilidad de estación mediana
             small = 0.25    -- 25% probabilidad de estación pequeña
         },
-        -- Sistema de tipos base y estados de daño coherentes
+        -- Sistema de tipos base y estados de daño coherentes (pesos normalizados a 1.00)
         baseStationTypes = {
             ring_station = {
                 name = "estacion_anillo",
-                weight = 0.4,  -- 40% probabilidad de tipo anillo
+                weight = 0.35,  -- 35% probabilidad de tipo anillo
                 baseShape = "ring"
             },
             modular_station = {
                 name = "estacion_modular",
-                weight = 0.35,  -- 35% probabilidad de tipo modular
+                weight = 0.30,  -- 30% probabilidad de tipo modular
                 baseShape = "modular"
             },
             elongated_ship = {
@@ -367,7 +367,8 @@ function AncientRuinsRenderer.selectBaseStationType(chunkX, chunkY)
     local orderedTypes = {
         {"ring", config.ring_station},
         {"modular", config.modular_station},
-        {"elongated", config.elongated_ship}
+        {"elongated", config.elongated_ship},
+        {"axiom", config.axiom_cruiser}
     }
     
     local cumulative = 0

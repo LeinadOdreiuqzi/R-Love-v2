@@ -30,19 +30,45 @@ function Materials.registerRecipe(outputId, ingredients, craftingTime, requiredT
     }
 end
 
+-- Helper para resolver la tabla de slots y maxSlots desde cualquier representación de inventario
+local function resolveInventoryCompartment(inventory)
+    if not inventory then return nil, 0, nil end
+    if type(inventory.getCompartment) == "function" then
+        local comp = inventory:getCompartment('ship')
+        if comp and comp.items then
+            return comp.items, comp.maxSlots or 20, inventory
+        end
+    end
+    if inventory.compartments and inventory.compartments.ship and inventory.compartments.ship.items then
+        local comp = inventory.compartments.ship
+        return comp.items, comp.maxSlots or 20, inventory
+    end
+    if inventory.items then
+        return inventory.items, inventory.maxSlots or #inventory.items, inventory
+    end
+    return inventory, inventory.maxSlots or #inventory, nil
+end
+
 -- Función para verificar si se pueden craftear items
 function Materials.canCraft(recipeId, inventory)
     local recipe = Materials.recipes[recipeId]
     if not recipe then return false, "Receta no encontrada" end
     
-    -- Verificar ingredientes
+    local itemsTable, maxSlots = resolveInventoryCompartment(inventory)
+    if not itemsTable then return false, "Inventario no válido" end
+    
+    -- Verificar ingredientes recorriendo todos los slots (sin detenerse en slots vacíos nil)
     for _, ingredient in ipairs(recipe.ingredients) do
-        local found = false
         local totalQuantity = 0
         
-        for _, item in ipairs(inventory) do
-            if item.id == ingredient.id then
-                totalQuantity = totalQuantity + (item.quantity or 1)
+        for i = 1, maxSlots do
+            local item = itemsTable[i]
+            if item then
+                local itemId = (item.data and item.data.id) or item.id
+                if itemId == ingredient.id then
+                    local qty = item.quantity or (item.data and item.data.quantity) or 1
+                    totalQuantity = totalQuantity + qty
+                end
             end
         end
         
@@ -56,17 +82,18 @@ end
 
 -- Función para craftear un item
 function Materials.craftItem(recipeId, inventory, player)
-    local canCraft, error = Materials.canCraft(recipeId, inventory)
+    local canCraft, errorMsg = Materials.canCraft(recipeId, inventory)
     if not canCraft then
-        return false, error
+        return false, errorMsg
     end
     
     local recipe = Materials.recipes[recipeId]
+    local itemsTable, maxSlots, invSystem = resolveInventoryCompartment(inventory)
     
     -- Verificar herramienta requerida
     if recipe.requiredTool then
         local hasTool = false
-        if player.equipment and player.equipment[recipe.requiredTool] then
+        if player and player.equipment and player.equipment[recipe.requiredTool] then
             hasTool = true
         end
         
@@ -75,33 +102,60 @@ function Materials.craftItem(recipeId, inventory, player)
         end
     end
     
-    -- Consumir ingredientes
+    -- Consumir ingredientes sin desplazar índices de slots (sin table.remove)
     for _, ingredient in ipairs(recipe.ingredients) do
         local remaining = ingredient.quantity
         
-        for i = #inventory, 1, -1 do
-            local item = inventory[i]
-            if item.id == ingredient.id and remaining > 0 then
-                local toConsume = math.min(remaining, item.quantity or 1)
-                remaining = remaining - toConsume
-                
-                if item.quantity then
-                    item.quantity = item.quantity - toConsume
-                    if item.quantity <= 0 then
-                        table.remove(inventory, i)
+        for i = maxSlots, 1, -1 do
+            local item = itemsTable[i]
+            if item and remaining > 0 then
+                local itemId = (item.data and item.data.id) or item.id
+                if itemId == ingredient.id then
+                    local currentQty = item.quantity or (item.data and item.data.quantity) or 1
+                    local toConsume = math.min(remaining, currentQty)
+                    remaining = remaining - toConsume
+                    local newQty = currentQty - toConsume
+                    
+                    item.quantity = newQty
+                    if item.data then
+                        item.data.quantity = newQty
                     end
-                else
-                    table.remove(inventory, i)
+                    
+                    if newQty <= 0 then
+                        if invSystem and type(invSystem.removeItemFromCompartment) == "function" then
+                            invSystem:removeItemFromCompartment('ship', i)
+                        else
+                            itemsTable[i] = nil
+                        end
+                    end
                 end
             end
         end
     end
     
-    -- Crear item resultante
+    -- Crear item resultante y agregarlo al inventario
     local outputItem = ItemSystem:createItemInstance(recipe.output, 1)
-    table.insert(inventory, outputItem)
+    local added = false
+    if invSystem and type(invSystem.addItemToCompartment) == "function" then
+        added = invSystem:addItemToCompartment('ship', outputItem, 1)
+    elseif invSystem and type(invSystem.addItem) == "function" then
+        added = invSystem:addItem(outputItem, 1)
+    else
+        for i = 1, maxSlots do
+            if not itemsTable[i] then
+                itemsTable[i] = outputItem
+                added = true
+                break
+            end
+        end
+        if not added then
+            table.insert(itemsTable, outputItem)
+            added = true
+        end
+    end
     
-    return true, "Item crafteado exitosamente: " .. outputItem.name
+    local outName = (outputItem.data and outputItem.data.name) or outputItem.name or recipe.output
+    return added, "Item crafteado exitosamente: " .. outName
 end
 
 -- Función para registrar todos los materiales

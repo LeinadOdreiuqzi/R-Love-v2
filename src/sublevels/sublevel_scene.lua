@@ -226,10 +226,7 @@ function SubLevelScene:update(dt)
                 -- Aplicar daño ambiental térmico directamente a los stats (escudos y casco)
                 -- para evitar disparar el sonido cinético de impacto de balas 60 veces por segundo
                 if player.stats and player.stats.takeDamage then
-                    local died = player.stats:takeDamage(dmg)
-                    if died and player.die then
-                        player:die()
-                    end
+                    player.stats:takeDamage(dmg)
                 elseif player.takeDamage then
                     player:takeDamage(dmg)
                 end

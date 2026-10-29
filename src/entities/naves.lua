@@ -278,6 +278,12 @@ function Naves.removeShip(shipId)
     end
 end
 
+function Naves.clearAllShips()
+    allShips = {}
+    shipRegistry = {}
+    nextShipId = 1
+end
+
 function Naves:loadSprite()
     -- Solo la clase EXPLORER utiliza sprite (si está disponible); FIGHTER y CARGO usan diseño geométrico especializado
     if self.shipType ~= "EXPLORER" then
@@ -450,30 +456,45 @@ function Naves:update(dt)
         self.engineGlow = math.max(0, self.engineGlow - dt * 2)
     end
     
-    -- Support movements (A, S, D) - CORREGIDO para orientación relativa a la nave
+    -- Support movements (A, S, D) - Vectores relativos a la orientación de la nave (rotation = 0 apunta hacia -Y)
+    -- Vector frontal: F = (sin(theta), -cos(theta))
+    -- Vector derecho: R = (cos(theta), sin(theta))
+    -- Vector izquierdo: -R = (-cos(theta), -sin(theta))
     if self.input.left and canMove then       -- A - Strafe left relative to ship orientation
-        local leftX = -math.sin(self.rotation)
-        local leftY = math.cos(self.rotation)
+        local leftX = -math.cos(self.rotation)
+        local leftY = -math.sin(self.rotation)
         moveX = moveX + leftX * 0.8  -- Mejorado para mejor control
         moveY = moveY + leftY * 0.8
         isMoving = true
     end
     
     if self.input.right and canMove then      -- D - Strafe right relative to ship orientation
-        local rightX = math.sin(self.rotation)
-        local rightY = -math.cos(self.rotation)
+        local rightX = math.cos(self.rotation)
+        local rightY = math.sin(self.rotation)
         moveX = moveX + rightX * 0.8  -- Mejorado para mejor control
         moveY = moveY + rightY * 0.8
         isMoving = true
     end
     
-    if self.input.backward and canMove then   -- S - Move backward relative to ship orientation
-        local backX = -math.cos(self.rotation)
-        local backY = -math.sin(self.rotation)
+    if self.input.backward and canMove then   -- S - Move backward relative to ship orientation (-F)
+        local backX = -math.sin(self.rotation)
+        local backY = math.cos(self.rotation)
         moveX = moveX + backX * 0.6  -- Movimiento hacia atrás relativo a la nave
         moveY = moveY + backY * 0.6
         isMoving = true
     end
+    
+    -- Modificador pasivo de velocidad (Propulsores Mejorados, etc.)
+    local speedMod = self.passiveModifiers and self.passiveModifiers.speed
+    local speedMult = 1.0
+    local speedFlat = 0
+    if type(speedMod) == "table" then
+        speedMult = 1.0 + ((speedMod.percent or 0) / 100.0)
+        speedFlat = speedMod.flat or 0
+    elseif type(speedMod) == "number" then
+        speedMult = 1.0 + (speedMod > 1 and (speedMod / 100.0) or speedMod)
+    end
+    local effectiveMaxSpeed = (self.maxSpeed + speedFlat) * speedMult
     
     -- Normalize movement vector if moving
     local moveLen = math.sqrt(moveX * moveX + moveY * moveY)
@@ -490,6 +511,8 @@ function Naves:update(dt)
             accel = self.strafeAccel
         end
         
+        accel = (accel + speedFlat) * speedMult
+        
         -- Aplicar multiplicador de boost si está activo
         if self.isBoostActive and self.boostDuration > 0 then
             accel = accel * self.boostMultiplier
@@ -505,17 +528,15 @@ function Naves:update(dt)
          -- Calcular velocidad actual
          local currentSpeed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
          
-
-         
          -- Activar drift intenso basado en velocidad
          if currentSpeed > self.driftActivation then
              -- DRIFT ACTIVO INTENSO - Preservar más inercia lateral
              local currentDirX = self.dx / currentSpeed
              local currentDirY = self.dy / currentSpeed
              
-             -- Calcular componente hacia adelante (en dirección de la nave)
-             local forwardX = math.cos(self.rotation)
-             local forwardY = math.sin(self.rotation)
+             -- Calcular componente hacia adelante (en dirección de la nave: cos(theta - pi/2), sin(theta - pi/2))
+             local forwardX = math.sin(self.rotation)
+             local forwardY = -math.cos(self.rotation)
              local forwardComponent = currentDirX * forwardX + currentDirY * forwardY
              
              -- Separar velocidad en componentes forward y lateral
@@ -540,8 +561,8 @@ function Naves:update(dt)
              
              -- Verificar que la velocidad total no exceda el límite durante el drift
              local totalSpeed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
-             if totalSpeed > self.maxSpeed * 1.1 then  -- Permitir 10% extra durante drift
-                 local limitFactor = (self.maxSpeed * 1.1) / totalSpeed
+             if totalSpeed > effectiveMaxSpeed * 1.1 then  -- Permitir 10% extra durante drift
+                 local limitFactor = (effectiveMaxSpeed * 1.1) / totalSpeed
                  self.dx = self.dx * limitFactor
                  self.dy = self.dy * limitFactor
              end
@@ -584,9 +605,9 @@ function Naves:update(dt)
     
     -- Limit maximum speed (con boost puede exceder temporalmente)
     local speed = math.sqrt(self.dx * self.dx + self.dy * self.dy)
-    local currentMaxSpeed = self.maxSpeed
+    local currentMaxSpeed = effectiveMaxSpeed
     if self.isBoostActive and self.boostDuration > 0 then
-        currentMaxSpeed = self.maxSpeed * self.boostMultiplier
+        currentMaxSpeed = effectiveMaxSpeed * self.boostMultiplier
     end
     
     if speed > currentMaxSpeed then
@@ -726,7 +747,20 @@ function Naves:takeDamage(damage)
             audio.play("hit", { volume = 0.75, pitchVariation = 0.08 })
         end
     end
+    if died then
+        -- Nota: Aún no hay mecánica de muerte/respawn definida; mantener al jugador en su posición actual
+        return true
+    end
     return died
+end
+
+function Naves:die(spawnPoint)
+    -- Reservado para futura mecánica de muerte; no teletransportar al jugador a (0, 0)
+    local w = getWorld()
+    local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
+    if audio and audio.play then
+        pcall(function() audio.play("explosion", { volume = 0.9 }) end)
+    end
 end
 
 function Naves:heal(amount)
@@ -1314,7 +1348,7 @@ function Naves:loadShipState(state)
                     if item and item.data then
                         -- Aplicar efecto pasivo con ID único basado en slot
                         local uniqueId = "passive_slot_" .. slotIndex
-                        PassiveManager.applyPassiveEffect(item, self, uniqueId)
+                        PassiveManager.applyPassiveEffect(self, item.data, uniqueId)
                     end
                 end
             end

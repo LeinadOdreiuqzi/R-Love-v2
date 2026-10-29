@@ -321,36 +321,30 @@ function WorldItems.checkCollection(item)
         return false
     end
     
-    -- Obtener todas las naves del sistema
-    local Naves = require 'src.entities.naves'
-    local allShips = Naves.getAllShips()
+    local World = require 'src.core.world'
+    local ship = World and (World.getPlayer and World.getPlayer() or World.get('player'))
+    if not ship then return false end
     
-    if not allShips then return false end
-    
-    for _, ship in ipairs(allShips) do
-        if ship then
-            -- Obtener entidad activa (nave o EVA player)
-            local activeEntity = ship:getActiveEntity()
-            if activeEntity then
-                local distance = math.sqrt((activeEntity.x - item.x)^2 + (activeEntity.y - item.y)^2)
-                
-                -- Determinar rango de recolección según el tipo de entidad
-                local collectionRange
-                if ship.isInEVA and ship.evaPlayer then
-                    collectionRange = CONFIG.COLLECTION.EVA_RANGE
-                else
-                    collectionRange = CONFIG.COLLECTION.SHIP_RANGE
-                end
-                
-                if distance <= collectionRange then
-                    -- Intentar agregar item al inventario
-                    local success = WorldItems.collectItem(item, ship)
-                    if success then
-                        local entityType = ship.isInEVA and "EVA" or "NAVE"
-                        print("[COLLECTION] Item recolectado por", entityType .. ":", item.itemData.name, "x" .. item.quantity)
-                        return true
-                    end
-                end
+    -- Obtener entidad activa (nave o EVA player)
+    local activeEntity = ship.getActiveEntity and ship:getActiveEntity() or ship
+    if activeEntity then
+        local distance = math.sqrt((activeEntity.x - item.x)^2 + (activeEntity.y - item.y)^2)
+        
+        -- Determinar rango de recolección según el tipo de entidad
+        local collectionRange
+        if ship.isInEVA and ship.evaPlayer then
+            collectionRange = CONFIG.COLLECTION.EVA_RANGE
+        else
+            collectionRange = CONFIG.COLLECTION.SHIP_RANGE
+        end
+        
+        if distance <= collectionRange then
+            -- Intentar agregar item al inventario
+            local success = WorldItems.collectItem(item, ship)
+            if success then
+                local entityType = ship.isInEVA and "EVA" or "NAVE"
+                print("[COLLECTION] Item recolectado por", entityType .. ":", item.itemData.name, "x" .. item.quantity)
+                return true
             end
         end
     end
@@ -360,54 +354,48 @@ end
 
 -- Función para recolección manual (tecla E)
 function WorldItems.tryManualCollection()
-    -- Obtener todas las naves del sistema
-    local Naves = require 'src.entities.naves'
-    local allShips = Naves.getAllShips()
+    local World = require 'src.core.world'
+    local ship = World and (World.getPlayer and World.getPlayer() or World.get('player'))
+    if not ship then return false end
     
-    if not allShips then return false end
-    
-    for _, ship in ipairs(allShips) do
-        if ship then
-            -- Obtener entidad activa (nave o EVA player)
-            local activeEntity = ship:getActiveEntity()
-            if activeEntity then
-                -- Determinar rango de recolección según el tipo de entidad
-                local collectionRange
-                if ship.isInEVA and ship.evaPlayer then
-                    collectionRange = CONFIG.COLLECTION.EVA_RANGE
-                else
-                    collectionRange = CONFIG.COLLECTION.SHIP_RANGE
-                end
-                
-                -- Buscar el item más cercano dentro del rango
-                local closestItem = nil
-                local closestDistance = math.huge
-                
-                for _, item in ipairs(worldItems) do
-                    local distance = math.sqrt((activeEntity.x - item.x)^2 + (activeEntity.y - item.y)^2)
-                    if distance <= collectionRange and distance < closestDistance then
-                        closestItem = item
-                        closestDistance = distance
+    -- Obtener entidad activa (nave o EVA player)
+    local activeEntity = ship.getActiveEntity and ship:getActiveEntity() or ship
+    if activeEntity then
+        -- Determinar rango de recolección según el tipo de entidad
+        local collectionRange
+        if ship.isInEVA and ship.evaPlayer then
+            collectionRange = CONFIG.COLLECTION.EVA_RANGE
+        else
+            collectionRange = CONFIG.COLLECTION.SHIP_RANGE
+        end
+        
+        -- Buscar el item más cercano dentro del rango
+        local closestItem = nil
+        local closestDistance = math.huge
+        
+        for _, item in ipairs(worldItems) do
+            local distance = math.sqrt((activeEntity.x - item.x)^2 + (activeEntity.y - item.y)^2)
+            if distance <= collectionRange and distance < closestDistance then
+                closestItem = item
+                closestDistance = distance
+            end
+        end
+        
+        -- Recolectar el item más cercano
+        if closestItem then
+            local success = WorldItems.collectItem(closestItem, ship)
+            if success then
+                -- Remover item de la lista
+                for i, item in ipairs(worldItems) do
+                    if item == closestItem then
+                        table.remove(worldItems, i)
+                        break
                     end
                 end
                 
-                -- Recolectar el item más cercano
-                if closestItem then
-                    local success = WorldItems.collectItem(closestItem, ship)
-                    if success then
-                        -- Remover item de la lista
-                        for i, item in ipairs(worldItems) do
-                            if item == closestItem then
-                                table.remove(worldItems, i)
-                                break
-                            end
-                        end
-                        
-                        local entityType = ship.isInEVA and "EVA" or "NAVE"
-                        print("[MANUAL COLLECTION] Item recolectado por", entityType .. ":", closestItem.itemData.name, "x" .. closestItem.quantity)
-                        return true
-                    end
-                end
+                local entityType = ship.isInEVA and "EVA" or "NAVE"
+                print("[MANUAL COLLECTION] Item recolectado por", entityType .. ":", closestItem.itemData.name, "x" .. closestItem.quantity)
+                return true
             end
         end
     end
@@ -493,37 +481,42 @@ function WorldItems.collectItem(item, ship)
     
     print("[MANUAL COLLECTION] Recolectando en inventario:", inventoryType)
     
-    -- Buscar slot vacío en el inventario de destino
-    for slot = 1, maxSlots do
-        if not targetInventory[slot] then
-            targetInventory[slot] = itemInstance
-            return true
-        end
-    end
-    
-    -- Si no hay espacio, intentar stackear con items existentes
-    for slot = 1, maxSlots do
-        local existingItem = targetInventory[slot]
-        if existingItem and existingItem.data.id == item.itemData.id then
-            -- Verificar si el item es stackeable
-            if item.itemData.stackable then
+    -- 1. Si el item es stackeable, intentar apilar primero con items existentes
+    if item.itemData.stackable then
+        for slot = 1, maxSlots do
+            local existingItem = targetInventory[slot]
+            if existingItem and existingItem.data and existingItem.data.id == item.itemData.id then
                 local maxStack = item.itemData.maxStack or 99
-                local currentStack = existingItem.data.quantity or 1
+                local currentStack = existingItem.quantity or existingItem.data.quantity or 1
                 local spaceAvailable = maxStack - currentStack
                 
                 if spaceAvailable > 0 then
                     local amountToAdd = math.min(spaceAvailable, item.quantity)
-                    existingItem.data.quantity = currentStack + amountToAdd
+                    local newQty = currentStack + amountToAdd
+                    existingItem.quantity = newQty
+                    existingItem.data.quantity = newQty
                     
-                    -- Si no se pudo agregar todo, crear nuevo item con el resto
                     if amountToAdd < item.quantity then
                         item.quantity = item.quantity - amountToAdd
-                        return false -- No se recolectó completamente
+                        if itemInstance.data then itemInstance.data.quantity = item.quantity end
+                        itemInstance.quantity = item.quantity
+                    else
+                        return true
                     end
-                    
-                    return true
                 end
             end
+        end
+    end
+    
+    -- 2. Buscar slot vacío en el inventario de destino
+    for slot = 1, maxSlots do
+        if not targetInventory[slot] then
+            itemInstance.quantity = item.quantity
+            if itemInstance.data then
+                itemInstance.data.quantity = item.quantity
+            end
+            targetInventory[slot] = itemInstance
+            return true
         end
     end
     

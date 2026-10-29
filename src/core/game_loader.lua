@@ -107,6 +107,9 @@ local function loadWorld(updateProgress)
     
     table.insert(loadSteps, function()
         updateProgress("player", "Creating player entity and test ships...")
+        if Naves.clearAllShips then
+            Naves.clearAllShips()
+        end
         local playerX, playerY = 0, 0
         local player = Naves:new(playerX, playerY, "EXPLORER")
         player.isPiloted = true
@@ -235,6 +238,10 @@ function GameLoader.changeSeedWithLoading(newSeed)
     
     if ChunkManager and ChunkManager.cleanup then
         ChunkManager.cleanup()
+    end
+
+    if Naves and Naves.clearAllShips then
+        Naves.clearAllShips()
     end
 
     World.reset()

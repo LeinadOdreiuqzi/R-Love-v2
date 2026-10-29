@@ -97,9 +97,11 @@ function PlayerStats:consumeFuel(dt)
 end
 
 function PlayerStats:updateHeartDisplay()
-    -- Calcular corazones basado en vida actual
-    self.health.currentHearts = math.floor(self.health.currentHealth / 2)
-    self.health.heartHalves = self.health.currentHealth % 2
+    -- Calcular corazones basado en vida actual (soporta valores fraccionarios por dt)
+    local h = math.max(0, self.health.currentHealth or 0)
+    local halfUnits = math.ceil(h - 1e-6) -- Cada unidad entera (1..10) equivale a medio corazón
+    self.health.currentHearts = math.floor(halfUnits / 2)
+    self.health.heartHalves = halfUnits % 2
 end
 
 function PlayerStats:takeDamage(damage)
