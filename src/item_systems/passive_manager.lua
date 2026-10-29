@@ -14,9 +14,6 @@
 
 local PassiveManager = {}
 
--- Dependencias
-local Passives = require("src.item_systems.items.passives")
-
 -- Estado interno del manager
 local state = {
     -- Flag de inicialización
@@ -151,13 +148,32 @@ end
 
 --[[
     Remueve efectos pasivos de un item específico
-    @param itemId: ID único del item
+    Soporta tanto PassiveManager.removePassiveEffect(itemId) como PassiveManager.removePassiveEffect(player, itemData)
+    @param itemIdOrPlayer: ID único del item (string) o referencia al jugador (table)
+    @param maybeItemData: datos del item (opcional, cuando el 1er argumento es player)
     @return: boolean éxito
 --]]
-function PassiveManager.removePassiveEffect(itemId)
+function PassiveManager.removePassiveEffect(itemIdOrPlayer, maybeItemData)
+    local itemId = itemIdOrPlayer
+    if type(itemIdOrPlayer) == "table" then
+        local player = itemIdOrPlayer
+        local itemData = maybeItemData
+        if itemData and itemData.passiveId and isEffectActive(itemData.passiveId) then
+            itemId = itemData.passiveId
+        else
+            itemId = nil
+            for id, effectData in pairs(state.activeEffects) do
+                if effectData.player == player and (not itemData or (effectData.itemData and effectData.itemData.id == itemData.id)) then
+                    itemId = id
+                    break
+                end
+            end
+        end
+    end
+
     -- Verificar si el efecto está activo
     if not isEffectActive(itemId) then
-        print("[PassiveManager] Advertencia: Intento de remover efecto no activo (ID: " .. (itemId or "nil") .. ")")
+        print("[PassiveManager] Advertencia: Intento de remover efecto no activo (ID: " .. tostring(itemId) .. ")")
         return false
     end
     

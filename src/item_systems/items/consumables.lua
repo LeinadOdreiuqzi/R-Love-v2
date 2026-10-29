@@ -9,22 +9,71 @@ local Consumables = {}
 local Effects = {
     -- Curación
     heal = function(player, amount)
-        if player.stats and player.stats.health then
-            local oldHealth = player.stats.health
-            player.stats.health = math.min(player.stats.health + amount, player.stats.maxHealth or 100)
-            local healed = player.stats.health - oldHealth
-            return string.format("Curado %d puntos de vida", healed)
+        if not player then return "No se pudo curar" end
+        if type(player.heal) == "function" then
+            local oldHealth = (player.stats and type(player.stats.health) == "table" and player.stats.health.currentHealth) or 0
+            player:heal(amount)
+            local newHealth = (player.stats and type(player.stats.health) == "table" and player.stats.health.currentHealth) or (oldHealth + amount)
+            return string.format("Curado %d puntos de vida", math.max(0, newHealth - oldHealth))
+        elseif player.stats then
+            if type(player.stats.heal) == "function" and type(player.stats.health) == "table" then
+                local oldHealth = player.stats.health.currentHealth or 0
+                player.stats:heal(amount)
+                local healed = (player.stats.health.currentHealth or 0) - oldHealth
+                return string.format("Curado %d puntos de vida", healed)
+            elseif type(player.stats.health) == "table" then
+                local oldHealth = player.stats.health.currentHealth or 0
+                local maxHealth = player.stats.health.maxHealth or 100
+                player.stats.health.currentHealth = math.min(oldHealth + amount, maxHealth)
+                if player.stats.updateHeartDisplay then
+                    player.stats:updateHeartDisplay()
+                end
+                local healed = player.stats.health.currentHealth - oldHealth
+                return string.format("Curado %d puntos de vida", healed)
+            elseif type(player.stats.health) == "number" then
+                local oldHealth = player.stats.health
+                player.stats.health = math.min(player.stats.health + amount, player.stats.maxHealth or 100)
+                local healed = player.stats.health - oldHealth
+                return string.format("Curado %d puntos de vida", healed)
+            end
         end
         return "No se pudo curar"
     end,
     
-    -- Restaurar energía
+    -- Restaurar escudo
+    restoreShield = function(player, amount)
+        if player and player.stats and type(player.stats.shield) == "table" then
+            local oldShield = player.stats.shield.currentShield or 0
+            local maxShield = player.stats.shield.maxShield or 100
+            player.stats.shield.currentShield = math.min(maxShield, oldShield + amount)
+            local restored = player.stats.shield.currentShield - oldShield
+            return string.format("Restaurado %d puntos de escudo", restored)
+        end
+        return "No se pudo restaurar escudo"
+    end,
+    
+    -- Restaurar energía (o escudo/combustible como respaldo)
     restoreEnergy = function(player, amount)
-        if player.stats and player.stats.energy then
+        if not player or not player.stats then
+            return "No se pudo restaurar energía"
+        end
+        if type(player.stats.energy) == "table" then
+            local oldEnergy = player.stats.energy.currentEnergy or 0
+            local maxEnergy = player.stats.energy.maxEnergy or 100
+            player.stats.energy.currentEnergy = math.min(oldEnergy + amount, maxEnergy)
+            local restored = player.stats.energy.currentEnergy - oldEnergy
+            return string.format("Restaurado %d puntos de energía", restored)
+        elseif type(player.stats.energy) == "number" then
             local oldEnergy = player.stats.energy
             player.stats.energy = math.min(player.stats.energy + amount, player.stats.maxEnergy or 100)
             local restored = player.stats.energy - oldEnergy
             return string.format("Restaurado %d puntos de energía", restored)
+        elseif type(player.stats.shield) == "table" then
+            local oldShield = player.stats.shield.currentShield or 0
+            local maxShield = player.stats.shield.maxShield or 100
+            player.stats.shield.currentShield = math.min(maxShield, oldShield + amount)
+            local restored = player.stats.shield.currentShield - oldShield
+            return string.format("Restaurado %d puntos de energía de escudo", restored)
         end
         return "No se pudo restaurar energía"
     end,
@@ -49,9 +98,28 @@ local Effects = {
     
     -- Curar completamente
     fullHeal = function(player)
-        if player.stats and player.stats.health then
-            player.stats.health = player.stats.maxHealth or 100
-            if player.stats.energy then
+        if player and player.stats and player.stats.health then
+            if type(player.stats.health) == "table" then
+                local maxH = player.stats.health.maxHealth or 100
+                if type(player.heal) == "function" then
+                    player:heal(maxH)
+                elseif type(player.stats.heal) == "function" then
+                    player.stats:heal(maxH)
+                else
+                    player.stats.health.currentHealth = maxH
+                    if player.stats.updateHeartDisplay then
+                        player.stats:updateHeartDisplay()
+                    end
+                end
+            elseif type(player.stats.health) == "number" then
+                player.stats.health = player.stats.maxHealth or 100
+            end
+            if type(player.stats.shield) == "table" then
+                player.stats.shield.currentShield = player.stats.shield.maxShield or 100
+            end
+            if type(player.stats.energy) == "table" then
+                player.stats.energy.currentEnergy = player.stats.energy.maxEnergy or 100
+            elseif type(player.stats.energy) == "number" then
                 player.stats.energy = player.stats.maxEnergy or 100
             end
             return "Completamente curado"
@@ -61,9 +129,21 @@ local Effects = {
     
     -- Aumentar máximo de vida permanentemente
     increaseMaxHealth = function(player, amount)
-        if player.stats then
-            player.stats.maxHealth = (player.stats.maxHealth or 100) + amount
-            player.stats.health = (player.stats.health or 100) + amount
+        if player and player.stats then
+            if type(player.stats.health) == "table" then
+                player.stats.health.maxHealth = (player.stats.health.maxHealth or 10) + amount
+                player.stats.health.currentHealth = math.min(
+                    player.stats.health.maxHealth,
+                    (player.stats.health.currentHealth or 10) + amount
+                )
+                player.stats.health.maxHearts = math.ceil(player.stats.health.maxHealth / 2)
+                if player.stats.updateHeartDisplay then
+                    player.stats:updateHeartDisplay()
+                end
+            else
+                player.stats.maxHealth = (player.stats.maxHealth or 100) + amount
+                player.stats.health = (player.stats.health or 100) + amount
+            end
             return string.format("Vida máxima aumentada en %d", amount)
         end
         return "No se pudo aumentar vida máxima"
@@ -86,6 +166,12 @@ function Consumables.registerAll()
         icon = "eva_repair_kit",
         tags = {"medical", "eva", "healing"},
         
+        canUse = function(self, player)
+            if player and player.stats and type(player.stats.health) == "table" then
+                return player.stats.health.currentHealth < player.stats.health.maxHealth
+            end
+            return true
+        end,
         use = function(self, player)
             return Effects.heal(player, 25)
         end
@@ -105,6 +191,12 @@ function Consumables.registerAll()
         icon = "energy_stim",
         tags = {"energy", "stimulant"},
         
+        canUse = function(self, player)
+            if player and player.stats and type(player.stats.shield) == "table" and not player.stats.energy then
+                return player.stats.shield.currentShield < player.stats.shield.maxShield
+            end
+            return true
+        end,
         use = function(self, player)
             return Effects.restoreEnergy(player, 40)
         end
@@ -124,6 +216,12 @@ function Consumables.registerAll()
         icon = "medical_nanobots",
         tags = {"medical", "nanotech", "full_heal"},
         
+        canUse = function(self, player)
+            if player and player.stats and type(player.stats.health) == "table" then
+                return player.stats.health.currentHealth < player.stats.health.maxHealth
+            end
+            return true
+        end,
         use = function(self, player)
             return Effects.fullHeal(player)
         end
@@ -234,6 +332,12 @@ function Consumables.registerAll()
         icon = "repair_kit",
         tags = {"repair", "healing", "ship"},
         
+        canUse = function(self, player)
+            if player and player.stats and type(player.stats.health) == "table" then
+                return player.stats.health.currentHealth < player.stats.health.maxHealth
+            end
+            return true
+        end,
         use = function(self, player)
             local heal_result = Effects.heal(player, 50)
             return "Nave reparada. " .. heal_result

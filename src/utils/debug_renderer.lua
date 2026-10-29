@@ -14,6 +14,23 @@ local SeedSystem = require 'src.utils.seed_system'
 local HUD = require 'src.ui.hud'
 local GameState = require 'src.core.game_state'
 
+local font10 = nil
+local font12 = nil
+
+local function getFont10()
+    if not font10 then
+        font10 = love.graphics.newFont(10)
+    end
+    return font10
+end
+
+local function getFont12()
+    if not font12 then
+        font12 = love.graphics.newFont(12)
+    end
+    return font12
+end
+
 function DebugRenderer.updateAdvancedStats(dt)
     local state = GameState.state
     local advStats = GameState.advancedStats
@@ -79,11 +96,11 @@ function DebugRenderer.drawPerformanceOverlay()
     love.graphics.rectangle("line", x, y, panelWidth, panelHeight)
     
     love.graphics.setColor(0, 1, 1, 1)
-    love.graphics.setFont(love.graphics.newFont(12))
+    love.graphics.setFont(getFont12())
     love.graphics.print("PERFORMANCE MONITOR", x + 10, y + 8)
     
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(love.graphics.newFont(10))
+    love.graphics.setFont(getFont10())
     
     local infoY = y + 25
     
@@ -162,13 +179,13 @@ function DebugRenderer.drawBiomeDebugOverlay()
     love.graphics.rectangle("line", x, y, panelWidth, panelHeight)
     
     love.graphics.setColor(1, 1, 0, 1)
-    love.graphics.setFont(love.graphics.newFont(12))
+    love.graphics.setFont(getFont12())
     love.graphics.print("ENHANCED SYSTEM DEBUG", x + 10, y + 8)
     
     local infoY = y + 25
     
     love.graphics.setColor(1, 0.8, 0.5, 1)
-    love.graphics.setFont(love.graphics.newFont(10))
+    love.graphics.setFont(getFont10())
     love.graphics.print("SEED SYSTEM", x + 10, infoY)
     infoY = infoY + 12
     love.graphics.setColor(1, 1, 1, 1)

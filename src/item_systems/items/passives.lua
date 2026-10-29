@@ -2,6 +2,7 @@
 -- Items que otorgan efectos permanentes mientras están en el inventario
 
 local ItemSystem = require("src.item_systems.item_system")
+local PassiveManager = require("src.item_systems.passive_manager")
 
 local Passives = {}
 
@@ -65,12 +66,13 @@ function Passives.registerAll()
         },
         
         onAcquire = function(self, player)
-            applyPassiveEffect(player, self)
+            self.passiveId = PassiveManager.applyPassiveEffect(player, self, self.passiveId)
             return "Propulsores mejorados activados"
         end,
         
         onRemove = function(self, player)
-            removePassiveEffect(player, self)
+            PassiveManager.removePassiveEffect(player, self)
+            self.passiveId = nil
             return "Propulsores mejorados desactivados"
         end
     })
@@ -92,12 +94,13 @@ function Passives.registerAll()
         },
         
         onAcquire = function(self, player)
-            applyPassiveEffect(player, self)
+            self.passiveId = PassiveManager.applyPassiveEffect(player, self, self.passiveId)
             return "Sistema de disparo rápido activado"
         end,
         
         onRemove = function(self, player)
-            removePassiveEffect(player, self)
+            PassiveManager.removePassiveEffect(player, self)
+            self.passiveId = nil
             return "Sistema de disparo rápido desactivado"
         end
     })
@@ -116,7 +119,18 @@ function Passives.registerAll()
         
         passiveEffects = {
             { type = "stat", stat = "max_health", amount = 1, modifierType = "flat" }
-        }
+        },
+        
+        onAcquire = function(self, player)
+            self.passiveId = PassiveManager.applyPassiveEffect(player, self, self.passiveId)
+            return "Corazón auxiliar activado"
+        end,
+        
+        onRemove = function(self, player)
+            PassiveManager.removePassiveEffect(player, self)
+            self.passiveId = nil
+            return "Corazón auxiliar desactivado"
+        end
     })
     
     print("Items pasivos registrados: 3 items")

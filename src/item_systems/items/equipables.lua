@@ -67,14 +67,12 @@ function Equipables.registerAll()
             if player.weaponSystem then
                 local slot = 1 -- Buscar primer slot libre
                 for i = 1, 4 do
-                    if not player.weaponSystem.weaponSlots[i] then
+                    if not (player.inventory and player.inventory:getWeaponInSlot(i)) then
                         slot = i
                         break
                     end
                 end
                 player.weaponSystem:equipWeapon(self, slot)
-            else
-                -- player.weaponSystem no existe para equipar arma
             end
             return "Pistola láser equipada"
         end,
@@ -82,6 +80,15 @@ function Equipables.registerAll()
         onUnequip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = nil
+            end
+            if player.weaponSystem and player.inventory then
+                for i = 1, 4 do
+                    local w = player.inventory:getWeaponInSlot(i)
+                    if w and ((w.data and w.data.id == self.id) or w.id == self.id) then
+                        player.weaponSystem:unequipWeapon(i)
+                        break
+                    end
+                end
             end
             return "Pistola láser desequipada"
         end
@@ -119,9 +126,9 @@ function Equipables.registerAll()
             end
             -- Equipar en weapon system
             if player.weaponSystem then
-                local slot = 1 -- Buscar primer slot libre
+                local slot = 2 -- Buscar primer slot libre
                 for i = 1, 4 do
-                    if not player.weaponSystem.weaponSlots[i] then
+                    if not (player.inventory and player.inventory:getWeaponInSlot(i)) then
                         slot = i
                         break
                     end
@@ -134,6 +141,15 @@ function Equipables.registerAll()
         onUnequip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = nil
+            end
+            if player.weaponSystem and player.inventory then
+                for i = 1, 4 do
+                    local w = player.inventory:getWeaponInSlot(i)
+                    if w and ((w.data and w.data.id == self.id) or w.id == self.id) then
+                        player.weaponSystem:unequipWeapon(i)
+                        break
+                    end
+                end
             end
             return "Rifle de plasma desequipado"
         end
@@ -175,7 +191,7 @@ function Equipables.registerAll()
             if player.weaponSystem then
                 local slot = 1 -- Buscar primer slot libre
                 for i = 1, 4 do
-                    if not player.weaponSystem.weaponSlots[i] then
+                    if not (player.inventory and player.inventory:getWeaponInSlot(i)) then
                         slot = i
                         break
                     end
@@ -188,6 +204,15 @@ function Equipables.registerAll()
         onUnequip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = nil
+            end
+            if player.weaponSystem and player.inventory then
+                for i = 1, 4 do
+                    local w = player.inventory:getWeaponInSlot(i)
+                    if w and ((w.data and w.data.id == self.id) or w.id == self.id) then
+                        player.weaponSystem:unequipWeapon(i)
+                        break
+                    end
+                end
             end
             return "Rifle de asalto cinético desequipado"
         end
@@ -225,9 +250,9 @@ function Equipables.registerAll()
             end
             -- Equipar en weapon system
             if player.weaponSystem then
-                local slot = 1 -- Buscar primer slot libre
+                local slot = 2 -- Buscar primer slot libre
                 for i = 1, 4 do
-                    if not player.weaponSystem.weaponSlots[i] then
+                    if not (player.inventory and player.inventory:getWeaponInSlot(i)) then
                         slot = i
                         break
                     end
@@ -240,6 +265,15 @@ function Equipables.registerAll()
         onUnequip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = nil
+            end
+            if player.weaponSystem and player.inventory then
+                for i = 1, 4 do
+                    local w = player.inventory:getWeaponInSlot(i)
+                    if w and ((w.data and w.data.id == self.id) or w.id == self.id) then
+                        player.weaponSystem:unequipWeapon(i)
+                        break
+                    end
+                end
             end
             return "Cañón de plasma pesado desequipado"
         end
@@ -278,9 +312,9 @@ function Equipables.registerAll()
             end
             -- Equipar en weapon system
             if player.weaponSystem then
-                local slot = 1 -- Buscar primer slot libre
+                local slot = 2 -- Buscar primer slot libre
                 for i = 1, 4 do
-                    if not player.weaponSystem.weaponSlots[i] then
+                    if not (player.inventory and player.inventory:getWeaponInSlot(i)) then
                         slot = i
                         break
                     end
@@ -293,6 +327,15 @@ function Equipables.registerAll()
         onUnequip = function(self, player)
             if player.equipment then
                 player.equipment[self.slot] = nil
+            end
+            if player.weaponSystem and player.inventory then
+                for i = 1, 4 do
+                    local w = player.inventory:getWeaponInSlot(i)
+                    if w and ((w.data and w.data.id == self.id) or w.id == self.id) then
+                        player.weaponSystem:unequipWeapon(i)
+                        break
+                    end
+                end
             end
             return "Escopeta de energía desequipada"
         end

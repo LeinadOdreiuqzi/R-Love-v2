@@ -296,7 +296,7 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
     end
     
     -- NUEVO: Ajustar distancia por importancia de la estrella (versión al cuadrado)
-    if obj and OptimizedRenderer.config.lod.intelligentLOD.enabled then
+    if obj and OptimizedRenderer.config.lod and OptimizedRenderer.config.lod.intelligentLOD and OptimizedRenderer.config.lod.intelligentLOD.enabled then
         local importance = OptimizedRenderer.calculateStarImportance(obj)
         local config = OptimizedRenderer.config.lod.intelligentLOD
         
@@ -313,11 +313,18 @@ function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
         end
         
         -- Aplicar multiplicador al cuadrado (estrellas importantes "parecen" más cerca)
-        -- adjustedDistance = adjustedDistance / distanceMultiplier
-        -- adjustedDistSq = adjustedDistSq / (distanceMultiplier * distanceMultiplier)
         if distanceMultiplier ~= 1.0 then
             adjustedDistSq = adjustedDistSq / (distanceMultiplier * distanceMultiplier)
         end
+    end
+    
+    -- Ajuste especial para nebulosas considerando su tamaño (versión al cuadrado)
+    if obj and obj.size and not obj.type then
+        local nebulaSize = obj.size or 140
+        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
+        local worldSize = nebulaSize * ws
+        local sizeMultiplier = math.max(0.3, math.min(1.2, 1.0 + (worldSize - 1000) / 5000))
+        adjustedDistSq = adjustedDistSq / (sizeMultiplier * sizeMultiplier)
     end
     
     -- Determinar nivel de LOD usando distancias al cuadrado
@@ -349,7 +356,7 @@ function OptimizedRenderer.invalidateVisibilityCache()
 end
 
 -- Verificar si un objeto está visible (frustum culling optimizado para zoom alto)
-function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera)
+function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera, star)
     if not camera or not OptimizedRenderer.config.culling.enabled then
         return true
     end
@@ -382,7 +389,7 @@ function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera)
     
     -- NUEVO: Calcular margen dinámico basado en importancia
     local margin = OptimizedRenderer.config.culling.margin
-    if star and OptimizedRenderer.config.intelligentCulling.enabled then
+    if star and OptimizedRenderer.config.intelligentCulling and OptimizedRenderer.config.intelligentCulling.enabled then
         local importance = OptimizedRenderer.calculateStarImportance(star)
         local config = OptimizedRenderer.config.intelligentCulling
         
@@ -1336,116 +1343,9 @@ function OptimizedRenderer.calculateStarImportance(star)
     return math.max(importance, 0.1) -- Mínimo 0.1
 end
 
--- MEJORADO: Calcular nivel de LOD basado en distancia, zoom y propiedades de estrella
-function OptimizedRenderer.calculateLOD(objectX, objectY, camera, obj)
-    if not camera then return 0 end
-    
-    -- Convertir coordenadas del mundo a relativas para precisión
-    local relX, relY = CoordinateSystem.worldToRelative(objectX, objectY)
-    local camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
-    
-    -- Calcular distancia relativa
-    local dx = relX - camRelX
-    local dy = relY - camRelY
-    local distance = math.sqrt(dx * dx + dy * dy)
-    
-    -- Ajustar por zoom
-    local adjustedDistance = distance / (camera.zoom or 1)
-    
-    -- NUEVO: Ajustar distancia por importancia de la estrella
-    if obj and obj.type and OptimizedRenderer.config.lod.intelligentLOD.enabled then
-        local importance = OptimizedRenderer.calculateStarImportance(obj)
-        local config = OptimizedRenderer.config.lod.intelligentLOD
-        
-        -- Determinar multiplicador de distancia
-        local distanceMultiplier = 1.0
-        if importance >= 3.0 then
-            distanceMultiplier = config.distanceMultipliers.veryHigh
-        elseif importance >= 2.5 then
-            distanceMultiplier = config.distanceMultipliers.high
-        elseif importance >= 2.0 then
-            distanceMultiplier = config.distanceMultipliers.medium
-        else
-            distanceMultiplier = config.distanceMultipliers.low
-        end
-        
-        -- Aplicar multiplicador (estrellas importantes "parecen" más cerca)
-        adjustedDistance = adjustedDistance / distanceMultiplier
-    end
-    
-    -- NUEVO: Ajuste especial para nebulosas considerando su tamaño
-    if obj and obj.size and not obj.type then -- Las nebulosas no tienen 'type', las estrellas sí
-        local nebulaSize = obj.size or 140
-        local ws = (MapConfig and MapConfig.chunk and MapConfig.chunk.worldScale) or 1
-        local worldSize = nebulaSize * ws
-        
-        -- CORREGIDO: Nebulosas más grandes deben mantener mejor visibilidad
-        -- Para nebulosas grandes, usar un multiplicador que favorezca la visibilidad
-        local sizeMultiplier = math.max(0.3, math.min(1.2, 1.0 + (worldSize - 1000) / 5000)) -- Nebulosas grandes = multiplicador mayor
-        adjustedDistance = adjustedDistance / sizeMultiplier -- Dividir para reducir distancia efectiva
-    end
-    
-    -- Determinar nivel de LOD
-    for level = #OptimizedRenderer.config.lod.levels - 1, 0, -1 do
-        if adjustedDistance >= OptimizedRenderer.config.lod.levels[level].distance then
-            return level
-        end
-    end
-    
-    return 0
-end
-
--- MEJORADO: Verificar si un objeto está visible con culling inteligente
-function OptimizedRenderer.isObjectVisible(objectX, objectY, objectSize, camera, star)
-    if not camera or not OptimizedRenderer.config.culling.enabled then
-        return true
-    end
-    
-    -- Convertir a coordenadas relativas
-    local relX, relY = CoordinateSystem.worldToRelative(objectX, objectY)
-    local camRelX, camRelY = CoordinateSystem.worldToRelative(camera.x, camera.y)
-    
-    -- Calcular posición en pantalla
-    local screenX = (relX - camRelX) * camera.zoom + love.graphics.getWidth() / 2
-    local screenY = (relY - camRelY) * camera.zoom + love.graphics.getHeight() / 2
-    
-    -- Calcular tamaño en pantalla
-    local screenSize = objectSize * camera.zoom
-    
-    -- NUEVO: Calcular margen dinámico basado en importancia
-    local margin = OptimizedRenderer.config.culling.margin
-    if star and OptimizedRenderer.config.intelligentCulling.enabled then
-        local importance = OptimizedRenderer.calculateStarImportance(star)
-        local config = OptimizedRenderer.config.intelligentCulling
-        
-        -- Determinar multiplicador de margen
-        local marginMultiplier = 1.0
-        if importance >= 3.0 then
-            marginMultiplier = config.dynamicMargin.multipliers.critical
-        elseif importance >= 2.5 then
-            marginMultiplier = config.dynamicMargin.multipliers.high
-        elseif importance >= 2.0 then
-            marginMultiplier = config.dynamicMargin.multipliers.medium
-        else
-            marginMultiplier = config.dynamicMargin.multipliers.low
-        end
-        
-        margin = config.dynamicMargin.base * marginMultiplier
-    end
-    
-    -- Verificar bounds con margen dinámico
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
-    
-    return screenX + screenSize >= -margin and
-           screenX - screenSize <= screenWidth + margin and
-           screenY + screenSize >= -margin and
-           screenY - screenSize <= screenHeight + margin
-end
-
 -- NUEVO: Calcular prioridad de precarga direccional
 function OptimizedRenderer.calculateDirectionalPriority(objectX, objectY, camera, playerVelocity)
-    if not OptimizedRenderer.config.directionalPreload.enabled then
+    if not OptimizedRenderer.config.directionalPreload or not OptimizedRenderer.config.directionalPreload.enabled then
         return 1.0
     end
     
