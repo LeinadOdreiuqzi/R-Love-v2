@@ -714,14 +714,16 @@ local function drawRuinsCatastrophe(cx, cy, L, basis, alpha, seed)
         love.graphics.line(stumpX, stumpY, stumpX + 6, stumpY - 7)
     end
 
-    love.math.setRandomSeed(seed + 40404)
     for d = 1, 14 do
-        local debX = -L * 0.45 + love.math.random() * (L * 1.5)
-        local debY = (-0.5 + love.math.random()) * (L * 1.0)
-        local debZ = (-0.5 + love.math.random()) * (L * 0.8)
+        local r1 = 0.5 + 0.5 * math.sin((seed or 0) * 0.73 + d * 17.31)
+        local r2 = 0.5 * math.cos((seed or 0) * 1.19 + d * 23.89)
+        local r3 = 0.5 * math.sin((seed or 0) * 1.61 + d * 41.13)
+        local debX = -L * 0.45 + r1 * (L * 1.5)
+        local debY = r2 * (L * 1.0)
+        local debZ = r3 * (L * 0.8)
 
         local dx, dy = projectPoint3D(cx, cy, debX, debY, debZ, basis)
-        local debRot = (love.math.random() * math.pi * 2)
+        local debRot = ((seed or 0) * 0.43 + d * 2.39996) % (math.pi * 2)
 
         love.graphics.push()
         love.graphics.translate(dx, dy)

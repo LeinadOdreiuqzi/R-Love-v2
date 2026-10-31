@@ -572,6 +572,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     end
     -- Índice espacial en pantalla para nebulosas (grid)
     local spatialIndex
+    local getNebulaCandidatesAt
     do
         -- Aumentar el tamaño de celda al máximo posible para evitar pop-in brusco
         -- Usamos el mayor de ancho/alto del viewport, creando 1–2 celdas como máximo
@@ -595,7 +596,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             end
         end
         for i = 1, #nebulaCircles do addCircle(nebulaCircles[i]) end
-        function getNebulaCandidatesAt(sx, sy)
+        getNebulaCandidatesAt = function(sx, sy)
             local gx = math.floor(sx / cellSize) + 1
             local gy = math.floor(sy / cellSize) + 1
             if gy < 1 or gy > rows or gx < 1 or gx > cols then
@@ -656,6 +657,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                 local chunkBaseY = chunkY * chunkSize
 
                 for _, star in ipairs(chunk.objects.stars) do
+                    totalStars = totalStars + 1
                     local worldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
                     local worldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
 
@@ -757,29 +759,29 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             return (a.star.depth or 0.5) > (b.star.depth or 0.5)
         end)
 
-        -- A: Pooling de agrupación por tipo con ARRAY FIJO
-        local starsByType = MapRenderer._tmpStarsByType or { {}, {}, {}, {} }
+        -- A: Pooling de agrupación por tipo con ARRAY FIJO (1 a 6)
+        local starsByType = MapRenderer._tmpStarsByType or { {}, {}, {}, {}, {}, {} }
         MapRenderer._tmpStarsByType = starsByType
         
-        -- Limpiar listas, NO las claves (usamos 1-4 fijos)
-        for i=1, 4 do
+        -- Limpiar listas, NO las claves (usamos 1-6 fijos)
+        for i=1, 6 do
              local list = starsByType[i]
              if not list then list = {}; starsByType[i] = list end
              -- Limpieza rápida
              for j=1, #list do list[j] = nil end
         end
 
-        -- Agrupar por tipo (1-4)
+        -- Agrupar por tipo (1-6)
         for i = 1, #layerStars do
             local info = layerStars[i]
             local t = info.star.type or 1
-            if t < 1 or t > 4 then t = 1 end
+            if t < 1 or t > 6 then t = 1 end
             local list = starsByType[t]
             list[#list + 1] = info
         end
 
-        -- Iterar tipos en orden numérico (1 a 4) - SIN PAIRS
-        for t = 1, 4 do
+        -- Iterar tipos en orden numérico (1 a 6) - SIN PAIRS
+        for t = 1, 6 do
             local list = starsByType[t]
             if #list > 0 then
                 if usingStarShader and StarShader.setType then
@@ -903,11 +905,11 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                         end
 
                         -- Dibujar glows por bin (no incrementa starsRendered)
+                        local levels = (MapConfig.stars and MapConfig.stars.colorBinLevels) or 12
                         for key, arr in pairs(binsGlow) do
                             if #arr > 0 then
                                 -- Restaurar color desde la clave si se desea, pero basta con fijar color una vez (ya cuantizado)
                                 local rStr, gStr, bStr, aStr = key:match("^(%d+)|(%d+)|(%d+)|(%d+)$")
-                                local levels = 16
                                 local r = (tonumber(rStr) or 0) / (levels - 1)
                                 local g = (tonumber(gStr) or 0) / (levels - 1)
                                 local b = (tonumber(bStr) or 0) / (levels - 1)
@@ -925,7 +927,6 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                             if #arr > 0 then
                                 if starsRendered >= maxStarsPerFrame then return end
                                 local rStr, gStr, bStr, aStr = key:match("^(%d+)|(%d+)|(%d+)|(%d+)$")
-                                local levels = 16
                                 local r = (tonumber(rStr) or 0) / (levels - 1)
                                 local g = (tonumber(gStr) or 0) / (levels - 1)
                                 local b = (tonumber(bStr) or 0) / (levels - 1)

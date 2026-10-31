@@ -4,6 +4,10 @@
 local WorldItems = {}
 WorldItems.__index = WorldItems
 
+local World = require('src.core.world')
+local MathUtil = require('src.utils.math_util')
+local ItemSystem = require('src.item_systems.item_system')
+
 -- Lista global de items en el mundo
 local worldItems = {}
 local nextItemId = 1
@@ -131,15 +135,12 @@ function WorldItems.draw(camera, playerX, playerY)
     
     local itemsRendered = 0
     local currentTime = love.timer.getTime()
+    local alpha = World and World.get('interpolationAlpha') or 1.0
     playerX = playerX or 0
     playerY = playerY or 0
     
     for _, item in ipairs(worldItems) do
         if item.alpha > 0 then
-            local World = require('src.core.world')
-            local MathUtil = require('src.utils.math_util')
-            local alpha = World and World.get('interpolationAlpha') or 1.0
-            
             -- Interpolar posición para renderizado suave
             local renderX = MathUtil.lerp(item.prevX or item.x, item.x, alpha)
             local renderY = MathUtil.lerp(item.prevY or item.y, item.y, alpha)
@@ -165,8 +166,7 @@ function WorldItems.draw(camera, playerX, playerY)
                         rarityColor = rarity.color
                     elseif type(rarity) == "string" then
                         -- Si es string, usar colores por defecto del sistema
-                        local ItemSystem = require("src.item_systems.item_system")
-                        local rarityData = ItemSystem.RARITY[rarity:upper()]
+                        local rarityData = ItemSystem.RARITY and ItemSystem.RARITY[rarity:upper()]
                         if rarityData and rarityData.color then
                             rarityColor = rarityData.color
                         end

@@ -6,6 +6,11 @@ local AncientRuinsRenderer = {}
 -- Dependencias
 local MapConfig = require 'src.maps.config.map_config'
 local ShaderManager = require 'src.shaders.shader_manager'
+local StationRingRenderer = require 'src.maps.systems.renderers.station_ring_renderer'
+local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
+local StationAxiomRenderer = require 'src.maps.systems.renderers.station_axiom_renderer'
+local StationElongatedRenderer = require 'src.maps.systems.renderers.station_elongated_renderer'
+local StationShaders = require 'src.shaders.station_shaders'
 
 -- Configuración específica para ancient ruins
 AncientRuinsRenderer.config = {
@@ -933,16 +938,12 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
     
     -- Renderizadores especializados 2.5D con parallax de subniveles (Megaestructuras Brutalistas Sci-Fi)
     if baseType == "ring" then
-        local StationRingRenderer = require 'src.maps.systems.renderers.station_ring_renderer'
         StationRingRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "modular" then
-        local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
         StationModularRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "axiom" then
-        local StationAxiomRenderer = require 'src.maps.systems.renderers.station_axiom_renderer'
         StationAxiomRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "elongated" then
-        local StationElongatedRenderer = require 'src.maps.systems.renderers.station_elongated_renderer'
         StationElongatedRenderer.render(placeholder, camera, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     else
         -- Usar shader si está disponible (solo para estaciones funcionales modulares/alargadas)
@@ -956,7 +957,6 @@ function AncientRuinsRenderer.renderPlaceholder(placeholder, camera, lod)
             local scale = (finalSize * 2) / math.max(1, iw)
 
             -- Usar StationShaders module para envío de uniforms optimizado por LOD
-            local StationShaders = require 'src.shaders.station_shaders'
             local lightAngle = (volumeEffects and volumeEffects.lighting and volumeEffects.lighting.gradientAngle) or 0
             local lightDir = {math.cos(lightAngle), math.sin(lightAngle)}
             local shapeType = (baseType == "modular") and 1 or 2
@@ -1083,8 +1083,6 @@ local function applyVolumeEffects(volumeEffects, finalSize, lod, lodConfig)
             0.3 * intensity
         )
         love.graphics.circle("fill", 0, 0, finalSize * 1.3, 20)
-        
-        love.graphics.setColor(love.graphics.getColor())
     end
 end
 
@@ -1102,15 +1100,12 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
     end
     
     if baseType == "ring" then
-        local StationRingRenderer = require 'src.maps.systems.renderers.station_ring_renderer'
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY }
         StationRingRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "modular" then
-        local StationModularRenderer = require 'src.maps.systems.renderers.station_modular_renderer'
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationModularRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "axiom" then
-        local StationAxiomRenderer = require 'src.maps.systems.renderers.station_axiom_renderer'
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationAxiomRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "elongated" then
@@ -1126,7 +1121,6 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
             local baseIntensity = (lod == 4) and 0.35 or 0.5
             love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
             love.graphics.ellipse("fill", 0, 0, finalSize * 1.8, finalSize * 0.6)
-            love.graphics.setColor(love.graphics.getColor())
         end
         
         -- Casco principal alargado (más detallado)
@@ -1150,7 +1144,6 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         love.graphics.circle("fill", -finalSize * 1.1, -finalSize * 0.18, finalSize * 0.08, segments)
         love.graphics.circle("fill", -finalSize * 1.1, finalSize * 0.18, finalSize * 0.08, segments)
         love.graphics.circle("fill", -finalSize * 1.2, 0, finalSize * 0.06, segments)
-        love.graphics.setColor(love.graphics.getColor())
         
         -- Estructuras laterales (alas/estabilizadores)
         love.graphics.polygon("fill", 
@@ -1186,7 +1179,6 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         love.graphics.circle("fill", -finalSize * 0.6, -finalSize * 0.7, finalSize * 0.03, 6)
         love.graphics.setColor(0.2, 0.8, 0.2, alpha)
         love.graphics.circle("fill", -finalSize * 0.6, finalSize * 0.7, finalSize * 0.03, 6)
-        love.graphics.setColor(love.graphics.getColor())
         
         love.graphics.pop()
         
@@ -1234,7 +1226,7 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
             elseif baseType == "elongated" then
                 love.graphics.ellipse("fill", 0, 0, finalSize * 1.6, finalSize * 0.5)
             end
-            love.graphics.setColor(love.graphics.getColor())
+            love.graphics.setColor(color[1], color[2], color[3], color[4] * alpha)
         end
         
         if baseType == "ring" then
@@ -1354,58 +1346,6 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         end
         
         love.graphics.pop()
-        
-    -- Renderizar según el tipo base (sin los tipos damaged/ruins separados)
-    elseif false then
-        -- Placeholder para mantener estructura
-        love.graphics.push()
-        love.graphics.translate(screenX, screenY)
-        love.graphics.rotate(rotation)
-        
-        -- Aplicar transformaciones de perspectiva 2.5D
-        love.graphics.scale(1.0, perspectiveData.scaleY)
-        
-        -- Aplicar inclinación (skew) para efecto 3D
-        love.graphics.shear(perspectiveData.skewX, 0)
-        
-        -- Resplandor específico para estación dañada (más visible, LOD 0-2 y LOD 4)
-        if glowColor and (lod <= 2 or lod == 4) then
-            local baseIntensity = (lod == 4) and 0.55 or 0.8
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
-            love.graphics.circle("fill", 0, 0, finalSize * 1.1, segments)
-            love.graphics.setColor(love.graphics.getColor())
-        end
-        
-        -- Estructura principal dañada
-        love.graphics.circle("fill", 0, 0, finalSize, segments)
-        
-        -- Daños estructurales (agujeros irregulares)
-        love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.circle("fill", finalSize * 0.3, -finalSize * 0.2, finalSize * 0.25, segments)
-        love.graphics.circle("fill", -finalSize * 0.4, finalSize * 0.1, finalSize * 0.18, segments)
-        love.graphics.circle("fill", finalSize * 0.1, finalSize * 0.4, finalSize * 0.15, segments)
-        
-        -- Restaurar color
-        love.graphics.setColor(love.graphics.getColor())
-        
-        -- Fragmentos flotantes cerca (cacheados)
-        local debris6 = getRuinsDebrisPolygons(seed)
-        for _, poly in ipairs(debris6) do
-            love.graphics.polygon("fill", 
-                poly[1] * finalSize, poly[2] * finalSize,
-                poly[3] * finalSize, poly[4] * finalSize,
-                poly[5] * finalSize, poly[6] * finalSize,
-                poly[7] * finalSize, poly[8] * finalSize
-            )
-        end
-        
-        -- Estructuras colgantes dañadas
-        love.graphics.setLineWidth(2)
-        love.graphics.line(finalSize * 0.6, -finalSize * 0.1, finalSize * 0.9, -finalSize * 0.3)
-        love.graphics.line(-finalSize * 0.5, finalSize * 0.2, -finalSize * 0.8, finalSize * 0.5)
-        
-        love.graphics.pop()
-
     end
     
     -- Aplicar efectos de fragmentos para estados de daño

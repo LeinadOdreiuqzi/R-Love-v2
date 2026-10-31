@@ -462,11 +462,7 @@ end
 -- NUEVO: obtener chunk sin bloquear (no genera si falta)
 function Map.getChunkNonBlocking(chunkX, chunkY)
     if ChunkManager and ChunkManager.getChunk then
-        local World = package.loaded['src.core.world']
-        local player = World and World.get and World.get('player')
-        local px = (player and player.x) or (Map.lastPlayerPosition and Map.lastPlayerPosition.x) or 0
-        local py = (player and player.y) or (Map.lastPlayerPosition and Map.lastPlayerPosition.y) or 0
-        return ChunkManager.getChunk(chunkX, chunkY, px, py)
+        return ChunkManager.getChunk(chunkX, chunkY, nil, nil)
     end
     -- Si no hay ChunkManager, devuelve el ya existente (si lo hay), pero no genera
     if Map.chunks and Map.chunks[chunkX] then

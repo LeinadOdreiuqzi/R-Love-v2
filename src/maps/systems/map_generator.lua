@@ -177,23 +177,6 @@ function MapGenerator.generateAsteroidBeltField(chunk, chunkX, chunkY, densities
         end
     end
     
-    -- Conexiones (sin RNG, solo distancia)
-    local connections = {}
-    for i = 1, #points do
-        connections[i] = {}
-        for j = i + 1, #points do
-            local dx = points[i].x - points[j].x
-            local dy = points[i].y - points[j].y
-            local dist = math.sqrt(dx * dx + dy * dy)
-            
-            if dist <= maxDistance and (points[i].size >= 0 or points[j].size >= 0) then
-                connections[i][j] = true
-                connections[j] = connections[j] or {}
-                connections[j][i] = true
-            end
-        end
-    end
-    
     -- Rellenar asteroides
     local asteroidsPlaced = 0
     local minAsteroids = math.floor(size * size * baseDensity * 0.5)
@@ -473,18 +456,6 @@ function MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, densities
                 threshold = 0.18
             end
 
-            -- Asignación de tamaños (orden descendente)
-            if combinedNoise > (threshold + 0.18) then
-                row[x] = O.ASTEROID_LARGE
-                placed = placed + 1
-            elseif combinedNoise > (threshold + 0.08) then
-                row[x] = O.ASTEROID_MEDIUM
-                placed = placed + 1
-            elseif combinedNoise > threshold then
-                row[x] = O.ASTEROID_SMALL
-                placed = placed + 1
-            end
-            
             -- Asignación de tamaños con sesgo por pasos (steps) y bias
             local largeStep = (steps.large or 0.18) - (largeBias or 0.0)
             local mediumStep = (steps.medium or 0.08) - (mediumBias or 0.0)

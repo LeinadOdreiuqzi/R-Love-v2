@@ -689,16 +689,18 @@ local function drawRuinsCatastrophe(cx, cy, L, pParams, alpha, seed)
     love.graphics.line(dBowCutT[1], dBowCutT[2], dBowCutT[1] - 8, dBowCutT[2] + 4)
     love.graphics.line(dBowCutB[1], dBowCutB[2], dBowCutB[1] - 6, dBowCutB[2] - 5)
 
-    -- Escombros poligonales
-    love.math.setRandomSeed(seed + 9876)
+    -- Escombros poligonales (deterministas sin mutar la semilla global)
     for d = 1, 7 do
         local frac = 0.12 + d * 0.13
         local debX = cutX + frac * (driftDistX - cutX)
-        local debY = -L * 0.06 + (love.math.random() - 0.5) * (L * 0.18)
-        local debZ = (love.math.random() - 0.5) * (L * 0.10)
+        local r1 = math.sin((seed or 0) * 1.13 + d * 19.73) * 0.5
+        local r2 = math.cos((seed or 0) * 0.89 + d * 31.17) * 0.5
+        local r3 = ((seed or 0) * 0.37 + d * 2.39996) % (math.pi * 2)
+        local debY = -L * 0.06 + r1 * (L * 0.18)
+        local debZ = r2 * (L * 0.10)
 
         local dx, dy = projectPoint(cx, cy, debX, debY, debZ, pP)
-        local debRot = (love.math.random() * math.pi * 2)
+        local debRot = r3
 
         love.graphics.push()
         love.graphics.translate(dx, dy)

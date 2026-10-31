@@ -216,52 +216,6 @@ function StarShader.setType(starType)
         quadMul = 0.9
     end
 
-    local quadMul = 2.8 -- no se envía al shader; lo usa el CPU para el tamaño del quad
-
-    if starType == 4 then
-        haloSize = 1.2
-        coreSize = 0.55
-        flareStrength = 0.25
-        crossSharpness = 6.0
-        corePower = 0.95
-        haloPower = 0.30
-        quadMul = 3.2
-    elseif starType == 1 then
-        haloSize = 1.25
-        coreSize = 0.6
-        flareStrength = 0.10
-        crossSharpness = 10.0
-        corePower = 0.9
-        haloPower = 0.30
-        quadMul = 2.6
-    elseif starType == 2 then
-        -- Estrella mediana con efecto pulsante
-        haloSize = 1.35
-        coreSize = 0.5
-        flareStrength = 0.08
-        crossSharpness = 20.0
-        corePower = 1.2
-        haloPower = 0.45
-        quadMul = 2.8
-    elseif starType == 3 then
-        -- Estrella con patrón de rombo sutil
-        haloSize = 1.2
-        coreSize = 0.7
-        flareStrength = 0.35
-        crossSharpness = 2.5
-        corePower = 0.85
-        haloPower = 0.25
-        quadMul = 3.0
-    else
-        haloSize = 1.3
-        coreSize = 0.58
-        flareStrength = 0.18
-        crossSharpness = 8.0
-        corePower = 0.95
-        haloPower = 0.35
-        quadMul = 3.0
-    end
-
     -- Multiplicadores globales
     local haloMul = StarShader.settings.haloMultiplier or 1.0
     local flareMul = StarShader.settings.flareMultiplier or 1.0

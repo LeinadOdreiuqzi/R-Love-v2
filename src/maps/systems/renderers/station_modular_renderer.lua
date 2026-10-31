@@ -631,13 +631,13 @@ local function drawModularArm(cx, cy, R, armAngle, pParams, alpha, isSevered, da
         drawTerminalModule(driftCx, driftCy, armAngle + math.rad(28), 0.95, alpha * 0.92, true)
 
         -- Escombros de blindaje poligonales auténticos flotando entre el muñón y la ciudadela
-        love.math.setRandomSeed(seed + armIdx * 123)
         for d = 1, 5 do
             local frac = 0.18 + d * 0.15
             local debR = currentEndR + frac * (driftDist - currentEndR)
-            local debA = armAngle + (love.math.random() - 0.5) * 0.14
+            local r1 = math.sin((seed or 0) * 0.91 + armIdx * 37.1 + d * 13.7) * 0.5
+            local debA = armAngle + r1 * 0.14
             local dx, dy = projectPoint(cx, cy, debR, debA, zTop - R * 0.02, yF, zS, skX, skY)
-            local debRot = (love.math.random() * math.pi * 2)
+            local debRot = ((seed or 0) * 0.53 + armIdx * 1.7 + d * 2.39996) % (math.pi * 2)
 
             -- Fragmento trapezoidal de placa de blindaje biselada
             love.graphics.push()
