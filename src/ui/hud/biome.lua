@@ -143,9 +143,13 @@ function HUD.drawBiomeInfoPanel()
             local displayText = HUD.hudState.stringPool[stringKey]
             if not displayText then
                 displayText = string.format("%s (%d m)", biome.name, distance)
-                if #HUD.hudState.stringPool < HUD.hudState.performance.maxStringPoolSize then
-                    HUD.hudState.stringPool[stringKey] = displayText
+                local currentCount = HUD.hudState.stringPoolCount or 0
+                if currentCount >= HUD.hudState.performance.maxStringPoolSize then
+                    HUD.hudState.stringPool = {}
+                    currentCount = 0
                 end
+                HUD.hudState.stringPool[stringKey] = displayText
+                HUD.hudState.stringPoolCount = currentCount + 1
             end
             
             local alpha = 1.0

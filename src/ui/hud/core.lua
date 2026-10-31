@@ -26,6 +26,7 @@ HUD.hudState = {
   },
 
   stringPool = {},
+  stringPoolCount = 0,
 
   performance = {
     enableCaching = true,

@@ -98,6 +98,10 @@ function StationScene:determineLightingMode(room)
     -- 2. Si la estación como entidad cósmica (placeholder) declara su estado:
     if self.placeholder then
         local ds = self.placeholder.damageState
+        if not ds and self.placeholder.complexType then
+            local _, state = tostring(self.placeholder.complexType):match("([^_]+)_(.+)")
+            ds = state
+        end
         if ds == "damaged" or ds == "ruins" or self.placeholder.operational == false or self.placeholder.isOperational == false then
             return "damaged"
         elseif ds == "operational" or self.placeholder.operational == true or self.placeholder.isOperational == true then

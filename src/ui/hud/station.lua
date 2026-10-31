@@ -261,7 +261,11 @@ function HUD.drawBoardingHint()
     end
 
     local prompt = "[E] ABORDAR " .. shipName:upper()
-    local healthPct = (ship.stats and ship.stats.health) and math.floor(ship.stats.health.currentHealth) or 100
+    local healthPct = (ship.stats and ship.stats.getHealthPercentage)
+        and math.floor(ship.stats:getHealthPercentage())
+        or ((ship.stats and ship.stats.health and ship.stats.health.maxHealth and ship.stats.health.maxHealth > 0)
+            and math.floor((ship.stats.health.currentHealth / ship.stats.health.maxHealth) * 100)
+            or 100)
     local subText = string.format("Clase: %s | Casco: %d%% | Combustible: %d",
         shipType, healthPct, (ship.stats and ship.stats.fuel) and math.floor(ship.stats.fuel.currentFuel) or 0)
 

@@ -14,14 +14,6 @@ local function compileShaderFile(path)
     if love.filesystem.getInfo and love.filesystem.getInfo(path) then
         code = love.filesystem.read(path)
     end
-    if not code then
-        local altPath = 'c:/Users/sherd/OneDrive/Desktop/JuegoProyectoLove/R-Love-v2/' .. path
-        local f = io.open(altPath, 'r')
-        if f then
-            code = f:read('*all')
-            f:close()
-        end
-    end
 
     if code then
         local ok, s = pcall(love.graphics.newShader, code)

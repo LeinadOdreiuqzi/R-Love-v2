@@ -74,6 +74,15 @@ function InputManager.keypressed(key)
     if stateManager and stateManager.keypressed and stateManager:keypressed(key) then
         return
     end
+    if stateManager and stateManager.blocksUnderlying and stateManager:blocksUnderlying() then
+        -- Permitir solo atajos globales esenciales de ventana/pausa cuando la escena bloquea el Overworld
+        if key == "escape" or key == "p" then
+            PauseMenu.toggle()
+        elseif (key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))) or key == "f11" then
+            toggleFullscreen()
+        end
+        return
+    end
 
     -- 4. ATAJOS GLOBALES (SIEMPRE ACTIVOS)
     if key == "escape" then

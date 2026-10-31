@@ -10,49 +10,11 @@ function RingBackground.new()
     local self = setmetatable({}, RingBackground)
     self.time = 0
     self.spin = 0
-    self.shader = nil
-    self.shaderLoaded = false
 
-    -- Intentar compilar el shader GLSL especializado
-    self:initShader()
-
-    -- Estrellas procedurales para fallback y capas auxiliares
+    -- Estrellas procedurales y capas auxiliares del fondo definitivo
     self:initStars()
 
     return self
-end
-
-function RingBackground:initShader()
-    local shaderPath = 'src/shaders/ring_station_bg.glsl'
-    local code = nil
-    if love.filesystem.getInfo and love.filesystem.getInfo(shaderPath) then
-        code = love.filesystem.read(shaderPath)
-    end
-    if not code then
-        local paths = {
-            shaderPath,
-            'c:/Users/sherd/OneDrive/Desktop/JuegoProyectoLove/R-Love-v2/' .. shaderPath,
-        }
-        for _, p in ipairs(paths) do
-            local f = io.open(p, 'r')
-            if f then
-                code = f:read('*all')
-                f:close()
-                break
-            end
-        end
-    end
-
-    if code then
-        local ok, s = pcall(love.graphics.newShader, code)
-        if ok and s then
-            self.shader = s
-            self.shaderLoaded = true
-        else
-            print("[RingBackground] Error compilando shader:", tostring(s))
-            self.shaderError = tostring(s)
-        end
-    end
 end
 
 function RingBackground:initStars()
@@ -138,34 +100,6 @@ function RingBackground:draw(camX, camY, viewW, viewH, currentRoom)
 
     -- Renderizado procedural continuo nativo (diseño canónico y pixel-art puro de la estación)
     self:drawProceduralFallback(camX, camY, viewW, viewH, currentRoom)
-end
-
-function RingBackground:drawShader(camX, camY, viewW, viewH, currentRoom)
-    local s = self.shader
-    love.graphics.setShader(s)
-
-    local okSend = pcall(function()
-        if s:hasUniform("u_time") then s:send("u_time", self.time) end
-        if s:hasUniform("u_camera") then s:send("u_camera", { camX, camY }) end
-        if s:hasUniform("u_resolution") then s:send("u_resolution", { viewW, viewH }) end
-        if s:hasUniform("u_spin") then s:send("u_spin", self.spin) end
-        if s:hasUniform("u_accent") then
-            local a = (currentRoom and currentRoom.accent) or { 0.35, 0.78, 1.00 }
-            s:send("u_accent", { a[1], a[2], a[3] })
-        end
-    end)
-
-    if okSend then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.rectangle('fill', 0, 0, viewW, viewH)
-    else
-        -- Si falló el envío de uniforms, recurrir al render procedural
-        love.graphics.setShader()
-        self:drawProceduralFallback(camX, camY, viewW, viewH, currentRoom)
-        return
-    end
-
-    love.graphics.setShader()
 end
 
 -- Render procedural puro para hardware sin soporte de shader

@@ -1870,7 +1870,11 @@ function BiomeSystem.getAdvancedStats()
         rarityDistribution = {},
         seed = BiomeSystem.seed,
         numericSeed = BiomeSystem.numericSeed,
-        worldLimits = BiomeSystem.WORLD_LIMIT
+        worldLimits = BiomeSystem.WORLD_LIMIT,
+        playerStats = {
+            biomeChanges = (BiomeSystem.debugInfo and BiomeSystem.debugInfo.biomeChangeCount) or 0,
+            currentBiome = BiomeSystem.debugInfo and BiomeSystem.debugInfo.lastPlayerBiome or nil
+        }
     }
     
     for biomeType, config in pairs(BiomeSystem.biomeConfigs) do
