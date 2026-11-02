@@ -30,7 +30,7 @@ local KINETIC_PROJECTILE_CONFIG = {
     glow_color = {1, 0.9, 0.5, 0.6}, -- Resplandor dorado
     particle_count = 3, -- Pocas partículas para efecto limpio
     trail_length = 8, -- Estela larga por la velocidad
-    penetration = true, -- Puede penetrar objetivos
+    penetration = false, -- Impacta y detiene en objetivos sólidos
     armor_piercing = 0.3 -- 30% de penetración de armadura
 }
 

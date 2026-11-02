@@ -334,6 +334,11 @@ function Naves:updatePassivePhysics(dt)
     self.x = self.x + self.dx * dt * 60
     self.y = self.y + self.dy * dt * 60
 
+    -- Resolver colisiones contra asteroides para naves a la deriva
+    if self.resolveAsteroidCollisions then
+        self:resolveAsteroidCollisions(dt)
+    end
+
     -- Suave deriva rotacional para naves abandonadas / a la deriva
     if self.driftAngularSpeed then
         self.rotation = (self.rotation or 0) + self.driftAngularSpeed * dt
@@ -645,6 +650,9 @@ function Naves:update(dt)
         self.x = newX
         self.y = newY
     end
+
+    -- Resolver colisiones físicas nave-asteroide
+    self:resolveAsteroidCollisions(dt)
     
     -- Thruster particles have been removed
     
@@ -653,6 +661,155 @@ function Naves:update(dt)
     
     -- Actualizar proyectiles
     self:updateProjectiles(dt)
+end
+
+function Naves:resolveAsteroidCollisions(dt)
+    local okSub, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
+    if okSub and SubLevelManager and SubLevelManager.getStatus then
+        local status = SubLevelManager.getStatus()
+        if status and status.active then return end
+    end
+
+    local Map = package.loaded['src.maps.map']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if not Map or not Map.getChunkNonBlocking or not MapConfig then return end
+
+    local ws = MapConfig.chunk.worldScale or 1.0
+    local tileSizeScaled = MapConfig.chunk.tileSize * ws
+    local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+    local strideScaled = (sizePixels + (MapConfig.chunk.spacing or 0)) * ws
+    local baseSizes = (MapConfig.asteroids and MapConfig.asteroids.baseSizes) or {8, 15, 25}
+    local sizeScale = (MapConfig.asteroids and MapConfig.asteroids.sizeScale) or 1.0
+
+    local px, py = self.x or 0, self.y or 0
+    local shipRadius = (self.size or 14) * (self.worldScale or 1) * 0.85
+    local margin = shipRadius + (baseSizes[3] or 25) * sizeScale * ws * 1.4
+
+    local minCX = math.floor((px - margin) / strideScaled)
+    local maxCX = math.floor((px + margin) / strideScaled)
+    local minCY = math.floor((py - margin) / strideScaled)
+    local maxCY = math.floor((py + margin) / strideScaled)
+
+    for cy = minCY, maxCY do
+        for cx = minCX, maxCX do
+            local chunk = Map.getChunkNonBlocking(cx, cy)
+            if chunk and chunk.tiles then
+                local chunkBaseX = cx * strideScaled
+                local chunkBaseY = cy * strideScaled
+                local chunkBaseTileX = cx * MapConfig.chunk.size
+                local chunkBaseTileY = cy * MapConfig.chunk.size
+
+                local minTX = math.max(0, math.floor((px - margin - chunkBaseX) / tileSizeScaled))
+                local maxTX = math.min(MapConfig.chunk.size - 1, math.ceil((px + margin - chunkBaseX) / tileSizeScaled))
+                local minTY = math.max(0, math.floor((py - margin - chunkBaseY) / tileSizeScaled))
+                local maxTY = math.min(MapConfig.chunk.size - 1, math.ceil((py + margin - chunkBaseY) / tileSizeScaled))
+
+                for ty = minTY, maxTY do
+                    local row = chunk.tiles[ty]
+                    if row then
+                        local astY = chunkBaseY + ty * tileSizeScaled
+                        local globalY = chunkBaseTileY + ty
+                        for tx = minTX, maxTX do
+                            local tileType = row[tx]
+                            if tileType and tileType >= MapConfig.ObjectType.ASTEROID_SMALL and tileType <= MapConfig.ObjectType.ASTEROID_LARGE then
+                                local astX = chunkBaseX + tx * tileSizeScaled
+                                local globalX = chunkBaseTileX + tx
+                                local baseSize = (baseSizes[tileType] or 15) * sizeScale * ws
+                                local state = (globalX * 1103515245 + globalY * 12345 + tileType * 2654435761) % 4294967296
+                                state = (state * 1664525 + 1013904223) % 4294967296
+                                local r1 = state / 4294967296
+                                local astRadius = baseSize * (0.8 + r1 * 0.4) * 0.85
+
+                                local dx = self.x - astX
+                                local dy = self.y - astY
+                                local distSq = dx * dx + dy * dy
+                                local minDist = shipRadius + astRadius
+                                if distSq < minDist * minDist then
+                                    local dist = math.sqrt(distSq)
+                                    local nx, ny = 1, 0
+                                    if dist > 0.0001 then
+                                        nx, ny = dx / dist, dy / dist
+                                    end
+                                    local overlap = minDist - dist
+                                    self.x = self.x + nx * overlap
+                                    self.y = self.y + ny * overlap
+
+                                    local vn = (self.dx or 0) * nx + (self.dy or 0) * ny
+                                    if vn < 0 then
+                                        local impactSpeed = -vn
+                                        local restitution = 0.55
+                                        self.dx = ((self.dx or 0) - (1 + restitution) * vn * nx) * 0.85
+                                        self.dy = ((self.dy or 0) - (1 + restitution) * vn * ny) * 0.85
+
+                                        local now = love.timer.getTime()
+                                        if impactSpeed > 18 and (now - (self._lastImpactDamageTime or 0)) > 0.35 then
+                                            self._lastImpactDamageTime = now
+                                            local dmg = math.max(1, (impactSpeed - 18) * 0.35)
+                                            self:takeDamage(dmg)
+                                            if self.addImpactEffect then
+                                                self:addImpactEffect(self.x - nx * shipRadius, self.y - ny * shipRadius, {1.0, 0.75, 0.3, 1.0})
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Colisión de nave contra objetos sólidos especiales (mega_asteroid, estaciones, dead_star)
+    for cy = minCY - 1, maxCY + 1 do
+        for cx = minCX - 1, maxCX + 1 do
+            local chunk = Map.getChunkNonBlocking(cx, cy)
+            if chunk and chunk.specialObjects then
+                local chunkBaseX = cx * strideScaled
+                local chunkBaseY = cy * strideScaled
+                for i = 1, #chunk.specialObjects do
+                    local obj = chunk.specialObjects[i]
+                    if obj and (obj.type == "mega_asteroid" or obj.type == "ancient_station" or obj.type == "dead_star" or obj.type == MapConfig.ObjectType.STATION) then
+                        local objX = chunkBaseX + (obj.x or 0) * ws
+                        local objY = chunkBaseY + (obj.y or 0) * ws
+                        local objRadius = (obj.size or 30) * 0.85
+                        local dx = self.x - objX
+                        local dy = self.y - objY
+                        local distSq = dx * dx + dy * dy
+                        local minDist = shipRadius + objRadius
+                        if distSq < minDist * minDist then
+                            local dist = math.sqrt(distSq)
+                            local nx, ny = 1, 0
+                            if dist > 0.0001 then
+                                nx, ny = dx / dist, dy / dist
+                            end
+                            local overlap = minDist - dist
+                            self.x = self.x + nx * overlap
+                            self.y = self.y + ny * overlap
+
+                            local vn = (self.dx or 0) * nx + (self.dy or 0) * ny
+                            if vn < 0 then
+                                local impactSpeed = -vn
+                                local restitution = 0.55
+                                self.dx = ((self.dx or 0) - (1 + restitution) * vn * nx) * 0.85
+                                self.dy = ((self.dy or 0) - (1 + restitution) * vn * ny) * 0.85
+
+                                local now = love.timer.getTime()
+                                if impactSpeed > 18 and (now - (self._lastImpactDamageTime or 0)) > 0.35 then
+                                    self._lastImpactDamageTime = now
+                                    local dmg = math.max(1, (impactSpeed - 18) * 0.35)
+                                    self:takeDamage(dmg)
+                                    if self.addImpactEffect then
+                                        self:addImpactEffect(self.x - nx * shipRadius, self.y - ny * shipRadius, {1.0, 0.75, 0.3, 1.0})
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 function Naves:handleInput()
@@ -1638,40 +1795,99 @@ function Naves.switchToShip(targetShip, currentShip)
 end
 
 --[[
-    Actualiza todos los proyectiles activos
+    Registra un destello y chispas de impacto en coordenadas del mundo
+--]]
+function Naves:addImpactEffect(x, y, color)
+    self.impactEffects = self.impactEffects or {}
+    if #self.impactEffects >= 24 then
+        table.remove(self.impactEffects, 1)
+    end
+    local c = color or {1.0, 0.45, 0.25, 1.0}
+    local sparks = {}
+    for i = 1, 6 do
+        local a = (i / 6) * math.pi * 2 + (math.random() - 0.5) * 0.45
+        local spd = 35 + math.random() * 55
+        sparks[i] = {
+            vx = math.cos(a) * spd,
+            vy = math.sin(a) * spd
+        }
+    end
+    table.insert(self.impactEffects, {
+        x = x,
+        y = y,
+        age = 0,
+        duration = 0.22,
+        color = {c[1] or 1, c[2] or 0.5, c[3] or 0.3},
+        sparks = sparks
+    })
+end
+
+--[[
+    Actualiza todos los proyectiles activos y efectos de impacto
     @param dt: tiempo delta
 --]]
 function Naves:updateProjectiles(dt)
+    if self.impactEffects then
+        for i = #self.impactEffects, 1, -1 do
+            local eff = self.impactEffects[i]
+            eff.age = eff.age + dt
+            if eff.age >= eff.duration then
+                table.remove(self.impactEffects, i)
+            end
+        end
+    end
+
     if not self.projectiles then
         return
     end
     
-    -- Actualizar proyectiles y remover los destruidos
+    -- Actualizar proyectiles y remover los destruidos en el mismo frame
     for i = #self.projectiles, 1, -1 do
         local projectile = self.projectiles[i]
         
         if projectile:isDestroyed() then
-            -- Remover proyectil destruido
             table.remove(self.projectiles, i)
         else
-            -- Actualizar proyectil activo
             projectile:update(dt)
+            if projectile:isDestroyed() then
+                table.remove(self.projectiles, i)
+            end
         end
     end
 end
 
 --[[
-    Renderiza todos los proyectiles activos
+    Renderiza todos los proyectiles activos y efectos de impacto
 --]]
 function Naves:drawProjectiles()
-    if not self.projectiles then
-        return
-    end
-    
-    for _, projectile in ipairs(self.projectiles) do
-        if not projectile:isDestroyed() then
-            projectile:draw()
+    if self.projectiles then
+        for _, projectile in ipairs(self.projectiles) do
+            if not projectile:isDestroyed() then
+                projectile:draw()
+            end
         end
+    end
+
+    if self.impactEffects and #self.impactEffects > 0 then
+        local r, g, b, a = love.graphics.getColor()
+        for i = 1, #self.impactEffects do
+            local eff = self.impactEffects[i]
+            local k = math.min(1, eff.age / eff.duration)
+            local alpha = 1.0 - k
+            local radius = 3 + k * 14
+            love.graphics.setColor(eff.color[1], eff.color[2], eff.color[3], alpha * 0.75)
+            love.graphics.circle("line", eff.x, eff.y, radius)
+            love.graphics.setColor(1, 1, 1, alpha * 0.9)
+            love.graphics.circle("fill", eff.x, eff.y, (1.0 - k) * 4)
+            for s = 1, #eff.sparks do
+                local sp = eff.sparks[s]
+                local sx = eff.x + sp.vx * eff.age
+                local sy = eff.y + sp.vy * eff.age
+                love.graphics.setColor(eff.color[1], eff.color[2], eff.color[3], alpha)
+                love.graphics.circle("fill", sx, sy, 1.5 * alpha)
+            end
+        end
+        love.graphics.setColor(r, g, b, a)
     end
 end
 
@@ -1727,12 +1943,12 @@ function Naves:shoot(mouseX, mouseY)
     local angle = math.atan2(dy, dx)
     
     -- Crear el proyectil, aplicando límites si estamos en subnivel
-    local custom_config = nil
+    local custom_config = { owner = self }
     local ok, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
     if ok and SubLevelManager and SubLevelManager.getStatus then
         local status = SubLevelManager.getStatus()
         if status and status.active then
-            custom_config = { world_bounds = { min_x = -20000, max_x = 20000, min_y = -20000, max_y = 20000 } }
+            custom_config.world_bounds = { min_x = -20000, max_x = 20000, min_y = -20000, max_y = 20000 }
         end
     end
 

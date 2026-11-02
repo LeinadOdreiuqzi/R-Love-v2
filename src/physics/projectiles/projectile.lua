@@ -54,6 +54,8 @@ function Projectile.new(world, x, y, angle, speed, config)
     -- Propiedades físicas
     self.x = x
     self.y = y
+    self.prevX = x
+    self.prevY = y
     self.angle = angle
     self.speed = speed
     self.initial_velocity_x = math.cos(angle) * speed
@@ -69,7 +71,15 @@ function Projectile.new(world, x, y, angle, speed, config)
     self.distance_traveled = 0
     
     -- Propiedades de daño y efectos
-    self.damage = self.config.damage or 10
+    local rawDamage = self.config.damage
+    if type(rawDamage) == "table" then
+        local minD = tonumber(rawDamage.min or rawDamage[1]) or 10
+        local maxD = tonumber(rawDamage.max or rawDamage[2]) or minD
+        self.damage = (maxD > minD) and (minD + math.random() * (maxD - minD)) or minD
+    else
+        self.damage = tonumber(rawDamage) or 10
+    end
+    self.owner = self.config.owner
     self.explosion_radius = self.config.explosion_radius or 0
     self.penetration = self.config.penetration or false
     
@@ -223,6 +233,12 @@ function Projectile:update(dt)
         self:updateDistanceTraveled(dt)
     end
     
+    -- Verificar colisiones espaciales contra naves y asteroides
+    self:checkSpatialCollisions()
+    if self.state == ProjectileState.DESTROYED then
+        return
+    end
+
     -- Verificar condiciones de destrucción
     self:checkDestructionConditions()
     
@@ -243,6 +259,260 @@ function Projectile:updateDistanceTraveled(dt)
         local vx, vy = self.body:getLinearVelocity()
         local speed = math.sqrt(vx * vx + vy * vy)
         self.distance_traveled = self.distance_traveled + (speed * dt)
+    end
+end
+
+-- Distancia mínima al cuadrado entre un punto (cx, cy) y el segmento (x1, y1) -> (x2, y2)
+local function distSqPointToSegment(cx, cy, x1, y1, x2, y2)
+    local vx = x2 - x1
+    local vy = y2 - y1
+    local lenSq = vx * vx + vy * vy
+    if lenSq <= 0.0001 then
+        local dx = cx - x1
+        local dy = cy - y1
+        return dx * dx + dy * dy, x1, y1
+    end
+    local t = ((cx - x1) * vx + (cy - y1) * vy) / lenSq
+    if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    local hitX = x1 + t * vx
+    local hitY = y1 + t * vy
+    local dx = cx - hitX
+    local dy = cy - hitY
+    return dx * dx + dy * dy, hitX, hitY
+end
+
+--[[
+    Comprueba colisiones espaciales continuas (raycast por segmento) contra naves, asteroides y estaciones
+--]]
+function Projectile:checkSpatialCollisions()
+    if self.state == ProjectileState.DESTROYED then return end
+
+    local px, py = self:getPosition()
+    local x1 = self.prevX or px
+    local y1 = self.prevY or py
+    self.prevX = px
+    self.prevY = py
+
+    local projRadius = math.max(3, (self.config and (self.config.radius or self.config.size)) or 3)
+    local World = package.loaded['src.core.world']
+
+    -- 1. Colisión continua contra naves (distintas al propietario del proyectil)
+    local Naves = package.loaded['src.entities.naves']
+    if Naves and Naves.getAllShips then
+        local ships = Naves.getAllShips()
+        for i = 1, #ships do
+            local ship = ships[i]
+            if ship and ship ~= self.owner and ship.x and ship.y then
+                local shipRadius = math.max(15, (ship.size or 14) * 1.15)
+                local hitDist = shipRadius + projRadius
+                local distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
+                if distSq <= (hitDist * hitDist) then
+                    if ship.takeDamage then
+                        ship:takeDamage(self.damage)
+                    end
+                    local angle = self.angle or self:getAngle()
+                    ship.dx = (ship.dx or 0) + math.cos(angle) * 2.0
+                    ship.dy = (ship.dy or 0) + math.sin(angle) * 2.0
+
+                    if self.owner and self.owner.addImpactEffect then
+                        self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
+                    end
+                    self.x, self.y = hitX, hitY
+                    self:destroy("ship_hit")
+                    return
+                end
+            end
+        end
+    end
+
+    -- 2. Colisión contra estructuras en subniveles si estamos en un subnivel activo
+    local okSub, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
+    if okSub and SubLevelManager and SubLevelManager.getStatus then
+        local status = SubLevelManager.getStatus()
+        if status and status.active then
+            local meta = status.current and status.current.meta
+            if meta and meta.subworldId == "stations_debug" then
+                local StationsDebugWorld = package.loaded['src.sublevels.stations_debug_world']
+                if StationsDebugWorld and StationsDebugWorld.stations then
+                    for i = 1, #StationsDebugWorld.stations do
+                        local st = StationsDebugWorld.stations[i]
+                        if st and st.x and st.y then
+                            local stRadius = (st.size or 120) * 0.45
+                            local hitDist = stRadius + projRadius
+                            local distSq, hitX, hitY = distSqPointToSegment(st.x, st.y, x1, y1, px, py)
+                            if distSq <= (hitDist * hitDist) then
+                                local audio = World and ((World.getAudio and World.getAudio()) or World.get('audio'))
+                                if audio and audio.play then
+                                    audio.play("hit", { volume = 0.5, pitchVariation = 0.1 })
+                                end
+                                if self.owner and self.owner.addImpactEffect then
+                                    self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
+                                end
+                                self.x, self.y = hitX, hitY
+                                self:destroy("station_hit")
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+            return
+        end
+    end
+
+    local Map = package.loaded['src.maps.map']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if not Map or not Map.getChunkNonBlocking or not MapConfig then return end
+
+    local ws = MapConfig.chunk.worldScale or 1.0
+    local tileSizeScaled = MapConfig.chunk.tileSize * ws
+    local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+    local strideScaled = (sizePixels + (MapConfig.chunk.spacing or 0)) * ws
+    local baseSizes = (MapConfig.asteroids and MapConfig.asteroids.baseSizes) or {8, 15, 25}
+    local sizeScale = (MapConfig.asteroids and MapConfig.asteroids.sizeScale) or 1.0
+
+    local segMinX = math.min(x1, px)
+    local segMaxX = math.max(x1, px)
+    local segMinY = math.min(y1, py)
+    local segMaxY = math.max(y1, py)
+
+    local margin = projRadius + (baseSizes[3] or 25) * sizeScale * ws * 1.45
+    local minCX = math.floor((segMinX - margin) / strideScaled)
+    local maxCX = math.floor((segMaxX + margin) / strideScaled)
+    local minCY = math.floor((segMinY - margin) / strideScaled)
+    local maxCY = math.floor((segMaxY + margin) / strideScaled)
+
+    local audio = World and ((World.getAudio and World.getAudio()) or World.get('audio'))
+
+    -- 2A. Asteroides en la rejilla de tiles del chunk
+    for cy = minCY, maxCY do
+        for cx = minCX, maxCX do
+            local chunk = Map.getChunkNonBlocking(cx, cy)
+            if chunk and chunk.tiles then
+                local chunkBaseX = cx * strideScaled
+                local chunkBaseY = cy * strideScaled
+                local chunkBaseTileX = cx * MapConfig.chunk.size
+                local chunkBaseTileY = cy * MapConfig.chunk.size
+
+                local minTX = math.max(0, math.floor((segMinX - margin - chunkBaseX) / tileSizeScaled))
+                local maxTX = math.min(MapConfig.chunk.size - 1, math.ceil((segMaxX + margin - chunkBaseX) / tileSizeScaled))
+                local minTY = math.max(0, math.floor((segMinY - margin - chunkBaseY) / tileSizeScaled))
+                local maxTY = math.min(MapConfig.chunk.size - 1, math.ceil((segMaxY + margin - chunkBaseY) / tileSizeScaled))
+
+                for ty = minTY, maxTY do
+                    local row = chunk.tiles[ty]
+                    if row then
+                        local astY = chunkBaseY + ty * tileSizeScaled
+                        local globalY = chunkBaseTileY + ty
+                        for tx = minTX, maxTX do
+                            local tileType = row[tx]
+                            if tileType and tileType >= MapConfig.ObjectType.ASTEROID_SMALL and tileType <= MapConfig.ObjectType.ASTEROID_LARGE then
+                                local astX = chunkBaseX + tx * tileSizeScaled
+                                local globalX = chunkBaseTileX + tx
+                                local baseSize = (baseSizes[tileType] or 15) * sizeScale * ws
+                                local state = (globalX * 1103515245 + globalY * 12345 + tileType * 2654435761) % 4294967296
+                                state = (state * 1664525 + 1013904223) % 4294967296
+                                local r1 = state / 4294967296
+                                local astRadius = baseSize * (0.8 + r1 * 0.4) * 1.05
+
+                                local hitDist = astRadius + projRadius
+                                local distSq, hitX, hitY = distSqPointToSegment(astX, astY, x1, y1, px, py)
+                                if distSq <= (hitDist * hitDist) then
+                                    chunk.asteroidHP = chunk.asteroidHP or {}
+                                    local hpKey = ty * MapConfig.chunk.size + tx
+                                    local defaultHP = (tileType == 1 and 25) or (tileType == 2 and 60) or 130
+                                    local curHP = (chunk.asteroidHP[hpKey] or defaultHP) - (self.damage or 10)
+
+                                    if curHP <= 0 then
+                                        if tileType == MapConfig.ObjectType.ASTEROID_LARGE then
+                                            row[tx] = MapConfig.ObjectType.ASTEROID_MEDIUM
+                                            chunk.asteroidHP[hpKey] = 60
+                                        else
+                                            row[tx] = MapConfig.ObjectType.EMPTY
+                                            chunk.asteroidHP[hpKey] = nil
+                                        end
+                                        if audio and audio.play then
+                                            audio.play("explosion", { volume = 0.55, pitchVariation = 0.12 })
+                                        end
+                                    else
+                                        chunk.asteroidHP[hpKey] = curHP
+                                        if audio and audio.play then
+                                            audio.play("hit", { volume = 0.45, pitchVariation = 0.12 })
+                                        end
+                                    end
+
+                                    if self.owner and self.owner.addImpactEffect then
+                                        self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
+                                    end
+                                    self.x, self.y = hitX, hitY
+                                    self:destroy("asteroid_hit")
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2B y 2C. Objetos especiales y grandes estructuras (pueden solaparse desde chunks adyacentes)
+    for cy = minCY - 2, maxCY + 2 do
+        for cx = minCX - 2, maxCX + 2 do
+            local chunk = Map.getChunkNonBlocking(cx, cy)
+            if chunk then
+                local chunkBaseX = cx * strideScaled
+                local chunkBaseY = cy * strideScaled
+
+                -- Objetos sólidos especiales del chunk (mega_asteroid, estaciones, dead_star)
+                if chunk.specialObjects then
+                    for i = 1, #chunk.specialObjects do
+                        local obj = chunk.specialObjects[i]
+                        if obj and (obj.type == "mega_asteroid" or obj.type == "ancient_station" or obj.type == "dead_star" or obj.type == MapConfig.ObjectType.STATION) then
+                            local objX = chunkBaseX + (obj.x or 0) * ws
+                            local objY = chunkBaseY + (obj.y or 0) * ws
+                            local objRadius = (obj.size or 30) * 0.95
+                            local hitDist = objRadius + projRadius
+                            local distSq, hitX, hitY = distSqPointToSegment(objX, objY, x1, y1, px, py)
+                            if distSq <= (hitDist * hitDist) then
+                                if audio and audio.play then
+                                    audio.play("hit", { volume = 0.5, pitchVariation = 0.1 })
+                                end
+                                if self.owner and self.owner.addImpactEffect then
+                                    self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
+                                end
+                                self.x, self.y = hitX, hitY
+                                self:destroy("special_object_hit")
+                                return
+                            end
+                        end
+                    end
+                end
+
+                -- Estaciones / Ruinas Antiguas (ancientRuinsPlaceholders)
+                if chunk.ancientRuinsPlaceholders then
+                    for i = 1, #chunk.ancientRuinsPlaceholders do
+                        local st = chunk.ancientRuinsPlaceholders[i]
+                        if st and st.x and st.y then
+                            local stRadius = (st.size or 120) * 0.85
+                            local hitDist = stRadius + projRadius
+                            local distSq, hitX, hitY = distSqPointToSegment(st.x, st.y, x1, y1, px, py)
+                            if distSq <= (hitDist * hitDist) then
+                                if audio and audio.play then
+                                    audio.play("hit", { volume = 0.5, pitchVariation = 0.1 })
+                                end
+                                if self.owner and self.owner.addImpactEffect then
+                                    self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
+                                end
+                                self.x, self.y = hitX, hitY
+                                self:destroy("station_hit")
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 end
 

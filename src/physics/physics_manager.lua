@@ -95,16 +95,15 @@ end
     Inicializa todos los subsistemas de física
 --]]
 function PhysicsManager:initializeSubsystems()
-    -- TODO: Implementar inicialización de subsistemas
-    -- Inicializar manejador de colisiones
-    CollisionHandler.initialize(world)
-    
-    -- Inicializar calculadora de trayectorias
-    TrajectoryCalculator.initialize()
-    
-    -- Inicializar sistema de efectos
-    PhysicsEffects.initialize(world)
-    
+    local ok1, err1 = pcall(function() CollisionHandler.initialize(world) end)
+    if not ok1 then print("[PhysicsManager] Warning initializing CollisionHandler: " .. tostring(err1)) end
+
+    local ok2, err2 = pcall(function() TrajectoryCalculator.initialize() end)
+    if not ok2 then print("[PhysicsManager] Warning initializing TrajectoryCalculator: " .. tostring(err2)) end
+
+    local ok3, err3 = pcall(function() PhysicsEffects.initialize(world) end)
+    if not ok3 then print("[PhysicsManager] Warning initializing PhysicsEffects: " .. tostring(err3)) end
+
     print("[PhysicsManager] Subsistemas de física inicializados")
 end
 

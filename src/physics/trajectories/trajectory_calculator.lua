@@ -60,7 +60,7 @@ function TrajectoryCalculator.initialize()
     EnvironmentalFactors = {
         wind_x = 0,
         wind_y = 0,
-        air_resistance = PhysicsConfig.AIR_RESISTANCE.DEFAULT_COEFFICIENT,
+        air_resistance = (PhysicsConfig.AIR_RESISTANCE and (PhysicsConfig.AIR_RESISTANCE.COEFFICIENT or PhysicsConfig.AIR_RESISTANCE.DEFAULT_COEFFICIENT)) or 0.01,
         gravity_modifier = 1.0,
         magnetic_fields = {}
     }

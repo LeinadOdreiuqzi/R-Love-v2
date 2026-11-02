@@ -167,6 +167,106 @@ function EVAPlayer:update(dt)
         self.x = newX
         self.y = newY
     end
+
+    -- Resolver colisiones físicas contra asteroides cercanos
+    self:resolveAsteroidCollisions(dt)
+end
+
+function EVAPlayer:resolveAsteroidCollisions(dt)
+    local okSub, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
+    if okSub and SubLevelManager and SubLevelManager.getStatus then
+        local status = SubLevelManager.getStatus()
+        if status and status.active then return end
+    end
+
+    local Map = package.loaded['src.maps.map']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if not Map or not Map.getChunkNonBlocking or not MapConfig then return end
+
+    local ws = MapConfig.chunk.worldScale or 1.0
+    local tileSizeScaled = MapConfig.chunk.tileSize * ws
+    local sizePixels = MapConfig.chunk.size * MapConfig.chunk.tileSize
+    local strideScaled = (sizePixels + (MapConfig.chunk.spacing or 0)) * ws
+    local baseSizes = (MapConfig.asteroids and MapConfig.asteroids.baseSizes) or {8, 15, 25}
+    local sizeScale = (MapConfig.asteroids and MapConfig.asteroids.sizeScale) or 1.0
+
+    local px, py = self.x or 0, self.y or 0
+    local evaRadius = (self.size or 6) * 0.9
+    local margin = evaRadius + (baseSizes[3] or 25) * sizeScale * ws * 1.4
+
+    local minCX = math.floor((px - margin) / strideScaled)
+    local maxCX = math.floor((px + margin) / strideScaled)
+    local minCY = math.floor((py - margin) / strideScaled)
+    local maxCY = math.floor((py + margin) / strideScaled)
+
+    for cy = minCY, maxCY do
+        for cx = minCX, maxCX do
+            local chunk = Map.getChunkNonBlocking(cx, cy)
+            if chunk and chunk.tiles then
+                local chunkBaseX = cx * strideScaled
+                local chunkBaseY = cy * strideScaled
+                local chunkBaseTileX = cx * MapConfig.chunk.size
+                local chunkBaseTileY = cy * MapConfig.chunk.size
+
+                local minTX = math.max(0, math.floor((px - margin - chunkBaseX) / tileSizeScaled))
+                local maxTX = math.min(MapConfig.chunk.size - 1, math.ceil((px + margin - chunkBaseX) / tileSizeScaled))
+                local minTY = math.max(0, math.floor((py - margin - chunkBaseY) / tileSizeScaled))
+                local maxTY = math.min(MapConfig.chunk.size - 1, math.ceil((py + margin - chunkBaseY) / tileSizeScaled))
+
+                for ty = minTY, maxTY do
+                    local row = chunk.tiles[ty]
+                    if row then
+                        local astY = chunkBaseY + ty * tileSizeScaled
+                        local globalY = chunkBaseTileY + ty
+                        for tx = minTX, maxTX do
+                            local tileType = row[tx]
+                            if tileType and tileType >= MapConfig.ObjectType.ASTEROID_SMALL and tileType <= MapConfig.ObjectType.ASTEROID_LARGE then
+                                local astX = chunkBaseX + tx * tileSizeScaled
+                                local globalX = chunkBaseTileX + tx
+                                local baseSize = (baseSizes[tileType] or 15) * sizeScale * ws
+                                local state = (globalX * 1103515245 + globalY * 12345 + tileType * 2654435761) % 4294967296
+                                state = (state * 1664525 + 1013904223) % 4294967296
+                                local r1 = state / 4294967296
+                                local astRadius = baseSize * (0.8 + r1 * 0.4) * 0.85
+
+                                local dx = self.x - astX
+                                local dy = self.y - astY
+                                local distSq = dx * dx + dy * dy
+                                local minDist = evaRadius + astRadius
+                                if distSq < minDist * minDist then
+                                    local dist = math.sqrt(distSq)
+                                    local nx, ny = 1, 0
+                                    if dist > 0.0001 then
+                                        nx, ny = dx / dist, dy / dist
+                                    end
+                                    local overlap = minDist - dist
+                                    self.x = self.x + nx * overlap
+                                    self.y = self.y + ny * overlap
+
+                                    local vn = self.dx * nx + self.dy * ny
+                                    if vn < 0 then
+                                        local impactSpeed = -vn
+                                        local restitution = 0.5
+                                        self.dx = (self.dx - (1 + restitution) * vn * nx) * 0.85
+                                        self.dy = (self.dy - (1 + restitution) * vn * ny) * 0.85
+
+                                        local now = love.timer.getTime()
+                                        if impactSpeed > 150 and (now - (self._lastImpactTime or 0)) > 0.4 then
+                                            self._lastImpactTime = now
+                                            local dmg = math.max(1, (impactSpeed - 150) * 0.04)
+                                            if self.ship and self.ship.takeDamage then
+                                                self.ship:takeDamage(dmg)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 function EVAPlayer:handleInput(dt)

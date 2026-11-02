@@ -346,8 +346,33 @@ function WeaponSystem:shoot(mouseX, mouseY)
     -- Calcular ángulo de disparo
     local angle = math.atan2(dy, dx)
 
+    -- Calcular daño efectivo incluyendo modificador pasivo de daño
+    local rawDamage = self.currentWeapon.damage or 15
+    local baseDamage = 15
+    if type(rawDamage) == "table" then
+        local minD = tonumber(rawDamage.min or rawDamage[1]) or 15
+        local maxD = tonumber(rawDamage.max or rawDamage[2]) or minD
+        if maxD > minD then
+            baseDamage = minD + math.random() * (maxD - minD)
+        else
+            baseDamage = minD
+        end
+    elseif type(rawDamage) == "number" then
+        baseDamage = rawDamage
+    end
+    local dmgMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.damage
+    local effectiveDamage = baseDamage
+    if type(dmgMod) == "table" then
+        effectiveDamage = (baseDamage + (dmgMod.flat or 0)) * (1.0 + ((dmgMod.percent or 0) / 100.0))
+    elseif type(dmgMod) == "number" then
+        effectiveDamage = baseDamage * (1.0 + (dmgMod > 1 and (dmgMod / 100.0) or dmgMod))
+    end
+
     -- Si estamos dentro de un subnivel, aplicar límites de mundo a proyectiles
-    local custom_config = nil
+    local custom_config = {
+        owner = self.player,
+        damage = effectiveDamage
+    }
     local inSublevel = false
     local bounds = nil
     local ok, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
@@ -359,7 +384,7 @@ function WeaponSystem:shoot(mouseX, mouseY)
         end
     end
     if inSublevel and bounds then
-        custom_config = { world_bounds = bounds }
+        custom_config.world_bounds = bounds
     end
     
     -- Crear el proyectil usando el tipo del arma actual
