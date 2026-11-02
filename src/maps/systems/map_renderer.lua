@@ -448,6 +448,32 @@ function MapRenderer.buildInstancedStarBuffer(chunkInfo, camera, getChunkFunc, s
 end
 
 -- Dibujar estrellas con efectos mejorados
+-- Pools reutilizables a nivel de módulo para el renderizado fallback de estrellas (0 allocations por frame en estado estable)
+local _starVisibleLayers = { {}, {}, {}, {}, {}, {} }   -- listas por capa (1..6)
+local _starInfoPool = {}                                -- registros {star, screenX, screenY, camera, dim}
+local _starInfoPoolUsed = 0
+local _nebulaCirclePool = {}                            -- registros de nebulosas proyectadas
+local _nebulaCircles = {}                               -- lista activa de nebulosas del frame
+local _nebulaCandidates = {}                            -- buffer de candidatos (consumido inmediatamente)
+local _filteredStars = {}                               -- buffer de estrellas filtradas por capa
+local _binItemPool = {}                                 -- registros {x, y, radius, segs} para bins de color
+local _binItemPoolUsed = 0
+
+local function acquireBinItem(x, y, radius, segs)
+    _binItemPoolUsed = _binItemPoolUsed + 1
+    local it = _binItemPool[_binItemPoolUsed]
+    if not it then
+        it = {}
+        _binItemPool[_binItemPoolUsed] = it
+    end
+    it.x, it.y, it.radius, it.segs = x, y, radius, segs
+    return it
+end
+
+local function clearArray(t)
+    for i = #t, 1, -1 do t[i] = nil end
+end
+
 function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConfig)
     -- Configurar uniforms globales una sola vez por frame (si instanced activo)
     if starConfig and starConfig.useInstancedShader and StarfieldInstanced and StarfieldInstanced.setGlobals then
@@ -517,7 +543,10 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     local globalSizeScale = (starConfig and starConfig.sizeScaleGlobal) or 1.0
     local screenWidth, screenHeight = love.graphics.getDimensions()
     local margin = 1000 -- Margen más grande para precarga suave
-    local visibleStars = {}
+    local visibleStars = _starVisibleLayers
+    for l = 1, 6 do clearArray(visibleStars[l]) end
+    _starInfoPoolUsed = 0
+    _binItemPoolUsed = 0
     local totalStars = 0
     
     -- Asegurar que la cámara tenga dimensiones actualizadas
@@ -541,7 +570,9 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
     local endChunkY = chunkInfo.endY
     -- Precalcular proyección en pantalla de nebulosas visibles para atenuar estrellas detrás
     local function clamp(x, a, b) return (x < a) and a or ((x > b) and b or x) end
-    local nebulaCircles = {}
+    local nebulaCircles = _nebulaCircles
+    clearArray(nebulaCircles)
+    local nebulaPoolUsed = 0
     do
         local zoom = camera and camera.zoom or 1
         -- Reutilizamos STRIDE y worldScale como en NebulaRenderer
@@ -561,10 +592,15 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                         local py = camera.y + (wy - camera.y) * par
                         local sx, sy = camera:worldToScreen(px, py)
                         local radiusPx = (n.size or 140) * zoom
-                        nebulaCircles[#nebulaCircles + 1] = {
-                            sx = sx, sy = sy, radius = radiusPx, parallax = par,
-                            intensity = n.intensity or 0.6
-                        }
+                        nebulaPoolUsed = nebulaPoolUsed + 1
+                        local c = _nebulaCirclePool[nebulaPoolUsed]
+                        if not c then
+                            c = {}
+                            _nebulaCirclePool[nebulaPoolUsed] = c
+                        end
+                        c.sx, c.sy, c.radius, c.parallax = sx, sy, radiusPx, par
+                        c.intensity = n.intensity or 0.6
+                        nebulaCircles[#nebulaCircles + 1] = c
                     end
                 end
             end
@@ -602,7 +638,8 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
             if gy < 1 or gy > rows or gx < 1 or gx > cols then
                 return nebulaCircles
             end
-            local candidates = {}
+            local candidates = _nebulaCandidates
+            clearArray(candidates)
             -- Expandir vecindad de búsqueda para suavizar transiciones en bordes
             for oy = -2, 2 do
                 local row = spatialIndex.grid[gy + oy]
@@ -656,8 +693,12 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                 local chunkBaseX = chunkX * chunkSize
                 local chunkBaseY = chunkY * chunkSize
 
-                for _, star in ipairs(chunk.objects.stars) do
+                local chunkStars = chunk.objects.stars
+                for si = 1, #chunkStars do
+                    local star = chunkStars[si]
                     totalStars = totalStars + 1
+                    -- Las estrellas tipo 1 se descartan en el render final: omitirlas antes de proyectarlas
+                    if (star.type or 1) > 1 then
                     local worldX = chunkBaseX + star.x * MapConfig.chunk.worldScale
                     local worldY = chunkBaseY + star.y * MapConfig.chunk.worldScale
 
@@ -714,19 +755,22 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                             
                             -- A: evitar table.insert, usar asignación indexada
                             local list = visibleStars[layerId]
-                            if not list then
-                                list = visibleStars[layerId] or {}
-                                visibleStars[layerId] = list
+                            if list then
+                            _starInfoPoolUsed = _starInfoPoolUsed + 1
+                            local info = _starInfoPool[_starInfoPoolUsed]
+                            if not info then
+                                info = {}
+                                _starInfoPool[_starInfoPoolUsed] = info
                             end
-                            local idx = #list + 1
-                            list[idx] = {
-                                star = star,
-                                screenX = screenX,
-                                screenY = screenY,
-                                camera = camera,
-                                dim = computeNebulaDimmingFactor(screenX, screenY, depth)
-                            }
+                            info.star = star
+                            info.screenX = screenX
+                            info.screenY = screenY
+                            info.camera = camera
+                            info.dim = computeNebulaDimmingFactor(screenX, screenY, depth)
+                            list[#list + 1] = info
+                            end
                         end
+                    end
                     end
                 end
             end
@@ -872,7 +916,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                                     binsGlow[keyG] = arr
                                 end
                                 local idxG = #arr + 1
-                                arr[idxG] = { x = info.screenX, y = info.screenY, radius = size * 2, segs = 8 }
+                                arr[idxG] = acquireBinItem(info.screenX, info.screenY, size * 2, 8)
                             elseif t ~= 1 then
                                 -- Tipos básicos (no 4, no 1): siempre dibujan un halo
                                 local gr = color[1] * brightness * 0.3
@@ -886,7 +930,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                                     binsGlow[keyG] = arr
                                 end
                                 local idxG = #arr + 1
-                                arr[idxG] = { x = info.screenX, y = info.screenY, radius = size * 2, segs = 12 }
+                                arr[idxG] = acquireBinItem(info.screenX, info.screenY, size * 2, 12)
                             end
 
                             -- Cuerpo principal
@@ -901,7 +945,7 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
                                 binsMain[keyM] = arrM
                             end
                             local idxM = #arrM + 1
-                            arrM[idxM] = { x = info.screenX, y = info.screenY, radius = size, segs = 6 }
+                            arrM[idxM] = acquireBinItem(info.screenX, info.screenY, size, 6)
                         end
 
                         -- Dibujar glows por bin (no incrementa starsRendered)
@@ -956,24 +1000,18 @@ function MapRenderer.drawEnhancedStars(chunkInfo, camera, getChunkFunc, starConf
 
     -- Capas existentes (1..6) - Filtrar solo estrellas tipo 1 (las más pequeñas)
     for layer = 1, 6 do
-        if visibleStars[layer] then
-            -- Filtrar estrellas tipo 1 (las más pequeñas) antes de renderizar
-            local filteredStars = {}
-            local type5Count = 0
+        if #visibleStars[layer] > 0 then
+            -- Filtrar estrellas tipo 1 (las más pequeñas) antes de renderizar (buffer reutilizable)
+            local filteredStars = _filteredStars
+            clearArray(filteredStars)
             for i = 1, #visibleStars[layer] do
                 local starInfo = visibleStars[layer][i]
-                local starType = starInfo.star.type or 1
                 -- Solo mantener estrellas tipo 2-6 (eliminar tipo 1)
-                if starType > 1 then
+                if (starInfo.star.type or 1) > 1 then
                     filteredStars[#filteredStars + 1] = starInfo
-                    if starType == 5 then
-                        type5Count = type5Count + 1
-                    end
                 end
             end
-            
 
-            
             -- Solo renderizar si quedan estrellas después del filtro
             if #filteredStars > 0 then
                 drawLayerGroupedByType(filteredStars)
