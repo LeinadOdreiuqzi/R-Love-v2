@@ -18,6 +18,18 @@ local DebugRenderer = require 'src.utils.debug_renderer'
 local WorldItems = require 'src.item_systems.world_items'
 local AudioManager = require 'src.audio.audio_manager'
 
+local _lastLoggedError = nil
+local _lastLoggedErrorTime = 0
+local function logProtectedCallError(context, err)
+    local now = (love and love.timer and love.timer.getTime) and love.timer.getTime() or os.clock()
+    local msg = tostring(err)
+    if msg ~= _lastLoggedError or (now - _lastLoggedErrorTime) >= 2.0 then
+        _lastLoggedError = msg
+        _lastLoggedErrorTime = now
+        print(string.format("[GameLoop ERROR] (%s): %s", tostring(context), msg))
+    end
+end
+
 function GameLoop.update(dt)
     local state = GameState.state
     local physics = GameState.physics
@@ -87,7 +99,8 @@ function GameLoop.update(dt)
 
         if player and type(player.update) == "function" then
             if player.savePreviousState then player:savePreviousState() end
-            pcall(function() player:update(physics.fixed_dt) end)
+            local ok, err = pcall(function() player:update(physics.fixed_dt) end)
+            if not ok then logProtectedCallError("player:update", err) end
             
             if gameDirector and player.isBoostActive ~= nil then
                 gameDirector:setPlayerBoosting(player.isBoostActive)
@@ -101,7 +114,8 @@ function GameLoop.update(dt)
                 local ent = entities[i]
                 if ent and ent ~= player and type(ent.update) == "function" then
                     if ent.savePreviousState then ent:savePreviousState() end
-                    pcall(function() ent:update(physics.fixed_dt) end)
+                    local ok, err = pcall(function() ent:update(physics.fixed_dt) end)
+                    if not ok then logProtectedCallError("entity:update", err) end
                 end
             end
         end
@@ -195,7 +209,8 @@ function GameLoop.draw()
         for i = 1, #entities do
             local ent = entities[i]
             if ent and ent ~= player and type(ent.draw) == "function" then
-                pcall(function() ent:draw() end)
+                local ok, err = pcall(function() ent:draw() end)
+                if not ok then logProtectedCallError("entity:draw", err) end
             end
         end
     end

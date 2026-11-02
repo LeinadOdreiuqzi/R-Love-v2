@@ -201,10 +201,11 @@ function EVAPlayer:handleInput(dt)
 end
 
 function EVAPlayer:updateMovement(dt)
-    -- Apply drag mejorado
+    -- Apply drag mejorado (escalado exponencialmente con dt para ser independiente de FPS)
     local friction = 0.92
-    self.dx = self.dx * friction
-    self.dy = self.dy * friction
+    local frictionFactor = math.pow(friction, (dt or (1 / 60)) * 60)
+    self.dx = self.dx * frictionFactor
+    self.dy = self.dy * frictionFactor
     
     -- Rotación suave hacia la dirección de movimiento
     if math.abs(self.dx) > 10 or math.abs(self.dy) > 10 then

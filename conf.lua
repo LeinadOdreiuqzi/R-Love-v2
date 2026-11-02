@@ -4,7 +4,7 @@ function love.conf(t)
     t.title = "R-Love"
     t.author = "Tu Nombre"
     t.url = nil
-    t.identity = nil
+    t.identity = "r_love_v2"
     t.version = "11.5"
     t.console = true
     t.accelerometerjoystick = true

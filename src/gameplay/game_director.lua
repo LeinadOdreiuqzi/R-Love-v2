@@ -13,6 +13,7 @@ function GameDirector:new(runState, opts)
         enabled = true,
         paused = false,
         time = 0,
+        threat = 0,
         version = GameDirector.__version,
 
         -- Reloj de lógica en pasos fijos (placeholder)
@@ -204,7 +205,8 @@ function GameDirector:deserialize(data)
     if type(data) ~= 'table' then return end
     self.version = data.version or GameDirector.__version
     self.time = data.time or 0
-    self.threat = math.max(0, math.min(self.threatConfig.maxThreat, data.threat or 0))
+    local maxThreat = (self.threatConfig and self.threatConfig.maxThreat) or math.huge
+    self.threat = math.max(0, math.min(maxThreat, data.threat or 0))
     self.enabled = data.enabled ~= false
     self.paused = not not data.paused
     if type(data.tickRate) == 'number' and data.tickRate > 0 then
@@ -223,9 +225,7 @@ end
 function GameDirector:dump()
     return {
         time = self.time,
-        threat = self.threat,
-        threatPercent = self:getThreatPercent(),
-        threatLevel = self:getThreatLevel(),
+        threat = self.threat or 0,
         enabled = self.enabled,
         paused = self.paused,
         tickRate = self.tickRate,

@@ -145,6 +145,7 @@ function SubLevelScene:enter(params)
 end
 
 function SubLevelScene:update(dt)
+    dt = math.min(dt or 0, 1 / 30)
     self.time = self.time + dt
 
     local camera = World.get('camera')

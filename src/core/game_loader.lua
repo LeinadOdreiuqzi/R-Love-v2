@@ -244,6 +244,11 @@ function GameLoader.changeSeedWithLoading(newSeed)
         Naves.clearAllShips()
     end
 
+    local WorldItems = package.loaded['src.item_systems.world_items']
+    if WorldItems and WorldItems.clear then
+        WorldItems.clear()
+    end
+
     World.reset()
     
     print("Passive effects and items cleared for seed change")
@@ -269,77 +274,11 @@ function GameLoader.changeSeedWithLoading(newSeed)
 end
 
 function GameLoader.changeSeed(newSeed)
-    local state = GameState.state
-    if not SeedSystem.validate(newSeed) then
-        print("Invalid seed format. Using default seed.")
-        newSeed = "A1B2C3D4E5"
-    end
-    
-    state.currentSeed = newSeed
-    love.window.setTitle("Space Roguelike - Enhanced Systems - Seed: " .. newSeed)
-    GameLoader.regenerateMap(newSeed)
-    print("New enhanced galaxy generated with seed: " .. newSeed)
-    print("Numeric equivalent: " .. SeedSystem.toNumeric(newSeed))
+    GameLoader.changeSeedWithLoading(newSeed)
 end
 
 function GameLoader.regenerateMap(seed)
-    -- Limpieza total del sistema de audio al reiniciar
-    AudioManager.reset()
-    
-    InventoryManager.forceCloseAll()
-    PassiveManager.reset()
-    
-    local player = World.get('player')
-    if player and player.inventory and player.inventory.compartments and player.inventory.compartments.passives then
-        local passiveComp = player.inventory.compartments.passives
-        if passiveComp and passiveComp.items then
-            for i = 1, passiveComp.maxSlots do
-                if passiveComp.items[i] then
-                    if player.inventory.removeItemFromCompartment then
-                        player.inventory:removeItemFromCompartment('passives', i)
-                    else
-                        passiveComp.items[i] = nil
-                    end
-                end
-            end
-        end
-    end
-    
-    print("Passive effects and items cleared for map regeneration")
-    
-    Map.regenerate(seed)
-    
-    if player then
-        if player.isInEVA and player.exitEVA then
-            player:exitEVA()
-        end
-        
-        player.x, player.y = 0, 0
-        player.dx, player.dy = 0, 0
-        
-        if player.stats then
-            player.stats.health.currentHealth = player.stats.health.maxHealth
-            player.stats.shield.currentShield = player.stats.shield.maxShield
-            player.stats.fuel.currentFuel = player.stats.fuel.maxFuel
-            player.stats:updateHeartDisplay()
-        end
-    end
-    
-    local camera = World.get('camera')
-    if camera then camera:setPosition(0, 0) end
-    
-    CoordinateSystem.init(0, 0)
-    
-    World.set('player', player)
-    World.set('seed', seed)
-    HUD.updateReferences(World)
-    
-    print("=== NEW ENHANCED GALAXY GENERATED ===")
-    print("Alphanumeric Seed: " .. seed)
-    print("Numeric Seed: " .. SeedSystem.toNumeric(seed))
-    
-    -- Iniciar reproducción limpia de la banda sonora para el nuevo mapa
-    AudioManager.playMusic("track_8", { loop = true, volume = 0.45, restart = true, async = true })
+    GameLoader.changeSeedWithLoading(seed)
 end
 
 return GameLoader

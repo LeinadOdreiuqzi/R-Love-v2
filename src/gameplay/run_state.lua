@@ -78,7 +78,7 @@ end
 
 -- Métodos para actualizar métricas
 function RunState:addDistance(distance)
-    self.meta.distanceTravelled = self.meta.distanceTravelled + (distance or 0)
+    self.meta.distanceTravelled = math.max(0, (self.meta.distanceTravelled or 0) + (distance or 0))
 end
 
 function RunState:incrementBoosts()
@@ -213,10 +213,6 @@ function RunState:addData(amount)
 end
 
 -- NUEVO: métricas simples
-function RunState:addDistance(d)
-    self.meta.distanceTravelled = math.max(0, (self.meta.distanceTravelled or 0) + (d or 0))
-end
-
 function RunState:incrementEvents(n)
     self.meta.eventsTriggered = math.max(0, (self.meta.eventsTriggered or 0) + (n or 1))
 end
