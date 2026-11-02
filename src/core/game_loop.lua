@@ -168,6 +168,10 @@ function GameLoop.draw()
     if stateManager and stateManager:blocksUnderlying() then
         love.graphics.clear(0, 0, 0, 1)
         stateManager:draw()
+        local PauseMenu = require 'src.ui.pause_menu'
+        if PauseMenu.isOpen() then
+            PauseMenu.draw()
+        end
         if LoadingScreen and LoadingScreen.isActive and LoadingScreen.isActive() then
             LoadingScreen.draw()
         end

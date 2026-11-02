@@ -63,6 +63,9 @@ function InputManager.keypressed(key)
         if key == "escape" then
             PauseMenu.handleEscape()
             return
+        elseif key == "p" then
+            PauseMenu.toggle()
+            return
         end
         if PauseMenu.keypressed and PauseMenu.keypressed(key) then
             return
@@ -193,6 +196,8 @@ function InputManager.keypressed(key)
         if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
             collectgarbage("collect")
             print("Garbage collected manually")
+        elseif player and player.isInEVA and player.evaPlayer and player.evaPlayer:getNearbyItem() then
+            player.evaPlayer:attemptPickup()
         else
             if SeedSystem then
                 local GameLoader = require 'src.core.game_loader'
@@ -337,7 +342,9 @@ function InputManager.mousereleased(x, y, button)
     if not gameState or not gameState.loaded then return end
 
     local stateManager = World.get('stateManager')
+    local player = World.getPlayer()
     local InventoryUI = package.loaded['src.ui.inventory_ui']
+    local EVAInventoryUI = package.loaded['src.ui.eva_inventory_ui']
 
     local PauseMenu = require 'src.ui.pause_menu'
     if PauseMenu.isOpen() then
@@ -349,8 +356,13 @@ function InputManager.mousereleased(x, y, button)
         return
     end
 
+    if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and EVAInventoryUI.mousereleased and player and player.isInEVA then
+        EVAInventoryUI:mousereleased(x, y, button, player.evaPlayer)
+        return
+    end
+
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() then
-        InventoryUI:mousereleased(x, y, button, World.getPlayer())
+        InventoryUI:mousereleased(x, y, button, player)
     end
 end
 

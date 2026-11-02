@@ -138,7 +138,33 @@ function StateManager:wheelmoved(x, y)
             return true
         end
         if i == #self.stack and st and st.suspendUnderlying then
-            break
+            return true
+        end
+    end
+    return false
+end
+
+function StateManager:mousepressed(x, y, button)
+    for i = #self.stack, 1, -1 do
+        local st = self.stack[i]
+        if st and st.mousepressed and st:mousepressed(x, y, button) then
+            return true
+        end
+        if i == #self.stack and st and st.suspendUnderlying then
+            return true
+        end
+    end
+    return false
+end
+
+function StateManager:mousereleased(x, y, button)
+    for i = #self.stack, 1, -1 do
+        local st = self.stack[i]
+        if st and st.mousereleased and st:mousereleased(x, y, button) then
+            return true
+        end
+        if i == #self.stack and st and st.suspendUnderlying then
+            return true
         end
     end
     return false

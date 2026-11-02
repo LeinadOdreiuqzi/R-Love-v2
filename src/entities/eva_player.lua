@@ -198,14 +198,6 @@ function EVAPlayer:handleInput(dt)
         self.dx = self.dx + moveX * self.acceleration * dt
         self.dy = self.dy + moveY * self.acceleration * dt
     end
-    
-    -- Manual pickup with F key
-    if love.keyboard.isDown('f') and not self.fKeyPressed then
-        self.fKeyPressed = true
-        self:attemptPickup()
-    elseif not love.keyboard.isDown('f') then
-        self.fKeyPressed = false
-    end
 end
 
 function EVAPlayer:updateMovement(dt)
@@ -362,16 +354,14 @@ end
 -- Intentar recoger items cercanos manualmente
 function EVAPlayer:attemptPickup()
     local WorldItems = require 'src.item_systems.world_items'
-    local nearbyItem = self:getNearbyItem()
-    
-    if nearbyItem and self.ship then
-        local success = WorldItems.collectItem(nearbyItem, self.ship)
-        if success then
-            print("[EVA PICKUP] Item recolectado manualmente:", nearbyItem.itemData.name, "x" .. nearbyItem.quantity)
-        else
-            print("[EVA PICKUP] No se pudo recoger el item (inventario lleno?)")
+    if WorldItems and WorldItems.tryManualCollection then
+        local success = WorldItems.tryManualCollection()
+        if not success then
+            print("[EVA PICKUP] No se pudo recoger el item (fuera de rango o inventario lleno)")
         end
+        return success
     end
+    return false
 end
 
 -- Obtener item cercano para recolección manual
