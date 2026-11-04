@@ -308,13 +308,15 @@ function Projectile:checkSpatialCollisions()
                 local distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
                 if distSq <= (hitDist * hitDist) then
                     if ship.takeDamage then
-                        ship:takeDamage(self.damage)
+                        ship:takeDamage(self.damage, self.owner)
                     end
                     local angle = self.angle or self:getAngle()
                     ship.dx = (ship.dx or 0) + math.cos(angle) * 2.0
                     ship.dy = (ship.dy or 0) + math.sin(angle) * 2.0
 
-                    if self.owner and self.owner.addImpactEffect then
+                    if ship.addImpactEffect then
+                        ship:addImpactEffect(hitX, hitY, self.config and self.config.color)
+                    elseif self.owner and self.owner.addImpactEffect then
                         self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
                     end
                     self.x, self.y = hitX, hitY

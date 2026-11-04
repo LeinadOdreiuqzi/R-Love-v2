@@ -354,6 +354,53 @@ function Naves:updatePassivePhysics(dt)
     end
 end
 
+-- Calcula la Firma de Emisión Espacial en tiempo real (Puente entre Jugador y Ecosistema)
+function Naves:updateSignature(dt)
+    self._signatureShotBoost = math.max(0, (self._signatureShotBoost or 0) - 220 * dt)
+
+    local baseSig = 200
+    if self.shipType == "CARGO" then
+        baseSig = 250
+    elseif self.shipType == "FIGHTER" then
+        baseSig = 180
+    end
+
+    local thrustSig = (self.engineGlow or 0) * 260
+    local boostSig = (self.isBoostActive and (self.boostDuration or 0) > 0) and 520 or 0
+    local shieldSig = (self.stats and self.stats.shield and (self.stats.shield.currentShield or 0) > 0) and 85 or 0
+    local shotSig = self._signatureShotBoost or 0
+
+    -- Modificador ambiental por Bioma (las nebulosas ocultan la firma; la radiación distorsiona sensores)
+    local biomeMult = 1.0
+    local BiomeSystem = package.loaded['src.maps.biome_system']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if BiomeSystem and BiomeSystem.getBiomeForChunk and MapConfig and MapConfig.chunk then
+        local ws = MapConfig.chunk.worldScale or 1.0
+        local strideScaled = ((MapConfig.chunk.size * MapConfig.chunk.tileSize) + (MapConfig.chunk.spacing or 0)) * ws
+        local cx = math.floor((self.x or 0) / strideScaled)
+        local cy = math.floor((self.y or 0) / strideScaled)
+        local ok, biome = pcall(BiomeSystem.getBiomeForChunk, cx, cy)
+        local bType = ok and biome and (type(biome) == "table" and biome.type or biome)
+        if bType == BiomeSystem.BiomeType.NEBULA_FIELD then
+            biomeMult = 0.42
+        elseif bType == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
+            biomeMult = 0.68
+        end
+    end
+
+    -- Modificador de aditivos temporales (si existe un inhibidor térmico activo)
+    local additiveMult = (self.signatureMultiplier or 1.0)
+
+    if self.isAbandoned then
+        self.signatureRadius = baseSig * 0.45 * biomeMult
+    elseif self.isInEVA and self.evaPlayer then
+        self.signatureRadius = (baseSig * 0.55 + shieldSig * 0.5) * biomeMult
+        self.evaPlayer.signatureRadius = 90 * biomeMult * additiveMult
+    else
+        self.signatureRadius = (baseSig + thrustSig + boostSig + shieldSig + shotSig) * biomeMult * additiveMult
+    end
+end
+
 function Naves:update(dt)
     -- Actualizar registro de nave
     self:updateShipRegistry()
@@ -363,9 +410,16 @@ function Naves:update(dt)
     local World = getWorld()
     local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
 
-    -- Si esta nave no está siendo controlada por el jugador, solo actualizar física inercial pasiva
+    -- Actualizar Firma de Emisión Espacial
+    self:updateSignature(dt)
+
+    -- Si esta nave no está siendo controlada por el jugador:
     if not isPlayer then
-        self:updatePassivePhysics(dt)
+        if self.aiController and self.aiController.active and not self.isAbandoned then
+            self.aiController:update(dt)
+        else
+            self:updatePassivePhysics(dt)
+        end
         return
     end
     
@@ -894,19 +948,46 @@ function Naves:updateThrusterParticles(dt)
 end
 
 -- Functions for testing damage and fuel
-function Naves:takeDamage(damage)
+function Naves:takeDamage(damage, attacker)
+    self.lastAttacker = attacker or self.lastAttacker
+    self.lastDamageTime = love.timer.getTime()
+
     local died = self.stats:takeDamage(damage)
     local w = getWorld()
     local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
-    if audio and audio.play then
-        if died then
-            audio.play("explosion", { volume = 0.9 })
+
+    -- Atenuar sonido de impacto/explosión si ocurre en una nave lejana del ecosistema
+    local volMult = 1.0
+    local mainPlayer = w and (w.getPlayer and w.getPlayer() or w.get('player'))
+    if mainPlayer and self ~= mainPlayer then
+        local distSq = ((self.x or 0) - (mainPlayer.x or 0))^2 + ((self.y or 0) - (mainPlayer.y or 0))^2
+        if distSq > (2000 * 2000) then
+            volMult = 0
         else
-            audio.play("hit", { volume = 0.75, pitchVariation = 0.08 })
+            volMult = math.max(0.15, 1.0 - math.sqrt(distSq) / 2000) * 0.85
         end
     end
+
+    if audio and audio.play and volMult > 0.05 then
+        if died then
+            audio.play("explosion", { volume = 0.9 * volMult })
+        else
+            audio.play("hit", { volume = 0.75 * volMult, pitchVariation = 0.08 })
+        end
+    end
+
+    -- Notificar al controlador de IA si esta nave es un agente del ecosistema
+    if self.aiController then
+        if died and self.aiController.onDisabled then
+            self.aiController:onDisabled(attacker)
+            return true
+        elseif self.aiController.onDamaged then
+            self.aiController:onDamaged(damage, attacker)
+        end
+    end
+
     if died then
-        -- Nota: Aún no hay mecánica de muerte/respawn definida; mantener al jugador en su posición actual
+        -- Nota: Aún no hay mecánica de muerte/respawn definida para el jugador; mantener en posición actual
         return true
     end
     return died
@@ -1527,6 +1608,20 @@ function Naves:shoot(mouseX, mouseY)
         print("[SHOOT] Error: Could not create projectile")
         return false
     end
+end
+
+--[[
+    Dispara un proyectil hacia una coordenada del mundo (utilizado por agentes del ecosistema IA)
+    @param worldX, worldY: posición objetivo en coordenadas del mundo
+--]]
+function Naves:shootAtWorld(worldX, worldY)
+    if self.isInEVA or self.isAbandoned then
+        return false
+    end
+    if self.weaponSystem and self.weaponSystem.currentWeapon then
+        return self.weaponSystem:shoot(worldX, worldY, true)
+    end
+    return false
 end
 
 -- Manejar rueda del mouse para cambio de armas

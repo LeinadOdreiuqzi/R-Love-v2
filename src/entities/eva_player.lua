@@ -341,7 +341,8 @@ function EVAPlayer:getNearbyBoardableShip()
     if Naves and Naves.getAllShips then
         local allShips = Naves.getAllShips()
         for _, ship in ipairs(allShips) do
-            if ship and ship.x and ship.y then
+            local isBoardable = (ship == self.ship) or ship.isAbandoned or not ship.isAI
+            if ship and ship.x and ship.y and isBoardable then
                 local dx = self.x - ship.x
                 local dy = self.y - ship.y
                 local dist = math.sqrt(dx * dx + dy * dy)

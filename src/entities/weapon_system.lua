@@ -301,7 +301,7 @@ function WeaponSystem:canShoot()
 end
 
 -- Disparar arma actual
-function WeaponSystem:shoot(mouseX, mouseY)
+function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
     if not self:canShoot() then
         return false
     end
@@ -315,14 +315,18 @@ function WeaponSystem:shoot(mouseX, mouseY)
     local physMgr = World.get('physics')
     local box2dWorld = (physMgr and physMgr.getWorld and physMgr:getWorld()) or nil
     
-    -- Convertir coordenadas del mouse a coordenadas del mundo
+    -- Convertir coordenadas del mouse a coordenadas del mundo (o usar directamente si isWorldCoords)
     local worldMouseX, worldMouseY
-    local camera = World.get('camera')
-    if camera then
-        worldMouseX, worldMouseY = camera:screenToWorld(mouseX, mouseY)
-    else
-        -- Fallback si no hay cámara
+    if isWorldCoords then
         worldMouseX, worldMouseY = mouseX, mouseY
+    else
+        local camera = World.get('camera')
+        if camera then
+            worldMouseX, worldMouseY = camera:screenToWorld(mouseX, mouseY)
+        else
+            -- Fallback si no hay cámara
+            worldMouseX, worldMouseY = mouseX, mouseY
+        end
     end
     
     -- Posición de spawn del proyectil (frente de la nave)
@@ -448,16 +452,35 @@ function WeaponSystem:shoot(mouseX, mouseY)
     if projectilesCreated > 0 then
         -- Actualizar tiempo del último disparo
         self.lastShotTime = love.timer.getTime()
+
+        -- Incrementar Firma de Emisión Espacial por disparo
+        if self.player then
+            local shotSpike = (weaponId == "heavy_plasma_cannon" or weaponId == "energy_shotgun") and 480 or 320
+            self.player._signatureShotBoost = math.min(600, (self.player._signatureShotBoost or 0) + shotSpike)
+        end
         
-        -- Audio de disparo según tipo de arma
+        -- Audio de disparo según tipo de arma (con atenuación espacial para naves del ecosistema)
         local audio = (World.getAudio and World.getAudio()) or World.get('audio')
         if audio and audio.play then
-            if weaponId == "energy_shotgun" then
-                audio.play("shotgun", { pitchVariation = 0.08, volume = 0.85 })
-            elseif weaponId == "heavy_plasma_cannon" or weaponId == "plasma_rifle" then
-                audio.play("plasma", { pitchVariation = 0.06, volume = 0.9 })
-            else
-                audio.play("laser", { pitchVariation = 0.06, volume = 0.8 })
+            local volMult = 1.0
+            local mainPlayer = World.getPlayer and World.getPlayer() or World.get('player')
+            if mainPlayer and self.player and self.player ~= mainPlayer then
+                local distSq = (self.player.x - mainPlayer.x)^2 + (self.player.y - mainPlayer.y)^2
+                local maxHearDistSq = 1800 * 1800
+                if distSq > maxHearDistSq then
+                    volMult = 0
+                else
+                    volMult = math.max(0.1, 1.0 - math.sqrt(distSq) / 1800) * 0.65
+                end
+            end
+            if volMult > 0.05 then
+                if weaponId == "energy_shotgun" then
+                    audio.play("shotgun", { pitchVariation = 0.08, volume = 0.85 * volMult })
+                elseif weaponId == "heavy_plasma_cannon" or weaponId == "plasma_rifle" then
+                    audio.play("plasma", { pitchVariation = 0.06, volume = 0.9 * volMult })
+                else
+                    audio.play("laser", { pitchVariation = 0.06, volume = 0.8 * volMult })
+                end
             end
         end
         

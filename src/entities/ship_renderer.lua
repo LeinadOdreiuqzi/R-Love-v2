@@ -368,15 +368,104 @@ function ShipRenderer.drawAbandonedShip(self)
     
     love.graphics.setColor(r, g, b, a)
     love.graphics.pop()
+
+    -- Dibujar proyectiles remanentes o chispas de impacto aunque la nave esté abandonada
+    if self.drawProjectiles then
+        love.graphics.push("all")
+        self:drawProjectiles()
+        love.graphics.pop()
+    end
+end
+
+function ShipRenderer.drawAIShip(self)
+    local World = package.loaded['src.core.world']
+    local alpha = World and World.get('interpolationAlpha') or 1.0
+    local MathUtil = require 'src.utils.math_util'
+
+    local renderX = MathUtil.lerp(self.prevX or self.x, self.x, alpha)
+    local renderY = MathUtil.lerp(self.prevY or self.y, self.y, alpha)
+    local renderRot = MathUtil.lerpAngle(self.prevRotation or self.rotation, self.rotation, alpha)
+
+    local r, g, b, a = love.graphics.getColor()
+    local ai = self.aiController
+
+    -- 1. Si el agente está extrayendo recursos o desmantelando un pecio, dibujar haz industrial diegético
+    if ai and ai.worldGoal and ai.worldGoal.isWorking and ai.worldGoal.targetX and ai.worldGoal.targetY then
+        local pulse = 0.55 + 0.45 * math.sin(love.timer.getTime() * 18)
+        local prowX = renderX + math.sin(renderRot) * (self.size or 14) * 1.1
+        local prowY = renderY - math.cos(renderRot) * (self.size or 14) * 1.1
+        love.graphics.setColor(1.0, 0.78, 0.22, 0.35 * pulse)
+        love.graphics.setLineWidth(4)
+        love.graphics.line(prowX, prowY, ai.worldGoal.targetX, ai.worldGoal.targetY)
+        love.graphics.setColor(1.0, 0.95, 0.65, 0.85 * pulse)
+        love.graphics.setLineWidth(1.5)
+        love.graphics.line(prowX, prowY, ai.worldGoal.targetX, ai.worldGoal.targetY)
+        love.graphics.circle("fill", ai.worldGoal.targetX, ai.worldGoal.targetY, 3.5 * pulse)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- 2. Si es un Centinela (WARDEN), dibujar anillo tenue de perímetro de escaneo
+    if ai and ai.role == "WARDEN" then
+        local scanPulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 3.5)
+        local bCol = (ai.config and ai.config.beaconColor) or {0.25, 0.88, 1.0}
+        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.14 + 0.08 * scanPulse)
+        love.graphics.circle("line", renderX, renderY, (self.size or 14) * 2.8, 28)
+    end
+
+    -- 3. Dibujar cuerpo activo de la nave y escudo
+    love.graphics.push()
+    love.graphics.translate(renderX, renderY)
+    love.graphics.rotate(renderRot)
+
+    self:drawShieldEffect()
+    self:drawGeometricShip(false)
+
+    -- Baliza de rol / estado diegético sobre el fuselaje
+    if ai and ai.config and ai.config.beaconColor then
+        local bc = ai.config.beaconColor
+        local blinkSpeed = (ai.state == "COMBAT") and 10.0 or 3.0
+        local blink = 0.45 + 0.55 * math.abs(math.sin(love.timer.getTime() * blinkSpeed))
+        love.graphics.setColor(bc[1], bc[2], bc[3], blink)
+        love.graphics.circle("fill", 0, 0, 2.4)
+    end
+
+    love.graphics.pop()
+
+    -- 4. Micro-indicador diegético de casco/escudo cuando la nave está dañada o en combate
+    local hpPct = (self.stats and self.stats:getHealthPercentage()) or 100
+    if hpPct < 99 or (ai and ai.state == "COMBAT") then
+        local barW = 28
+        local barH = 3
+        local bx = renderX - barW * 0.5
+        local by = renderY - (self.size or 14) * 1.9
+        love.graphics.setColor(0.05, 0.07, 0.10, 0.75)
+        love.graphics.rectangle("fill", bx - 1, by - 1, barW + 2, barH + 2, 1, 1)
+        local bCol = (ai and ai.config and ai.config.beaconColor) or {0.9, 0.3, 0.2}
+        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.90)
+        love.graphics.rectangle("fill", bx, by, barW * math.max(0, math.min(1, hpPct / 100)), barH, 1, 1)
+    end
+
+    love.graphics.setColor(r, g, b, a)
+
+    -- 5. Dibujar proyectiles disparados por esta nave IA
+    if self.drawProjectiles then
+        love.graphics.push("all")
+        self:drawProjectiles()
+        love.graphics.pop()
+    end
 end
 
 function ShipRenderer.drawShip(self)
     local World = package.loaded['src.core.world']
     local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
 
-    -- Si no es la nave controlada actualmente por el jugador, dibujarla en estado inactivo / abandonada
+    -- Si no es la nave controlada actualmente por el jugador:
     if not isPlayer then
-        self:drawAbandonedShip()
+        if self.isAI and not self.isAbandoned and self.aiController and self.aiController.active then
+            ShipRenderer.drawAIShip(self)
+        else
+            self:drawAbandonedShip()
+        end
         return
     end
 
