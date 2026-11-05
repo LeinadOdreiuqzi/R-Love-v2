@@ -41,23 +41,6 @@ function HUD.drawPlayerHUD()
         love.graphics.print("FUEL", heartStartX, hudY + 20)
         HUD.drawBar(heartStartX + 60, hudY + 22, barWidth, barHeight, 
                      HUD.player.stats:getFuelPercentage(), {1, 0.8, 0.2, 1}, {0.5, 0.4, 0.1, 0.8})
-
-        -- Indicador táctico de Firma de Emisión Espacial (Sigilo vs. Ruido en el Ecosistema)
-        local sigRadius = HUD.player.signatureRadius or 240
-        local sigPct = math.min(100, math.max(5, ((sigRadius - 80) / 950) * 100))
-        local sigColor = {0.25, 0.90, 0.65, 1}
-        local sigLabel = "SIG: LOW"
-        if sigRadius > 650 then
-            sigColor = {1.0, 0.28, 0.25, 1}
-            sigLabel = "SIG: HIGH"
-        elseif sigRadius > 340 then
-            sigColor = {0.95, 0.75, 0.25, 1}
-            sigLabel = "SIG: MED"
-        end
-        love.graphics.setColor(0.85, 0.9, 1.0, 0.9)
-        love.graphics.print(sigLabel, heartStartX, hudY + 40)
-        HUD.drawBar(heartStartX + 60, hudY + 42, barWidth, 8,
-                     sigPct, sigColor, {0.1, 0.15, 0.2, 0.75})
     else
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("DISTANCE TO SHIP", heartStartX, hudY + 20)
@@ -68,7 +51,7 @@ function HUD.drawPlayerHUD()
             distance = math.sqrt(dx * dx + dy * dy)
         end
         love.graphics.setColor(0.8, 0.8, 0.8, 1)
-        love.graphics.print(string.format("%.1f units (EVA SIG: MINIMAL)", distance), heartStartX + 60, hudY + 22)
+        love.graphics.print(string.format("%.1f units", distance), heartStartX + 60, hudY + 22)
     end
     
     love.graphics.setColor(r, g, b, a)

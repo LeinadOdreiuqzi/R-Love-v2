@@ -1,77 +1,112 @@
 -- src/entities/ai_controller.lua
--- Controlador de IA Ecológica (Ecosistema Vivo Indiferente al Jugador).
--- Cada nave controlada por IA tiene un Rol Ecológico y una Meta de Mundo propia
--- determinada por la Seed, percibiendo a otras naves únicamente a través de su
--- Firma de Emisión Espacial (signatureRadius) y línea de visión.
+-- Controlador de IA Táctica y Ecológica v3 (Pilotaje Inercial Orgánico, Esquiva Reactiva y Estados de Tensión).
+-- Incluye:
+--   1. Física de Pilotaje Real: Inercia angular (spring-damper), propulsión alineada con proa, propulsores laterales RCS
+--      y Derrape Inercial (Drift) para girar el morro a alta velocidad manteniendo el vector de inercia.
+--   2. Esquiva Reactiva (Micro-Dodging): Detección de proyectiles entrantes y línea de mira enemiga para ejecutar
+--      impulsos laterales evasivos (jukes) y buscar cobertura tras asteroides.
+--   3. Disciplina de Ráfagas y Seguimiento con Tiempo de Reacción: Disparo en ventanas intencionales (no metrónomo)
+--      y predicción balística con inercia sensorial (esquivable mediante cambios bruscos de dirección/Drift).
+--   4. Estados Contextuales no Binarios (ALERT):
+--      - Advertencia Territorial (WARDEN / NOMAD encaran y avisan antes de abrir fuego).
+--      - Acecho / Emboscada por Punto Ciego (RAIDER se aproxima por la cola antes de lanzarse al ataque).
+--      - Señuelo de Pánico (SCAVENGER suelta carga para distraer a su cazador al huir).
+--   5. Resolución de Muerte por % Determinista: ~78% Destrucción Total vs ~22% Nave Intacta pero Inmóvil.
 
 local AIController = {}
 AIController.__index = AIController
 
 local MathUtil = require 'src.utils.math_util'
 
-local function getWorld()
-    return package.loaded['src.core.world']
-end
-
 -- Roles ecológicos del cosmos
 AIController.ROLES = {
     SCAVENGER = "SCAVENGER", -- Recolector / Desmantelador (Pacífico/Defensivo, busca asteroides, pecios e items)
-    RAIDER    = "RAIDER",    -- Corsario / Merodeador (Oportunista, caza recolectores y objetivos heridos)
-    WARDEN    = "WARDEN",    -- Centinela de Contención (Territorial, custodia ruinas y bordes de fase)
-    NOMAD     = "NOMAD"      -- Explorador autónomo (Cruza el sector escaneando anomalías, defensivo)
+    RAIDER    = "RAIDER",    -- Corsario / Merodeador (Oportunista, acecha y caza recolectores y objetivos vulnerables)
+    WARDEN    = "WARDEN",    -- Centinela de Contención (Territorial, advierte a intrusos y custodia ruinas)
+    NOMAD     = "NOMAD"      -- Explorador autónomo (Cruza el sector escaneando anomalías, cauteloso y defensivo)
 }
 
--- Estados de comportamiento (Behavior Priority System)
+-- Estados principales de comportamiento
 AIController.STATES = {
-    DISABLED   = "DISABLED",   -- Casco crítico / inutilizado (abordable en EVA)
-    SURVIVE    = "SURVIVE",    -- Autopreservación (huida hacia cobertura/nebulosa)
-    COMBAT     = "COMBAT",     -- Combate táctico contra amenaza u objetivo de caza
-    WORLD_GOAL = "WORLD_GOAL", -- Ejecutando tarea propia del mundo (minar, desmantelar, patrullar)
-    DRIFT      = "DRIFT"       -- Espera inercial ahorrando combustible
+    DISABLED   = "DISABLED",   -- Nave intacta pero inmovilizada (~22% al morir, abordable en EVA)
+    DESTROYED  = "DESTROYED",  -- Nave destruida por completo (~78% al morir)
+    SURVIVE    = "SURVIVE",    -- Autopreservación (huida con cobertura de asteroides y señuelo)
+    COMBAT     = "COMBAT",     -- Combate táctico con derrape inercial, esquiva de proyectiles y ráfagas
+    ALERT      = "ALERT",      -- Estado intermedio: Advertencia territorial (WARDEN/NOMAD) o Acecho (RAIDER)
+    WORLD_GOAL = "WORLD_GOAL", -- Ejecutando tarea propia del mundo (minar, desmantelar, patrullar, escoltar)
+    DRIFT      = "DRIFT"       -- Espera inercial
 }
 
--- Configuración por rol
+-- Configuración por rol ecológico
 local ROLE_CONFIG = {
     SCAVENGER = {
         label = "Recolector",
-        sensorBaseRange = 650,
-        fleeHealthRatio = 0.35,
-        aggression = 0.15,        -- Solo ataca en defensa propia
+        sensorBaseRange = 680,
+        fovCos = -0.25,
+        fleeHealthRatio = 0.40,
+        aggression = 0.15,
         preferredDistance = 260,
-        workDuration = 9.0,       -- Segundos extrayendo de un asteroide o pecio
-        cruiseSpeedFactor = 0.65,
-        beaconColor = {0.95, 0.78, 0.20} -- Ámbar industrial
+        workDuration = 8.5,
+        cruiseSpeedFactor = 0.72,
+        intactChance = 0.25,
+        burstMin = 2,
+        burstMax = 4,
+        burstPauseMin = 0.65,
+        burstPauseMax = 1.15,
+        dodgeSkill = 0.55,
+        beaconColor = {0.95, 0.78, 0.20}
     },
     RAIDER = {
         label = "Corsario",
-        sensorBaseRange = 950,
-        fleeHealthRatio = 0.22,
-        aggression = 0.85,        -- Caza presas vulnerables o con carga
-        preferredDistance = 300,
+        sensorBaseRange = 900,
+        fovCos = -0.35,
+        fleeHealthRatio = 0.20,
+        aggression = 0.85,
+        preferredDistance = 290,
         workDuration = 4.0,
-        cruiseSpeedFactor = 0.85,
-        beaconColor = {0.95, 0.22, 0.25} -- Carmesí hostil
+        cruiseSpeedFactor = 0.88,
+        intactChance = 0.22,
+        burstMin = 3,
+        burstMax = 6,
+        burstPauseMin = 0.38,
+        burstPauseMax = 0.75,
+        dodgeSkill = 0.85,
+        beaconColor = {0.95, 0.22, 0.25}
     },
     WARDEN = {
         label = "Centinela",
-        sensorBaseRange = 850,
-        fleeHealthRatio = 0.0,    -- Los autómatas no huyen
-        aggression = 0.50,        -- Ataca solo a infractores en su territorio
+        sensorBaseRange = 860,
+        fovCos = -0.60,
+        fleeHealthRatio = 0.0,
+        aggression = 0.55,
         territoryRadius = 900,
-        preferredDistance = 340,
+        preferredDistance = 350,
         workDuration = 6.0,
-        cruiseSpeedFactor = 0.70,
-        beaconColor = {0.25, 0.88, 1.00} -- Cian de contención antigua
+        cruiseSpeedFactor = 0.76,
+        intactChance = 0.0,
+        burstMin = 2,
+        burstMax = 4,
+        burstPauseMin = 0.45,
+        burstPauseMax = 0.80,
+        dodgeSkill = 0.75,
+        beaconColor = {0.25, 0.88, 1.00}
     },
     NOMAD = {
         label = "Nómada",
-        sensorBaseRange = 750,
+        sensorBaseRange = 760,
+        fovCos = -0.30,
         fleeHealthRatio = 0.30,
         aggression = 0.25,
         preferredDistance = 310,
         workDuration = 5.0,
-        cruiseSpeedFactor = 0.75,
-        beaconColor = {0.45, 0.92, 0.55} -- Verde exploración
+        cruiseSpeedFactor = 0.80,
+        intactChance = 0.22,
+        burstMin = 3,
+        burstMax = 5,
+        burstPauseMin = 0.45,
+        burstPauseMax = 0.85,
+        dodgeSkill = 0.70,
+        beaconColor = {0.45, 0.92, 0.55}
     }
 }
 
@@ -87,52 +122,121 @@ function AIController:new(ship, opts)
         state = AIController.STATES.WORLD_GOAL,
         active = true,
 
-        -- Semilla / RNG determinista local del agente
+        -- RNG determinista local del agente
         rng = opts.rng,
         homeX = opts.homeX or (ship and ship.x) or 0,
         homeY = opts.homeY or (ship and ship.y) or 0,
 
-        -- Objetivo de combate actual
+        -- Rasgos individuales de personalidad del piloto (generados por Seed para que dos naves iguales nunca sean idénticas)
+        pilotPersonality = {
+            aggressiveness = 0.85,
+            preferredOrbitSide = 1,
+            aimWanderSpeed = 2.3,
+            aimWanderPhase = 0,
+            reactionSpeed = 5.5
+        },
+
+        -- Física de rotación con inercia angular real
+        angVel = 0,
+        rcsThrustDir = 0, -- -1 (izquierda), 0, +1 (derecha) para efectos visuales RCS
+
+        -- Coordinación de escuadrón (Wingman / Escolta / Nodriza)
+        wingmanOf = opts.wingmanOf or nil,
+        formationOffsetX = opts.formationOffsetX or -95,
+        formationOffsetY = opts.formationOffsetY or 75,
+        formationSlotIndex = opts.formationSlotIndex or 1,
+        escorts = opts.escorts or {},
+        isReceivingCarrierShield = false,
+        hangarReserve = (ship and ship.shipConfig and ship.shipConfig.hangarReserve) or 0,
+        hangarCooldown = 5.0,
+        hangarFlashTimer = 0,
+        warpInTimer = opts.warpInTimer or 0,
+
+        -- Estado de alerta / acecho (ALERT)
+        alertTarget = nil,
+        alertMode = nil,       -- "WARN" (Centinela/Nómada) | "STALK" (Corsario)
+        alertTimer = 0,
+        alertMaxTimer = 2.4,
+
+        -- Estado de combate táctico
         combatTarget = nil,
         combatMemoryTimer = 0,
+        satiatedTimer = 0,     -- Enfriamiento tras abatir una presa (recolecta el botín en vez de atacar al jugador inmediatamente)
         lastAttacker = nil,
+        tacticalPhase = "ENGAGE", -- "ENGAGE" | "PASS_AWAY" | "DRIFT_TURN" | "COVER_SEEK"
+        tacticalTimer = 0,
 
-        -- Meta del mundo actual (asteroide, pecio, estación o waypoint)
+        -- Memoria sensorial con tiempo de reacción humano (evita aimbot instantáneo)
+        trackedTargetVx = 0,
+        trackedTargetVy = 0,
+
+        -- Esquiva reactiva de proyectiles (Micro-Dodging)
+        jukeTimer = 0,
+        jukeDirX = 0,
+        jukeDirY = 0,
+        dodgeCooldown = 0,
+        underCrosshairTimer = 0,
+
+        -- Disciplina de disparo por ráfagas (no metrónomo)
+        burstShotsLeft = 4,
+        burstPauseTimer = 0,
+        lastObservedShotTime = 0,
+
+        -- Señuelo de emergencia (SCAVENGER)
+        panicJettisoned = false,
+
+        -- Telegrafía de ataque pesado (GUNSHIP / SENTINEL)
+        telegraphTimer = 0,
+        telegraphDuration = 0.55,
+        telegraphAimX = nil,
+        telegraphAimY = nil,
+        heavyBurstCooldown = 0,
+
+        -- Meta del mundo actual
         worldGoal = {
-            type = nil,       -- "mine_asteroid" | "salvage_wreck" | "patrol_anchor" | "collect_item" | "travel_waypoint"
+            type = nil,
             targetX = nil,
             targetY = nil,
             targetEntity = nil,
             timer = 0,
             maxTimer = cfg.workDuration or 8.0,
-            isWorking = false -- True cuando está aplicando láser de extracción o escaneo
+            isWorking = false
         },
 
-        -- Temporizadores internos para decisiones suaves (evita jitter y ahorra CPU)
+        -- Temporizadores internos
         decisionTimer = (opts.initialDelay or 0),
-        decisionInterval = 0.35,
-        strafeDir = 1,
-        strafeSwitchTimer = 2.5,
+        decisionInterval = 0.25,
+        strafeDir = (opts.wingmanOf and -1) or 1,
+        strafeSwitchTimer = 2.0,
         salvageDropTimer = 0
     }, self)
+
+    -- Inicializar personalidad única del piloto usando el RNG determinista
+    ai.pilotPersonality.aggressiveness = ai:random(0.75, 1.25)
+    ai.pilotPersonality.preferredOrbitSide = (ai:random() < 0.5) and -1 or 1
+    ai.pilotPersonality.aimWanderSpeed = ai:random(1.7, 3.4)
+    ai.pilotPersonality.aimWanderPhase = ai:random(0, math.pi * 2)
+    ai.pilotPersonality.reactionSpeed = ai:random(4.2, 7.5)
+    ai.strafeDir = ai.pilotPersonality.preferredOrbitSide
+    ai.burstShotsLeft = math.floor(ai:random(cfg.burstMin or 3, (cfg.burstMax or 5) + 0.9))
 
     if ship then
         ship.isAI = true
         ship.isAbandoned = false
+        ship.isImmobilized = false
         ship.isPiloted = false
         ship.aiRole = role
         ship.aiFaction = opts.faction or role
         ship.shipName = (opts.namePrefix or cfg.label) .. " #" .. tostring(ship.shipId)
-        -- Asegurar combustible suficiente para operar en el ecosistema
         if ship.stats and ship.stats.fuel then
-            ship.stats.fuel.consumeRate = 0.08 -- Consumo reducido para agentes autónomos
+            ship.stats.fuel.consumeRate = 0.06
         end
     end
 
     return ai
 end
 
--- Helper RNG determinista si está disponible
+-- RNG determinista
 function AIController:random(min, max)
     local r = (self.rng and self.rng.random and self.rng:random()) or math.random()
     if not min then return r end
@@ -140,46 +244,296 @@ function AIController:random(min, max)
     return min + r * (max - min)
 end
 
--- Calcula si este agente puede detectar a otra entidad basándose en su Firma de Emisión Espacial
+-- Comprueba si hay línea de visión despejada entre la nave IA y (tx, ty)
+function AIController:hasLineOfSight(tx, ty)
+    local Map = package.loaded['src.maps.map']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if not Map or not Map.getChunkNonBlocking or not MapConfig then
+        return true
+    end
+
+    local ws = (MapConfig.chunk and MapConfig.chunk.worldScale) or 2.0
+    local tileSizeScaled = (MapConfig.chunk.tileSize or 32) * ws
+    local chunkSize = MapConfig.chunk.size or 64
+    local strideScaled = ((chunkSize * (MapConfig.chunk.tileSize or 32)) + (MapConfig.chunk.spacing or 0)) * ws
+
+    local sx, sy = self.ship.x, self.ship.y
+    for step = 1, 4 do
+        local t = step / 5
+        local px = sx + (tx - sx) * t
+        local py = sy + (ty - sy) * t
+        local cx = math.floor(px / strideScaled)
+        local cy = math.floor(py / strideScaled)
+        local chunk = Map.getChunkNonBlocking(cx, cy)
+        if chunk and chunk.tiles then
+            local localX = px - cx * strideScaled
+            local localY = py - cy * strideScaled
+            local tileX = math.floor(localX / tileSizeScaled)
+            local tileY = math.floor(localY / tileSizeScaled)
+            local row = chunk.tiles[tileY]
+            local cell = row and row[tileX]
+            if cell and cell >= MapConfig.ObjectType.ASTEROID_MEDIUM and cell <= MapConfig.ObjectType.ASTEROID_LARGE then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+-- Percepción Física y Contextual
 function AIController:canDetectEntity(otherShip)
     if not otherShip or otherShip == self.ship then return false, math.huge end
     if otherShip.isDestroyed then return false, math.huge end
 
-    -- Si la otra nave está en modo EVA, evaluar detección contra el astronauta o contra su nave vacía
     local targetX, targetY = otherShip.x, otherShip.y
-    local targetSignature = otherShip.signatureRadius or 300
+    local isEVATarget = false
     if otherShip.isInEVA and otherShip.evaPlayer then
         targetX = otherShip.evaPlayer.x or otherShip.x
         targetY = otherShip.evaPlayer.y or otherShip.y
-        targetSignature = otherShip.evaPlayer.signatureRadius or 95
+        isEVATarget = true
     end
 
     local dx = targetX - self.ship.x
     local dy = targetY - self.ship.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
-    -- Si nos acaba de disparar, conocemos su vector de ataque temporalmente
     if self.lastAttacker == otherShip and self.combatMemoryTimer > 0 then
-        return dist <= (self.config.sensorBaseRange * 1.65), dist
+        return dist <= math.max(1650, (self.config.sensorBaseRange or 750) * 2.1), dist
+    end
+    if self.combatTarget == otherShip and self.combatMemoryTimer > 0 then
+        return dist <= 2450, dist
     end
 
-    -- Rango efectivo = promedio ponderado entre nuestro sensor y la Firma de Emisión del objetivo
-    local effectiveDetectionRange = (self.config.sensorBaseRange * 0.45) + targetSignature
-    return dist <= effectiveDetectionRange, dist
+    local maxRange = self.config.sensorBaseRange or 750
+    if isEVATarget then
+        maxRange = maxRange * 0.55
+    end
+
+    local BiomeSystem = package.loaded['src.maps.biome_system']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if BiomeSystem and BiomeSystem.getBiomeForChunk and MapConfig then
+        local ws = (MapConfig.chunk and MapConfig.chunk.worldScale) or 2.0
+        local stride = ((MapConfig.chunk.size * MapConfig.chunk.tileSize) + (MapConfig.chunk.spacing or 0)) * ws
+        local cx = math.floor(targetX / stride)
+        local cy = math.floor(targetY / stride)
+        local ok, bType = pcall(BiomeSystem.getBiomeForChunk, cx, cy)
+        if ok and BiomeSystem.BiomeType and bType == BiomeSystem.BiomeType.NEBULA then
+            maxRange = maxRange * 0.60
+        end
+    end
+
+    local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+    local firedRecently = (now - (otherShip._lastShotTimestamp or -999)) < 2.5
+    local isFlaring = firedRecently or otherShip.isBoostActive
+    if isFlaring then
+        maxRange = maxRange * 1.22
+    end
+
+    if dist > maxRange then
+        return false, dist
+    end
+
+    if dist > 240 and not isFlaring then
+        local lookX = math.sin(self.ship.rotation or 0)
+        local lookY = -math.cos(self.ship.rotation or 0)
+        local toTargetX = dx / math.max(1, dist)
+        local toTargetY = dy / math.max(1, dist)
+        local dot = lookX * toTargetX + lookY * toTargetY
+        if dot < (self.config.fovCos or -0.3) then
+            return false, dist
+        end
+    end
+
+    if not self:hasLineOfSight(targetX, targetY) then
+        return false, dist
+    end
+
+    return true, dist
 end
 
--- Evalúa el entorno para encontrar amenazas o presas sin centrarse artificialmente en el jugador
+-- Calcula un vector de repulsión contra asteroides cercanos y objetos especiales
+function AIController:computeObstacleAvoidance()
+    local ship = self.ship
+    local avoidX, avoidY = 0, 0
+    local Map = package.loaded['src.maps.map']
+    local MapConfig = package.loaded['src.maps.config.map_config']
+    if not Map or not Map.getChunkNonBlocking or not MapConfig then
+        return 0, 0
+    end
+
+    local ws = (MapConfig.chunk and MapConfig.chunk.worldScale) or 2.0
+    local tileSizeScaled = (MapConfig.chunk.tileSize or 32) * ws
+    local chunkSize = MapConfig.chunk.size or 64
+    local strideScaled = ((chunkSize * (MapConfig.chunk.tileSize or 32)) + (MapConfig.chunk.spacing or 0)) * ws
+
+    local lookAheadX = ship.x + (ship.dx or 0) * 16
+    local lookAheadY = ship.y + (ship.dy or 0) * 16
+
+    local cx = math.floor(lookAheadX / strideScaled)
+    local cy = math.floor(lookAheadY / strideScaled)
+    local chunk = Map.getChunkNonBlocking(cx, cy)
+    if not chunk then return 0, 0 end
+
+    local chunkBaseX = cx * strideScaled
+    local chunkBaseY = cy * strideScaled
+
+    if chunk.tiles then
+        local centerTileX = math.floor((lookAheadX - chunkBaseX) / tileSizeScaled)
+        local centerTileY = math.floor((lookAheadY - chunkBaseY) / tileSizeScaled)
+        local clearance = (ship.size or 16) * ws + tileSizeScaled * 1.05
+
+        for ty = centerTileY - 2, centerTileY + 2 do
+            local row = chunk.tiles[ty]
+            if row then
+                for tx = centerTileX - 2, centerTileX + 2 do
+                    local cell = row[tx]
+                    if cell and cell >= MapConfig.ObjectType.ASTEROID_SMALL and cell <= MapConfig.ObjectType.ASTEROID_LARGE then
+                        local astX = chunkBaseX + (tx + 0.5) * tileSizeScaled
+                        local astY = chunkBaseY + (ty + 0.5) * tileSizeScaled
+                        local rx = lookAheadX - astX
+                        local ry = lookAheadY - astY
+                        local d = math.sqrt(rx * rx + ry * ry)
+                        if d < clearance and d > 0.01 then
+                            local weight = (clearance - d) / clearance
+                            avoidX = avoidX + (rx / d) * weight * 2.1
+                            avoidY = avoidY + (ry / d) * weight * 2.1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if chunk.specialObjects then
+        for i = 1, #chunk.specialObjects do
+            local obj = chunk.specialObjects[i]
+            if obj and obj.x and obj.y then
+                local ox = chunkBaseX + obj.x * ws
+                local oy = chunkBaseY + obj.y * ws
+                local objRadius = ((obj.radius or obj.size or 75) * ws) + (ship.size or 16) * 2.5
+                local rx = lookAheadX - ox
+                local ry = lookAheadY - oy
+                local d = math.sqrt(rx * rx + ry * ry)
+                if d < objRadius and d > 0.01 then
+                    local weight = (objRadius - d) / objRadius
+                    avoidX = avoidX + (rx / d) * weight * 2.8
+                    avoidY = avoidY + (ry / d) * weight * 2.8
+                end
+            end
+        end
+    end
+
+    -- Separación táctica entre naves para que las batallas grandes sean amplias y legibles (evita amontonamiento)
+    local Naves = package.loaded['src.entities.naves']
+    if Naves and Naves.getAllShips then
+        local all = Naves.getAllShips()
+        local minSep = ((ship.size or 16) + 155)
+        for i = 1, #all do
+            local other = all[i]
+            if other and other ~= ship and not other.isDestroyed and not other.isAbandoned then
+                local sx = ship.x - (other.x or 0)
+                local sy = ship.y - (other.y or 0)
+                local sdSq = sx * sx + sy * sy
+                local pairSep = minSep + (other.size or 16) * 1.4
+                if sdSq < (pairSep * pairSep) and sdSq > 1 then
+                    local sd = math.sqrt(sdSq)
+                    local push = ((pairSep - sd) / pairSep) * 1.65
+                    avoidX = avoidX + (sx / sd) * push
+                    avoidY = avoidY + (sy / sd) * push
+                end
+            end
+        end
+    end
+
+    return avoidX, avoidY
+end
+
+-- Detecta proyectiles entrantes o si el enemigo nos tiene directamente en su línea de mira para ejecutar una esquiva reactiva (Juke)
+function AIController:evaluateIncomingThreats(dt, enemyShip)
+    if self.dodgeCooldown > 0 then
+        self.dodgeCooldown = math.max(0, self.dodgeCooldown - dt)
+    end
+    if self.jukeTimer > 0 then
+        self.jukeTimer = math.max(0, self.jukeTimer - dt)
+        return
+    end
+    if not enemyShip or self.dodgeCooldown > 0 then return end
+
+    local ship = self.ship
+    local dodgeSkill = self.config.dodgeSkill or 0.7
+
+    -- 1. Escanear proyectiles activos disparados por el enemigo
+    local projs = enemyShip.projectiles
+    if projs and #projs > 0 then
+        for i = 1, #projs do
+            local p = projs[i]
+            if p and not p.destroyed and p.x and p.y and p.vx and p.vy then
+                local toShipX = ship.x - p.x
+                local toShipY = ship.y - p.y
+                local distSq = toShipX * toShipX + toShipY * toShipY
+                if distSq < (340 * 340) and distSq > 4 then
+                    local pSpeed = math.sqrt(p.vx * p.vx + p.vy * p.vy)
+                    if pSpeed > 1 then
+                        local pDirX = p.vx / pSpeed
+                        local pDirY = p.vy / pSpeed
+                        local projDist = math.sqrt(distSq)
+                        local dot = (toShipX / projDist) * pDirX + (toShipY / projDist) * pDirY
+                        -- Si el proyectil viene hacia nosotros
+                        if dot > 0.78 then
+                            -- Distancia perpendicular de paso (miss distance)
+                            local cross = toShipX * pDirY - toShipY * pDirX
+                            local hitThreshold = (ship.size or 16) * 2.8
+                            if math.abs(cross) < hitThreshold and self:random() < dodgeSkill then
+                                -- Esquivar perpendicularmente hacia el lado que nos aleja de la trayectoria del proyectil
+                                local side = (cross >= 0) and 1 or -1
+                                self.jukeDirX = -pDirY * side
+                                self.jukeDirY = pDirX * side
+                                self.jukeTimer = self:random(0.22, 0.34)
+                                self.dodgeCooldown = self:random(0.75, 1.35)
+                                self.strafeDir = side
+                                self.rcsThrustDir = side
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Conciencia de línea de mira ("Crosshair Awareness"): si el enemigo nos apunta fijamente durante > 0.7s, romper el ritmo
+    if enemyShip.rotation and enemyShip.x and enemyShip.y then
+        local enemyLookX = math.sin(enemyShip.rotation)
+        local enemyLookY = -math.cos(enemyShip.rotation)
+        local dx = ship.x - enemyShip.x
+        local dy = ship.y - enemyShip.y
+        local dist = math.sqrt(dx * dx + dy * dy)
+        if dist < 600 and dist > 1 then
+            local dot = (dx / dist) * enemyLookX + (dy / dist) * enemyLookY
+            if dot > 0.94 then
+                self.underCrosshairTimer = self.underCrosshairTimer + dt
+                if self.underCrosshairTimer > 0.65 then
+                    self.underCrosshairTimer = 0
+                    self.strafeDir = -self.strafeDir
+                    self.jukeDirX = -enemyLookY * self.strafeDir
+                    self.jukeDirY = enemyLookX * self.strafeDir
+                    self.jukeTimer = 0.24
+                    self.dodgeCooldown = 1.1
+                    self.rcsThrustDir = self.strafeDir
+                end
+            else
+                self.underCrosshairTimer = math.max(0, self.underCrosshairTimer - dt * 2)
+            end
+        end
+    end
+end
+
+-- Evalúa el entorno para encontrar amenazas, objetivos de acecho o intrusos territoriales
 function AIController:evaluatePerception()
     local Naves = package.loaded['src.entities.naves']
     if not Naves or not Naves.getAllShips then return end
 
-    local ships = Naves.getAllShips()
-    local bestTarget = nil
-    local bestScore = -math.huge
-
     local myHealthRatio = (self.ship.stats and self.ship.stats:getHealthPercentage() or 100) / 100
-
-    -- Verificar si debemos huir por daño crítico
     if myHealthRatio <= self.config.fleeHealthRatio and self.config.fleeHealthRatio > 0 then
         if self.combatTarget or self.lastAttacker then
             self.state = AIController.STATES.SURVIVE
@@ -187,101 +541,214 @@ function AIController:evaluatePerception()
         end
     end
 
+    -- Si ya estamos en estado ALERT, su transición se maneja en updateAlert
+    if self.state == AIController.STATES.ALERT and self.alertTarget and not self.alertTarget.isDestroyed then
+        if self.lastAttacker then
+            self.combatTarget = self.lastAttacker
+            self.state = AIController.STATES.COMBAT
+        end
+        return
+    end
+
+    local ships = Naves.getAllShips()
+    local bestTarget = nil
+    local bestScore = -math.huge
+    local bestDist = math.huge
+    local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+
+    -- Pre-chequeo: saber si hay naves IA de otra facción cerca para que las flotas no hagan focus grupal artificial al jugador
+    local hasRivalAIInSector = false
+    for i = 1, #ships do
+        local c = ships[i]
+        if c and c ~= self.ship and not c.isPiloted and not c.isAbandoned and not c.isDestroyed then
+            if c.aiFaction ~= self.ship.aiFaction then
+                local dx = (c.x or 0) - self.ship.x
+                local dy = (c.y or 0) - self.ship.y
+                if (dx * dx + dy * dy) <= (1450 * 1450) then
+                    hasRivalAIInSector = true
+                    break
+                end
+            end
+        end
+    end
+
+    -- Si somos escolta sin objetivo propio y el líder combate contra otra nave IA (no hacer focus de colmena al jugador), asistirlo
+    if (not self.combatTarget or self.combatTarget.isDestroyed or self.combatTarget.isAbandoned)
+       and self.wingmanOf and not self.wingmanOf.isDestroyed and not self.wingmanOf.isAbandoned then
+        local leaderAI = self.wingmanOf.aiController
+        if leaderAI and leaderAI.state == AIController.STATES.COMBAT and leaderAI.combatTarget then
+            if not leaderAI.combatTarget.isPiloted or not hasRivalAIInSector then
+                self.combatTarget = leaderAI.combatTarget
+                self.state = AIController.STATES.COMBAT
+                return
+            end
+        end
+    end
+
     for i = 1, #ships do
         local candidate = ships[i]
-        if candidate and candidate ~= self.ship and not candidate.isAbandoned then
-            local detected, dist = self:canDetectEntity(candidate)
-            if detected then
-                local score = 0
-                local candidateRole = candidate.aiRole or (candidate.isPiloted and "PLAYER" or "UNKNOWN")
+        if candidate and candidate ~= self.ship and (not candidate.isAbandoned or candidate.isPiloted) and not candidate.isDestroyed then
+            if candidate.aiFaction == self.ship.aiFaction and candidate ~= self.lastAttacker and candidate ~= self.combatTarget then
+                -- Ignorar aliado de la misma facción
+            else
+                local detected, dist = self:canDetectEntity(candidate)
+                if detected then
+                    local score = 0
+                    local candidateRole = candidate.aiRole or (candidate.isPiloted and "PLAYER" or "UNKNOWN")
+                    local directlyShotMe = (candidate == self.lastAttacker and self.combatMemoryTimer > 0)
 
-                -- 1. Respuesta a quien nos atacó
-                if candidate == self.lastAttacker and self.combatMemoryTimer > 0 then
-                    score = score + 100
-                end
-
-                -- 2. Reglas ecológicas según nuestro Rol
-                if self.role == AIController.ROLES.RAIDER then
-                    -- Los Corsarios buscan Recolectores cargados o naves heridas/vulnerables
-                    local targetHealthPct = (candidate.stats and candidate.stats:getHealthPercentage()) or 100
-                    local targetShieldPct = (candidate.stats and candidate.stats:getShieldPercentage()) or 100
-
-                    if candidateRole == AIController.ROLES.SCAVENGER then
-                        score = score + 65 -- Presa natural favorita en el ecosistema
-                    elseif candidateRole == AIController.ROLES.NOMAD then
-                        score = score + 40
-                    elseif candidateRole == "PLAYER" then
-                        -- Oportunista: ataca al jugador si está herido, sin escudo, muy cerca o haciendo mucho ruido
-                        local vulnerability = (100 - targetHealthPct) * 0.5 + (100 - targetShieldPct) * 0.35
-                        local proximityBonus = dist < 480 and 35 or 0
-                        local noiseBonus = (candidate.signatureRadius or 300) > 650 and 25 or 0
-                        score = score + vulnerability + proximityBonus + noiseBonus - 15
-                    elseif candidateRole == AIController.ROLES.WARDEN then
-                        -- Los Corsarios evitan a los Centinelas salvo que ya estén peleando
-                        score = score - 40
+                    if directlyShotMe then
+                        score = score + 165
                     end
 
-                elseif self.role == AIController.ROLES.WARDEN then
-                    -- Los Centinelas custodian su territorio: atacan a Corsarios y a cualquiera que dispare o haga ruido excesivo cerca de su ancla
-                    local distFromAnchor = MathUtil.distance(candidate.x, candidate.y, self.homeX, self.homeY)
-                    local inTerritory = distFromAnchor <= (self.config.territoryRadius or 900)
-                    if inTerritory then
-                        if candidateRole == AIController.ROLES.RAIDER then
-                            score = score + 75
-                        elseif (candidate._signatureShotBoost or 0) > 50 or (candidate.signatureRadius or 0) > 780 then
-                            -- Infractor disparando o sobrecargando motores en zona sagrada/borde
-                            score = score + 60
-                        elseif dist < 240 then
-                            -- Violación de perímetro cercano
-                            score = score + 35
+                    -- Compromiso de duelo individual: mantener el enfoque en su duelo actual salvo que le disparen directamente
+                    if self.state == AIController.STATES.COMBAT and self.combatTarget and not self.combatTarget.isDestroyed and not self.combatTarget.isAbandoned then
+                        if candidate == self.combatTarget then
+                            score = score + 110
+                        elseif not directlyShotMe then
+                            score = score - 95
                         end
                     end
 
-                elseif self.role == AIController.ROLES.SCAVENGER or self.role == AIController.ROLES.NOMAD then
-                    -- Pacíficos: solo pelean si fueron agredidos o si un Corsario se lanza encima de ellos
-                    if candidate == self.lastAttacker and self.combatMemoryTimer > 0 then
-                        score = score + 80
-                    elseif candidateRole == AIController.ROLES.RAIDER and dist < 350 and candidate.aiController and candidate.aiController.combatTarget == self.ship then
-                        score = score + 55
+                    -- Regla de Caos Multi-Facción: durante una batalla con otras naves IA cerca, NO hacer focus grupal al jugador.
+                    -- Solo la nave específica a la que el jugador disparó (o una nave libre que lo perciba muy de cerca < 270px) lo ataca.
+                    if candidateRole == "PLAYER" and hasRivalAIInSector and not directlyShotMe then
+                        local isFreeAndVeryClose = (not self.combatTarget or self.combatTarget.isDestroyed) and (dist < 270)
+                        if isFreeAndVeryClose then
+                            score = score + 38
+                        else
+                            score = score - 260
+                        end
                     end
-                end
 
-                -- Penalización por distancia
-                score = score - (dist * 0.03)
+                    if self.role == AIController.ROLES.RAIDER then
+                        if (self.satiatedTimer or 0) > 0 and not directlyShotMe then
+                            score = score - 120
+                        end
+                        local targetHealthPct = (candidate.stats and candidate.stats:getHealthPercentage()) or 100
+                        local targetShieldPct = (candidate.stats and candidate.stats:getShieldPercentage()) or 100
 
-                if score > 25 and score > bestScore then
-                    bestScore = score
-                    bestTarget = candidate
+                        if candidateRole == AIController.ROLES.SCAVENGER then
+                            score = score + 72
+                        elseif candidateRole == AIController.ROLES.NOMAD then
+                            score = score + 48
+                        elseif candidateRole == "PLAYER" then
+                            local baseHunt = 58 * (self.pilotPersonality and self.pilotPersonality.aggressiveness or 1.0)
+                            local vulnerability = (100 - targetHealthPct) * 0.35 + (100 - targetShieldPct) * 0.25
+                            local proximityBonus = dist < 440 and 16 or 4
+                            score = score + baseHunt + vulnerability + proximityBonus
+                        elseif candidateRole == AIController.ROLES.WARDEN then
+                            score = score - 45
+                        end
+
+                    elseif self.role == AIController.ROLES.WARDEN then
+                        local distFromAnchor = MathUtil.distance(candidate.x, candidate.y, self.homeX, self.homeY)
+                        local inTerritory = distFromAnchor <= (self.config.territoryRadius or 900)
+                        if inTerritory then
+                            if candidateRole == AIController.ROLES.RAIDER then
+                                score = score + 80
+                            elseif not hasRivalAIInSector and (now - (candidate._lastShotTimestamp or -999)) < 4.0 then
+                                score = score + 75
+                            elseif dist < 440 then
+                                score = score + 42
+                            end
+                        end
+
+                    elseif self.role == AIController.ROLES.NOMAD then
+                        if directlyShotMe then
+                            score = score + 90
+                        elseif dist < 380 then
+                            score = score + 35
+                        end
+
+                    elseif self.role == AIController.ROLES.SCAVENGER then
+                        if directlyShotMe then
+                            score = score + 85
+                        elseif candidateRole == AIController.ROLES.RAIDER and dist < 380 and candidate.aiController and candidate.aiController.combatTarget == self.ship then
+                            score = score + 60
+                        end
+                    end
+
+                    -- Choque de Escuadrones Multi-Facción (programado o emergente al cruzarse dos facciones distintas)
+                    if self.ship.isFactionCombatant and candidate.isFactionCombatant and candidate.aiFaction ~= self.ship.aiFaction then
+                        score = score + 115
+                    end
+
+                    score = score - (dist * 0.025)
+
+                    if score > 25 and score > bestScore then
+                        bestScore = score
+                        bestTarget = candidate
+                        bestDist = dist
+                    end
                 end
             end
         end
     end
 
     if bestTarget then
-        self.combatTarget = bestTarget
-        self.state = AIController.STATES.COMBAT
+        -- Si ya estábamos en combate con este objetivo, nos atacó o pertenece a una flota rival en guerra, ir a COMBAT directo
+        local alreadyFighting = (self.state == AIController.STATES.COMBAT and self.combatTarget == bestTarget)
+        local wasAttacked = (bestTarget == self.lastAttacker and self.combatMemoryTimer > 0)
+        local isFactionWar = (self.ship.isFactionCombatant and bestTarget.isFactionCombatant and bestTarget.aiFaction ~= self.ship.aiFaction)
+        local targetFiredRecently = (now - (bestTarget._lastShotTimestamp or -999)) < 3.0
+
+        if alreadyFighting or wasAttacked or isFactionWar then
+            self.combatTarget = bestTarget
+            self.state = AIController.STATES.COMBAT
+        elseif (self.role == AIController.ROLES.WARDEN or self.role == AIController.ROLES.NOMAD) and not targetFiredRecently and bestDist > 230 then
+            -- Centinela o Nómada entra primero en estado de ADVERTENCIA / INSPECCIÓN en vez de disparar como autómata
+            self.alertTarget = bestTarget
+            self.alertMode = "WARN"
+            self.alertTimer = 0
+            self.alertMaxTimer = 2.4
+            self.state = AIController.STATES.ALERT
+        elseif self.role == AIController.ROLES.RAIDER and bestDist > 430 then
+            -- Corsario entra primero en estado de ACECHO (aproximación sigilosa por el punto ciego antes de emboscar)
+            self.alertTarget = bestTarget
+            self.alertMode = "STALK"
+            self.alertTimer = 0
+            self.alertMaxTimer = 3.6
+            self.state = AIController.STATES.ALERT
+        else
+            self.combatTarget = bestTarget
+            self.state = AIController.STATES.COMBAT
+        end
     else
         if self.combatMemoryTimer <= 0 then
             self.combatTarget = nil
+            self.alertTarget = nil
             self.state = AIController.STATES.WORLD_GOAL
         end
     end
 end
 
--- Selecciona una nueva tarea en el mundo (minar asteroide, desmantelar pecio, recoger item o patrullar)
+-- Selecciona una nueva tarea en el mundo
 function AIController:pickNewWorldGoal()
     local wg = self.worldGoal
     wg.isWorking = false
     wg.timer = 0
     wg.targetEntity = nil
+    self.worldTasksCompleted = (self.worldTasksCompleted or 0) + 1
+
+    if self.wingmanOf and not self.wingmanOf.isDestroyed and not self.wingmanOf.isAbandoned then
+        wg.type = "escort_leader"
+        wg.targetX = self.wingmanOf.x + self.formationOffsetX
+        wg.targetY = self.wingmanOf.y + self.formationOffsetY
+        wg.targetEntity = self.wingmanOf
+        wg.maxTimer = 6.0
+        return
+    end
 
     local WorldItems = package.loaded['src.item_systems.world_items']
     local Naves = package.loaded['src.entities.naves']
     local Map = package.loaded['src.maps.map']
     local MapConfig = package.loaded['src.maps.config.map_config']
 
-    -- 1. Si es SCAVENGER: buscar primero items sueltos, luego naves abandonadas (¡incluso la del jugador si la dejó sola!), luego asteroides
-    if self.role == AIController.ROLES.SCAVENGER then
+    -- Ciclo autónomo: tras 2 tareas locales en el chunk, un recolector/minero emprende viaje hacia un chunk vecino
+    local shouldMigrateChunk = (self.worldTasksCompleted % 3 == 0)
+
+    if self.role == AIController.ROLES.SCAVENGER and not shouldMigrateChunk then
         if WorldItems and WorldItems.getNearbyItems then
             local items = WorldItems.getNearbyItems(self.ship.x, self.ship.y, 700)
             if items and #items > 0 then
@@ -292,13 +759,12 @@ function AIController:pickNewWorldGoal()
                     wg.targetX = itemObj.x
                     wg.targetY = itemObj.y
                     wg.targetEntity = itemObj
-                    wg.maxTimer = 3.0
+                    wg.maxTimer = 3.5
                     return
                 end
             end
         end
 
-        -- Buscar nave abandonada o sin piloto en las cercanías para desmantelar
         if Naves and Naves.getNearbyShips then
             local nearby = Naves.getNearbyShips(self.ship.x, self.ship.y, 1100)
             for _, entry in ipairs(nearby) do
@@ -308,13 +774,12 @@ function AIController:pickNewWorldGoal()
                     wg.targetX = s.x
                     wg.targetY = s.y
                     wg.targetEntity = s
-                    wg.maxTimer = 9.0
+                    wg.maxTimer = (self.ship.shipType == "SALVAGER") and 6.5 or 9.0
                     return
                 end
             end
         end
 
-        -- Buscar un asteroide cercano en el chunk actual
         if Map and Map.getChunkNonBlocking and MapConfig then
             local ws = MapConfig.chunk.worldScale or 1.0
             local tileSizeScaled = MapConfig.chunk.tileSize * ws
@@ -333,7 +798,7 @@ function AIController:pickNewWorldGoal()
                         wg.type = "mine_asteroid"
                         wg.targetX = chunkBaseX + tx * tileSizeScaled
                         wg.targetY = chunkBaseY + ty * tileSizeScaled
-                        wg.maxTimer = 8.0
+                        wg.maxTimer = (self.ship.shipType == "SALVAGER") and 6.5 or 9.0
                         return
                     end
                 end
@@ -341,28 +806,32 @@ function AIController:pickNewWorldGoal()
         end
     end
 
-    -- 2. Si es WARDEN: patrullar en órbita alrededor de su estructura/ancla
-    if self.role == AIController.ROLES.WARDEN then
+    if self.role == AIController.ROLES.WARDEN and not self.ship.transitAngle then
         local angle = self:random(0, math.pi * 2)
-        local orbitR = self:random(220, 520)
+        local orbitR = self:random(240, 560)
         wg.type = "patrol_anchor"
         wg.targetX = self.homeX + math.cos(angle) * orbitR
         wg.targetY = self.homeY + math.sin(angle) * orbitR
-        wg.maxTimer = 7.0
+        wg.maxTimer = 8.0
         return
     end
 
-    -- 3. Por defecto (RAIDER / NOMAD / Fallback): patrullar ruta amplia por el sector
-    local angle = self:random(0, math.pi * 2)
-    local dist = self:random(450, 1200)
+    -- Rutas inter-chunk autónomas: las naves viajan entre chunks del mapa siguiendo su propio vector cósmico
+    -- sin girar alrededor del jugador, permitiendo cruces 100% fortuitos cuando dos rutas se intersectan.
+    local baseAngle = self.ship.transitAngle or self:random(0, math.pi * 2)
+    local angle = baseAngle + self:random(-0.35, 0.35)
+    self.ship.transitAngle = angle
+    local dist = shouldMigrateChunk and self:random(2200, 3600) or (self.ship.transitAngle and self:random(1500, 2800) or self:random(900, 1800))
     wg.type = "travel_waypoint"
-    wg.targetX = self.homeX + math.cos(angle) * dist
-    wg.targetY = self.homeY + math.sin(angle) * dist
-    wg.maxTimer = 10.0
+    wg.targetX = (self.ship.x or self.homeX) + math.cos(angle) * dist
+    wg.targetY = (self.ship.y or self.homeY) + math.sin(angle) * dist
+    wg.maxTimer = 18.0
 end
 
--- Aplica rotación suave y empuje hacia un punto o vector deseado
-function AIController:steerTowards(dt, targetX, targetY, desiredSpeedFactor, keepDistance)
+-- =============================================================================
+-- PILOTAJE FÍSICO REAL (Propulsores alineados con proa + RCS + Derrape Inercial)
+-- =============================================================================
+function AIController:steerTowards(dt, targetX, targetY, desiredSpeedFactor, keepDistance, aimOverrideX, aimOverrideY)
     local ship = self.ship
     local dx = targetX - ship.x
     local dy = targetY - ship.y
@@ -373,54 +842,261 @@ function AIController:steerTowards(dt, targetX, targetY, desiredSpeedFactor, kee
     local dirX = dx / dist
     local dirY = dy / dist
 
-    -- Rotar hacia el objetivo (en el sistema de Naves, rotation = atan2(dy, dx) + pi/2)
-    local targetRot = math.atan2(dy, dx) + (math.pi * 2 * 0.25)
+    -- 1. Combinar deseo de movimiento con repulsión de obstáculos y esquiva reactiva (Juke)
+    local avoidX, avoidY = self:computeObstacleAvoidance()
+    local desiredX = dirX + avoidX
+    local desiredY = dirY + avoidY
+
+    if self.jukeTimer > 0 then
+        desiredX = desiredX + self.jukeDirX * 2.2
+        desiredY = desiredY + self.jukeDirY * 2.2
+        ship.isBoostActive = true
+    end
+
+    local desiredLen = math.sqrt(desiredX * desiredX + desiredY * desiredY)
+    if desiredLen > 0.001 then
+        desiredX = desiredX / desiredLen
+        desiredY = desiredY / desiredLen
+    else
+        desiredX, desiredY = dirX, dirY
+    end
+
+    -- 2. Calcular hacia dónde quiere apuntar el morro el piloto
+    local faceX = aimOverrideX and (aimOverrideX - ship.x) or desiredX
+    local faceY = aimOverrideY and (aimOverrideY - ship.y) or desiredY
+    local targetRot = math.atan2(faceY, faceX) + (math.pi * 0.5)
+
+    -- Añadir micro-oscilación orgánica cuando está apuntando en combate (ningún piloto humano es un láser estático)
+    if aimOverrideX then
+        local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+        local p = self.pilotPersonality
+        local wander = math.sin(now * p.aimWanderSpeed + p.aimWanderPhase) * 0.045
+        targetRot = targetRot + wander
+    end
+
     local angleDiff = targetRot - (ship.rotation or 0)
     while angleDiff > math.pi do angleDiff = angleDiff - 2 * math.pi end
     while angleDiff < -math.pi do angleDiff = angleDiff + 2 * math.pi end
 
-    ship.rotation = (ship.rotation or 0) + angleDiff * (ship.rotationSpeed or 4.5) * dt
+    -- 3. Determinar si el piloto activa el DERRAPE INERCIAL (Drift)
+    -- Si la nave ya lleva velocidad y necesita girar el morro fuertemente (> 50 grados) o apuntar de costado mientras orbita
+    local currentSpeed = math.sqrt((ship.dx or 0)^2 + (ship.dy or 0)^2)
+    local forwardX = math.sin(ship.rotation or 0)
+    local forwardY = -math.cos(ship.rotation or 0)
+    local rightX = math.cos(ship.rotation or 0)
+    local rightY = math.sin(ship.rotation or 0)
 
-    -- Determinar empuje según distancia deseada
+    local velAlign = 1.0
+    if currentSpeed > 8 then
+        velAlign = ((ship.dx / currentSpeed) * forwardX) + ((ship.dy / currentSpeed) * forwardY)
+    end
+
+    if currentSpeed > (ship.driftActivation or 18) and (math.abs(angleDiff) > 0.85 or (aimOverrideX and velAlign < 0.45)) then
+        ship.isDrifting = true
+    else
+        ship.isDrifting = false
+    end
+
+    -- 4. Rotación con Inercia Angular Real (Spring-Damper Torque)
+    local turnRate = (ship.rotationSpeed or 4.5) * (ship.isDrifting and 1.42 or 1.0)
+    local desiredAngVel = math.max(-turnRate * 1.4, math.min(turnRate * 1.4, angleDiff * turnRate * 1.8))
+    self.angVel = MathUtil.lerp(self.angVel or 0, desiredAngVel, math.min(1, dt * 11.0))
+    ship.rotation = (ship.rotation or 0) + self.angVel * dt
+
+    -- Recalcular vectores locales de la nave tras rotar
+    forwardX = math.sin(ship.rotation)
+    forwardY = -math.cos(ship.rotation)
+    rightX = math.cos(ship.rotation)
+    rightY = math.sin(ship.rotation)
+
+    -- 5. Propulsión Física sobre los Ejes Reales de la Nave (Principal Frontal + RCS Lateral + Reversa)
     local stopDist = keepDistance or 40
-    local accel = (ship.forwardAccel or 12) * (desiredSpeedFactor or 0.75)
+    local speedFactor = desiredSpeedFactor or 0.75
+    local fwdAccel = (ship.forwardAccel or 12) * speedFactor * (ship.isBoostActive and (ship.boostMultiplier or 1.4) or 1.0)
+    local strafeAccel = (ship.strafeAccel or 9.5) * speedFactor
+    local backAccel = (ship.backwardAccel or 7.5) * speedFactor
+
+    -- Proyectar el vector deseado sobre el eje frontal y el eje derecho de la nave
+    local fwdProj = desiredX * forwardX + desiredY * forwardY
+    local rightProj = desiredX * rightX + desiredY * rightY
 
     if dist > stopDist then
-        ship.dx = (ship.dx or 0) + dirX * accel * dt
-        ship.dy = (ship.dy or 0) + dirY * accel * dt
-        ship.engineGlow = math.min(1.0, (ship.engineGlow or 0) + dt * 3.0)
-        ship._aiIsMoving = true
-    elseif dist < stopDist * 0.65 then
-        -- Retroceder suavemente si está demasiado pegado
-        ship.dx = (ship.dx or 0) - dirX * (accel * 0.5) * dt
-        ship.dy = (ship.dy or 0) - dirY * (accel * 0.5) * dt
-        ship.engineGlow = math.min(0.6, (ship.engineGlow or 0) + dt * 2.0)
+        -- Solo enciende el propulsor principal si el morro apunta razonablemente hacia la dirección de avance
+        if fwdProj > 0.22 then
+            local thrustPower = math.min(1.0, fwdProj * 1.15)
+            ship.dx = (ship.dx or 0) + forwardX * fwdAccel * thrustPower * dt
+            ship.dy = (ship.dy or 0) + forwardY * fwdAccel * thrustPower * dt
+            ship.engineGlow = math.min(1.0, (ship.engineGlow or 0) + dt * 3.8)
+            ship._aiIsMoving = true
+        else
+            ship.engineGlow = math.max(0.15, (ship.engineGlow or 0) - dt * 2.0)
+        end
+
+        -- Propulsores laterales RCS para corregir deriva o deslizarse en órbita
+        if math.abs(rightProj) > 0.18 then
+            ship.dx = (ship.dx or 0) + rightX * rightProj * strafeAccel * dt
+            ship.dy = (ship.dy or 0) + rightY * rightProj * strafeAccel * dt
+            self.rcsThrustDir = (rightProj > 0) and 1 or -1
+            ship._aiIsMoving = true
+        elseif self.jukeTimer <= 0 then
+            self.rcsThrustDir = 0
+        end
+
+    elseif dist < stopDist * 0.72 then
+        -- Demasiado cerca: encender retropropulsores de proa + propulsores laterales
+        ship.dx = (ship.dx or 0) - forwardX * backAccel * 0.75 * dt + rightX * rightProj * strafeAccel * dt
+        ship.dy = (ship.dy or 0) - forwardY * backAccel * 0.75 * dt + rightY * rightProj * strafeAccel * dt
+        ship.engineGlow = math.min(0.55, (ship.engineGlow or 0) + dt * 2.0)
         ship._aiIsMoving = true
     else
-        -- Frenado inercial en posición de trabajo
-        ship.dx = (ship.dx or 0) * math.pow(0.90, dt * 60)
-        ship.dy = (ship.dy or 0) * math.pow(0.90, dt * 60)
+        -- En banda óptima: mantener deriva suave y corrección de obstáculos
+        if math.abs(rightProj) > 0.20 then
+            ship.dx = (ship.dx or 0) + rightX * rightProj * (strafeAccel * 0.85) * dt
+            ship.dy = (ship.dy or 0) + rightY * rightProj * (strafeAccel * 0.85) * dt
+            self.rcsThrustDir = (rightProj > 0) and 1 or -1
+        else
+            self.rcsThrustDir = 0
+        end
+        ship.dx = (ship.dx or 0) * math.pow(0.93, dt * 60)
+        ship.dy = (ship.dy or 0) * math.pow(0.93, dt * 60)
         ship.engineGlow = math.max(0, (ship.engineGlow or 0) - dt * 2.5)
         ship._aiIsMoving = false
+    end
+
+    -- 6. Si el Derrape Inercial está activo, conservar más momento lateral como en el jugador
+    if ship.isDrifting and currentSpeed > 5 then
+        local fwdVel = (ship.dx * forwardX + ship.dy * forwardY)
+        local latVelX = ship.dx - fwdVel * forwardX
+        local latVelY = ship.dy - fwdVel * forwardY
+        local driftKeep = math.pow(ship.driftFactor or 0.96, dt * 60)
+        ship.dx = fwdVel * forwardX * math.pow(ship.gradualBraking or 0.94, dt * 60) + latVelX * driftKeep
+        ship.dy = fwdVel * forwardY * math.pow(ship.gradualBraking or 0.94, dt * 60) + latVelY * driftKeep
     end
 
     return dist
 end
 
--- Ejecución del estado WORLD_GOAL (Agenda propia del ecosistema)
+-- =============================================================================
+-- ESTADO ALERT (Advertencia Territorial de Centinelas/Nómadas o Acecho Corsario)
+-- =============================================================================
+function AIController:updateAlert(dt)
+    self.worldGoal.isWorking = false
+    local target = self.alertTarget
+    if not target or target.isDestroyed or (target.isAbandoned and not target.isInEVA) then
+        self.alertTarget = nil
+        self.state = AIController.STATES.WORLD_GOAL
+        return
+    end
+
+    local targetEntity = (target.getActiveEntity and target:getActiveEntity()) or target
+    local tx, ty = targetEntity.x or target.x, targetEntity.y or target.y
+    local dx = tx - self.ship.x
+    local dy = ty - self.ship.y
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+
+    self.alertTimer = self.alertTimer + dt
+
+    if self.alertMode == "WARN" then
+        -- ADVERTENCIA TERRITORIAL (WARDEN / NOMAD):
+        -- Mantiene la distancia, encara directamente al intruso y hace destellar su baliza
+        self:steerTowards(dt, tx, ty, 0.60, 340, tx, ty)
+
+        -- Si el intruso dispara o invade la zona crítica (< 240px), abre fuego de inmediato
+        local firedRecently = (now - (target._lastShotTimestamp or -999)) < 2.0
+        if firedRecently or dist < 240 then
+            self.combatTarget = target
+            self.alertTarget = nil
+            self.state = AIController.STATES.COMBAT
+            return
+        end
+
+        -- Si tras el tiempo de advertencia el intruso se aleja (> 430px), vuelve en paz a su rutina
+        if self.alertTimer >= self.alertMaxTimer then
+            if dist > 390 then
+                self.alertTarget = nil
+                self.state = AIController.STATES.WORLD_GOAL
+            else
+                -- No hizo caso a la advertencia: iniciar combate
+                self.combatTarget = target
+                self.alertTarget = nil
+                self.state = AIController.STATES.COMBAT
+            end
+        end
+
+    elseif self.alertMode == "STALK" then
+        -- ACECHO CORSARIO (RAIDER):
+        -- Se aproxima buscando el punto ciego trasero de la presa sin activar el Boost todavía
+        local tRot = target.rotation or 0
+        local behindX = tx - math.sin(tRot) * 260
+        local behindY = ty + math.cos(tRot) * 260
+        self:steerTowards(dt, behindX, behindY, 0.85, 80, tx, ty)
+
+        -- Romper el acecho y lanzar la emboscada cuando está cerca (< 410px), cuando la presa entra en EVA o tras el timer
+        if dist < 410 or target.isInEVA or self.alertTimer >= self.alertMaxTimer then
+            self.combatTarget = target
+            self.alertTarget = nil
+            self.ship.isBoostActive = true
+            self.state = AIController.STATES.COMBAT
+        end
+    end
+end
+
+-- Ejecución del estado WORLD_GOAL
 function AIController:updateWorldGoal(dt)
+    self.telegraphTimer = 0
     local wg = self.worldGoal
     if not wg.type or not wg.targetX or not wg.targetY then
         self:pickNewWorldGoal()
         return
     end
 
-    -- Si el objetivo es una entidad móvil o que puede desaparecer, sincronizar coordenadas
+    if wg.type == "escort_leader" then
+        local leader = wg.targetEntity
+        if not leader or leader.isDestroyed or leader.isAbandoned then
+            self.wingmanOf = nil
+            self.isReceivingCarrierShield = false
+            self:pickNewWorldGoal()
+            return
+        end
+
+        local isMothershipLeader = leader.shipConfig and leader.shipConfig.isMothership
+        if isMothershipLeader and leader.shipType ~= "ECLIPSE" and leader.shipType ~= "DREADNOUGHT" then
+            -- Órbita viva satelital alrededor de Nodrizas Industriales (TITAN_EXCAVATOR) o Monolitos (ARK_MONOLITH)
+            local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+            local slotAngle = now * 0.65 + (self.formationSlotIndex or 1) * (math.pi * 0.66)
+            local orbitRadius = (leader.size or 38) * 3.1
+            wg.targetX = leader.x + math.cos(slotAngle) * orbitRadius
+            wg.targetY = leader.y + math.sin(slotAngle) * orbitRadius
+        else
+            -- Formación en V táctica rotada según la orientación del líder (ECLIPSE o líder de escuadrón)
+            local lRot = leader.rotation or 0
+            local cosR, sinR = math.cos(lRot), math.sin(lRot)
+            local ox = self.formationOffsetX * cosR - self.formationOffsetY * sinR
+            local oy = self.formationOffsetX * sinR + self.formationOffsetY * cosR
+            wg.targetX = leader.x + ox
+            wg.targetY = leader.y + oy
+        end
+
+        -- Si el escolta tiene el escudo incompleto y vuela cerca de su Nodriza, recibe enlace de escudo pasivo
+        local myShieldPct = (self.ship.stats and self.ship.stats:getShieldPercentage()) or 100
+        local distToLeader = math.sqrt((leader.x - self.ship.x)^2 + (leader.y - self.ship.y)^2)
+        if isMothershipLeader and myShieldPct < 98 and distToLeader <= 260 and self.ship.stats and self.ship.stats.shield then
+            self.isReceivingCarrierShield = true
+            local sh = self.ship.stats.shield
+            sh.currentShield = math.min(sh.maxShield, (sh.currentShield or 0) + 25 * dt)
+        else
+            self.isReceivingCarrierShield = false
+        end
+
+        self:steerTowards(dt, wg.targetX, wg.targetY, 0.94, 32)
+        return
+    end
+
     if wg.targetEntity then
         if wg.type == "salvage_wreck" then
             local wreck = wg.targetEntity
-            if not wreck.isAbandoned and not wreck.isInEVA then
-                -- El dueño regresó a la nave o fue reactivada
+            if wreck.isDestroyed or (not wreck.isAbandoned and not wreck.isInEVA) then
                 self:pickNewWorldGoal()
                 return
             end
@@ -436,17 +1112,18 @@ function AIController:updateWorldGoal(dt)
     end
 
     local stopDist = (wg.type == "mine_asteroid" or wg.type == "salvage_wreck") and 115 or 55
-    local dist = self:steerTowards(dt, wg.targetX, wg.targetY, self.config.cruiseSpeedFactor, stopDist)
+    local aimX = (wg.type == "mine_asteroid" or wg.type == "salvage_wreck") and wg.targetX or nil
+    local aimY = (wg.type == "mine_asteroid" or wg.type == "salvage_wreck") and wg.targetY or nil
+    local dist = self:steerTowards(dt, wg.targetX, wg.targetY, self.config.cruiseSpeedFactor, stopDist, aimX, aimY)
 
     if dist <= stopDist + 35 then
         if wg.type == "mine_asteroid" or wg.type == "salvage_wreck" then
             wg.isWorking = true
             wg.timer = wg.timer + dt
 
-            -- Si está desmantelando una nave (incluida la del jugador si la dejó abandonada en EVA), drena un poco de su combustible/casco
             if wg.type == "salvage_wreck" and wg.targetEntity then
                 self.salvageDropTimer = self.salvageDropTimer + dt
-                if self.salvageDropTimer >= 3.0 then
+                if self.salvageDropTimer >= 2.8 then
                     self.salvageDropTimer = 0
                     local wreck = wg.targetEntity
                     if wreck.stats and wreck.stats.fuel and wreck.stats.fuel.currentFuel > 10 then
@@ -463,11 +1140,10 @@ function AIController:updateWorldGoal(dt)
 
             if wg.timer >= wg.maxTimer then
                 wg.isWorking = false
-                -- Al terminar de minar, el Recolector gana recursos en su propio inventario
                 if self.ship.inventory and self.ship.inventory.addItem then
                     local ItemSystem = package.loaded['src.item_systems.item_system']
                     if ItemSystem and ItemSystem.createItemInstance then
-                        local dropId = (self:random() < 0.35) and "energy_crystal" or "iron_ore"
+                        local dropId = (self:random() < 0.40) and "energy_crystal" or "iron_ore"
                         local inst = ItemSystem:createItemInstance(dropId, 2)
                         if inst then
                             pcall(function() self.ship.inventory:addItem(inst) end)
@@ -477,16 +1153,14 @@ function AIController:updateWorldGoal(dt)
                 self:pickNewWorldGoal()
             end
         elseif wg.type == "collect_item" then
-            -- Recoger el item flotante del mundo si llega hasta él
             local WorldItems = package.loaded['src.item_systems.world_items']
             if WorldItems and WorldItems.tryPickup and self.ship and self.ship.inventory then
                 pcall(function() WorldItems.tryPickup(self.ship.x, self.ship.y, self.ship.inventory, false) end)
             end
             self:pickNewWorldGoal()
         else
-            -- Llegó al waypoint de patrulla
             wg.timer = wg.timer + dt
-            if wg.timer >= 1.5 then
+            if wg.timer >= 1.2 then
                 self:pickNewWorldGoal()
             end
         end
@@ -494,114 +1168,349 @@ function AIController:updateWorldGoal(dt)
         wg.isWorking = false
         wg.timer = wg.timer + dt * 0.25
         if wg.timer >= wg.maxTimer * 2.0 then
-            -- Timeout por si quedó atascado detrás de asteroides
             self:pickNewWorldGoal()
         end
     end
 end
 
--- Ejecución del estado COMBAT
+-- =============================================================================
+-- ESTADO COMBAT (Pilotaje Dinámico, Esquiva de Proyectiles y Ráfagas)
+-- =============================================================================
 function AIController:updateCombat(dt)
     self.worldGoal.isWorking = false
     local target = self.combatTarget
 
-    if not target or (target.isAbandoned and not target.isInEVA) then
+    if not target or target.isDestroyed or (target.isAbandoned and not target.isInEVA) then
+        -- Si abatió a su objetivo, entra en periodo de saciado/saqueo para no encadenar agresiones artificiales contra el jugador
+        if target and (target.isDestroyed or target.isAbandoned) then
+            self.satiatedTimer = 18.0
+        end
         self.combatTarget = nil
+        self.telegraphTimer = 0
         self.state = AIController.STATES.WORLD_GOAL
+        self:pickNewWorldGoal()
         return
     end
 
+    -- Evaluar proyectiles entrantes y línea de mira enemiga para ejecutar esquivas reactivas (Jukes)
+    self:evaluateIncomingThreats(dt, target)
+
     local targetEntity = (target.getActiveEntity and target:getActiveEntity()) or target
     local tx, ty = targetEntity.x or target.x, targetEntity.y or target.y
-    local tvx, tvy = targetEntity.dx or target.dx or 0, targetEntity.dy or target.dy or 0
+    local rawTvx, rawTvy = targetEntity.dx or target.dx or 0, targetEntity.dy or target.dy or 0
+
+    -- Actualizar velocidad percibida del objetivo con tiempo de reacción humano (hace que un Drift/Boost brusco del jugador engañe su puntería)
+    local reactRate = math.min(1.0, dt * (self.pilotPersonality.reactionSpeed or 5.5))
+    self.trackedTargetVx = MathUtil.lerp(self.trackedTargetVx or rawTvx, rawTvx, reactRate)
+    self.trackedTargetVy = MathUtil.lerp(self.trackedTargetVy or rawTvy, rawTvy, reactRate)
 
     local dx = tx - self.ship.x
     local dy = ty - self.ship.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
-    -- Si el objetivo se alejó demasiado y ocultó su firma (por ejemplo, entrando en nebulosa o apagando motores), pierde el rastro
     local detected = self:canDetectEntity(target)
-    if not detected and self.combatMemoryTimer <= 0 or dist > 1800 then
+    if (not detected and self.combatMemoryTimer <= 0) or dist > 1800 then
         self.combatTarget = nil
+        self.telegraphTimer = 0
         self.state = AIController.STATES.WORLD_GOAL
         return
     end
 
-    -- Maniobra de combate con strafe lateral y distancia óptima
-    local prefDist = self.config.preferredDistance or 300
-    self:steerTowards(dt, tx, ty, 0.95, prefDist)
+    local shipType = self.ship.shipType or "FIGHTER"
+    local isMothership = (self.ship.shipConfig and self.ship.shipConfig.isMothership) or false
+    local myShieldPct = (self.ship.stats and self.ship.stats:getShieldPercentage()) or 100
+    local myHealthPct = (self.ship.stats and self.ship.stats:getHealthPercentage()) or 100
 
-    -- Añadir movimiento lateral táctico (strafe) para que el combate sea dinámico
-    self.strafeSwitchTimer = self.strafeSwitchTimer - dt
-    if self.strafeSwitchTimer <= 0 then
-        self.strafeDir = -self.strafeDir
-        self.strafeSwitchTimer = self:random(1.8, 3.6)
+    local leadTime = math.min(0.62, dist / 680)
+    local aimX = tx + self.trackedTargetVx * leadTime * 11.5
+    local aimY = ty + self.trackedTargetVy * leadTime * 11.5
+
+    -- =========================================================================
+    -- TÁCTICA DE ESCUADRÓN NODRIZA: Repliegue de Escoltas para Recargar Escudo (Carrier Shield Tether)
+    -- =========================================================================
+    if self.wingmanOf and self.wingmanOf.shipConfig and self.wingmanOf.shipConfig.isMothership
+       and not self.wingmanOf.isDestroyed and not self.wingmanOf.isAbandoned then
+        local leader = self.wingmanOf
+        local distToLeader = math.sqrt((leader.x - self.ship.x)^2 + (leader.y - self.ship.y)^2)
+        if myShieldPct <= 18 or (self.isReceivingCarrierShield and myShieldPct < 82) then
+            self.ship.isBoostActive = (distToLeader > 210)
+            self:steerTowards(dt, leader.x, leader.y, 1.18, 95, aimX, aimY)
+            if distToLeader <= 250 and self.ship.stats and self.ship.stats.shield then
+                self.isReceivingCarrierShield = true
+                local sh = self.ship.stats.shield
+                sh.currentShield = math.min(sh.maxShield, (sh.currentShield or 0) + 32 * dt)
+            else
+                self.isReceivingCarrierShield = false
+            end
+            return
+        else
+            self.isReceivingCarrierShield = false
+        end
+    else
+        self.isReceivingCarrierShield = false
     end
 
-    if dist < prefDist * 1.4 and dist > 10 then
-        local perpX = (-dy / dist) * self.strafeDir
-        local perpY = (dx / dist) * self.strafeDir
-        local strafeAccel = (self.ship.strafeAccel or 9) * 0.75
-        self.ship.dx = (self.ship.dx or 0) + perpX * strafeAccel * dt
-        self.ship.dy = (self.ship.dy or 0) + perpY * strafeAccel * dt
+    -- =========================================================================
+    -- ARQUETIPO 0: NODRIZAS / PORTANAVES (TITAN_EXCAVATOR, ECLIPSE, ARK_MONOLITH)
+    -- =========================================================================
+    if isMothership then
+        local isEclipse = (shipType == "ECLIPSE" or shipType == "DREADNOUGHT")
+        local standoffDist = isEclipse and 410 or 440
+        local orbitX = tx - (dx / math.max(1, dist)) * standoffDist + (-dy / math.max(1, dist)) * 180 * self.strafeDir
+        local orbitY = ty - (dy / math.max(1, dist)) * standoffDist + (dx / math.max(1, dist)) * 180 * self.strafeDir
+        self:steerTowards(dt, orbitX, orbitY, 0.78, 65, aimX, aimY)
+
+        -- Despliegue de Hangar en Combate: lanza un escolta de reserva cuando entra en combate
+        self.hangarCooldown = math.max(0, (self.hangarCooldown or 0) - dt)
+        if (self.hangarReserve or 0) > 0 and self.hangarCooldown <= 0 and dist <= 980 then
+            self.hangarReserve = self.hangarReserve - 1
+            self.hangarCooldown = 14.5
+            self.hangarFlashTimer = 0.85
+
+            local World = package.loaded['src.core.world']
+            local director = World and (World.get('director') or World.get('gameDirector'))
+            local Naves = package.loaded['src.entities.naves']
+            local hangarClass = (self.ship.shipConfig and self.ship.shipConfig.hangarClass) or "FIGHTER"
+            local launchAngle = (self.ship.rotation or 0) + ((self.hangarReserve % 2 == 0) and 1.2 or -1.2)
+            local lx = self.ship.x + math.sin(launchAngle) * ((self.ship.size or 38) * 1.4)
+            local ly = self.ship.y - math.cos(launchAngle) * ((self.ship.size or 38) * 1.4)
+            local slotIdx = #(self.escorts or {}) + 1
+            local escort = nil
+            if director and director.spawnEcologicalShip then
+                escort = director:spawnEcologicalShip(lx, ly, hangarClass, self.role, self.rng, {
+                    wingmanOf = self.ship,
+                    formationSlotIndex = slotIdx,
+                    formationOffsetX = ((slotIdx % 2 == 0) and 1 or -1) * 115,
+                    formationOffsetY = 85
+                })
+            elseif Naves and Naves.new then
+                escort = Naves:new(lx, ly, hangarClass)
+                escort.useStarterSprite = false
+                escort.sprite = nil
+                escort.aiController = AIController:new(escort, {
+                    role = self.role,
+                    rng = self.rng,
+                    wingmanOf = self.ship,
+                    formationSlotIndex = slotIdx,
+                    formationOffsetX = ((slotIdx % 2 == 0) and 1 or -1) * 115,
+                    formationOffsetY = 85
+                })
+                if World and World.addEntity then World.addEntity(escort) end
+            end
+            if escort and escort.aiController then
+                escort.aiFaction = self.ship.aiFaction
+                escort.isFactionCombatant = self.ship.isFactionCombatant
+                escort.dx = math.sin(launchAngle) * 48
+                escort.dy = -math.cos(launchAngle) * 48
+                escort.aiController.combatTarget = target
+                escort.aiController.state = AIController.STATES.COMBAT
+                self.escorts = self.escorts or {}
+                table.insert(self.escorts, escort)
+            end
+        end
+
+        -- Artillería pesada de Nodriza con telegrafía láser
+        self.heavyBurstCooldown = math.max(0, (self.heavyBurstCooldown or 0) - dt)
+        if self.telegraphTimer > 0 then
+            self.telegraphTimer = self.telegraphTimer - dt
+            self.telegraphAimX = MathUtil.lerp(self.telegraphAimX or aimX, aimX, dt * 3.0)
+            self.telegraphAimY = MathUtil.lerp(self.telegraphAimY or aimY, aimY, dt * 3.0)
+            if self.telegraphTimer <= 0 and self.ship.shootAtWorld then
+                self.ship:shootAtWorld(self.telegraphAimX, self.telegraphAimY)
+                self.heavyBurstCooldown = isEclipse and 1.25 or 1.45
+            end
+        elseif dist <= 880 and self.heavyBurstCooldown <= 0 then
+            local aimAngle = math.atan2(aimY - self.ship.y, aimX - self.ship.x) + (math.pi * 0.5)
+            local angleDiff = math.abs((aimAngle - self.ship.rotation) % (math.pi * 2))
+            if angleDiff > math.pi then angleDiff = (math.pi * 2) - angleDiff end
+            if angleDiff < 0.52 then
+                self.telegraphDuration = 0.62
+                self.telegraphTimer = self.telegraphDuration
+                self.telegraphAimX = aimX
+                self.telegraphAimY = aimY
+            end
+        end
+        return
+
+    -- =========================================================================
+    -- ARQUETIPO 1: INTERCEPTOR (Pasadas en Curva + Giro con Derrape Inercial)
+    -- =========================================================================
+    elseif shipType == "INTERCEPTOR" then
+        self.tacticalTimer = self.tacticalTimer - dt
+        if self.tacticalPhase == "ENGAGE" then
+            -- Aproximación en arco ligeramente desplazado (no en línea recta frontal suicida)
+            local flankAngle = math.atan2(dy, dx) + (0.32 * self.strafeDir)
+            local approachX = tx - math.cos(flankAngle) * 90
+            local approachY = ty - math.sin(flankAngle) * 90
+            self.ship.isBoostActive = (dist > 280)
+            self:steerTowards(dt, approachX, approachY, 1.12, 85, aimX, aimY)
+
+            if dist < 175 or self.tacticalTimer <= -4.2 then
+                self.tacticalPhase = "PASS_AWAY"
+                self.tacticalTimer = self:random(1.6, 2.3)
+                self.strafeDir = -self.strafeDir
+            end
+        else
+            -- Romper contacto a gran velocidad y usar Drift al final para volver a encarar
+            self.ship.isBoostActive = (self.tacticalTimer > 0.6)
+            local escapeX = self.ship.x - dx + (-dy * 0.75 * self.strafeDir)
+            local escapeY = self.ship.y - dy + (dx * 0.75 * self.strafeDir)
+            local lookAtX = (self.tacticalTimer < 0.65) and aimX or nil
+            local lookAtY = (self.tacticalTimer < 0.65) and aimY or nil
+            self:steerTowards(dt, escapeX, escapeY, 1.15, 0, lookAtX, lookAtY)
+
+            if self.tacticalTimer <= 0 or dist > 480 then
+                self.tacticalPhase = "ENGAGE"
+                self.tacticalTimer = 0
+            end
+        end
+
+    -- =========================================================================
+    -- ARQUETIPO 2: GUNSHIP o SENTINEL (Artillería Pesada con Telegrafía)
+    -- =========================================================================
+    elseif shipType == "GUNSHIP" or shipType == "SENTINEL" then
+        local standoffDist = (shipType == "GUNSHIP") and 370 or 340
+        local orbitX = tx - (dx / math.max(1, dist)) * standoffDist + (-dy / math.max(1, dist)) * 140 * self.strafeDir
+        local orbitY = ty - (dy / math.max(1, dist)) * standoffDist + (dx / math.max(1, dist)) * 140 * self.strafeDir
+        self:steerTowards(dt, orbitX, orbitY, 0.85, 45, aimX, aimY)
+
+        self.heavyBurstCooldown = math.max(0, (self.heavyBurstCooldown or 0) - dt)
+        if self.telegraphTimer > 0 then
+            self.telegraphTimer = self.telegraphTimer - dt
+            self.telegraphAimX = MathUtil.lerp(self.telegraphAimX or aimX, aimX, dt * 3.2)
+            self.telegraphAimY = MathUtil.lerp(self.telegraphAimY or aimY, aimY, dt * 3.2)
+            if self.telegraphTimer <= 0 and self.ship.shootAtWorld then
+                self.ship:shootAtWorld(self.telegraphAimX, self.telegraphAimY)
+                self.heavyBurstCooldown = (shipType == "GUNSHIP") and 1.35 or 1.10
+            end
+        elseif dist <= 780 and self.heavyBurstCooldown <= 0 then
+            local aimAngle = math.atan2(aimY - self.ship.y, aimX - self.ship.x) + (math.pi * 0.5)
+            local angleDiff = math.abs((aimAngle - self.ship.rotation) % (math.pi * 2))
+            if angleDiff > math.pi then angleDiff = (math.pi * 2) - angleDiff end
+            if angleDiff < 0.42 then
+                self.telegraphDuration = (shipType == "GUNSHIP") and 0.58 or 0.45
+                self.telegraphTimer = self.telegraphDuration
+                self.telegraphAimX = aimX
+                self.telegraphAimY = aimY
+            end
+        end
+        return
+
+    -- =========================================================================
+    -- ARQUETIPO 3: FIGHTER / EXPLORER / ESTÁNDAR (Órbita Dinámica con Derrape)
+    -- =========================================================================
+    else
+        self.strafeSwitchTimer = self.strafeSwitchTimer - dt
+        if self.strafeSwitchTimer <= 0 then
+            -- No siempre invierte el strafe: 65% invierte, 35% mantiene para no ser un péndulo predecible
+            if self:random() < 0.65 then
+                self.strafeDir = -self.strafeDir
+            end
+            self.strafeSwitchTimer = self:random(1.5, 3.2)
+        end
+
+        local prefDist = (myShieldPct <= 5 and myHealthPct < 85) and 430 or ((self.config.preferredDistance or 290) * self.pilotPersonality.aggressiveness)
+        -- Punto deseado en órbita tangencial alrededor del objetivo (obliga a usar Drift para mirar al centro mientras se mueve por la tangente)
+        local nx = dx / math.max(1, dist)
+        local ny = dy / math.max(1, dist)
+        local tangentX = -ny * self.strafeDir
+        local tangentY = nx * self.strafeDir
+
+        local desiredSlotX = tx - nx * prefDist + tangentX * 165
+        local desiredSlotY = ty - ny * prefDist + tangentY * 165
+
+        self:steerTowards(dt, desiredSlotX, desiredSlotY, 0.98, 45, aimX, aimY)
     end
 
-    -- Predicción balística ligera para apuntar a objetivos en movimiento
-    local leadTime = math.min(0.65, dist / 650)
-    local aimX = tx + tvx * leadTime * 12
-    local aimY = ty + tvy * leadTime * 12
+    -- =========================================================================
+    -- DISCIPLINA DE DISPARO POR RÁFAGAS (Evita cadencia robótica de metrónomo)
+    -- =========================================================================
+    if self.burstPauseTimer > 0 then
+        self.burstPauseTimer = math.max(0, self.burstPauseTimer - dt)
+        return
+    end
 
-    -- Disparar si está en rango y encarando aproximadamente al objetivo
-    if dist <= 780 then
+    if dist <= 760 then
         local aimAngle = math.atan2(aimY - self.ship.y, aimX - self.ship.x) + (math.pi * 0.5)
-        local angleDiff = math.abs(MathUtil.angleDifference and MathUtil.angleDifference(self.ship.rotation, aimAngle) or ((aimAngle - self.ship.rotation) % (math.pi * 2)))
+        local angleDiff = math.abs((aimAngle - self.ship.rotation) % (math.pi * 2))
         if angleDiff > math.pi then angleDiff = (math.pi * 2) - angleDiff end
 
-        if angleDiff < 0.48 and self.ship.shootAtWorld then
-            -- Pequeña dispersión natural para que sea esquivable por habilidad (AI Design Rule: readable, not aimbot)
-            local spread = (self.role == AIController.ROLES.SCAVENGER) and 38 or 22
+        if angleDiff < 0.44 and self.ship.shootAtWorld then
+            local prevShotTime = self.ship._lastShotTimestamp or 0
+            local spread = (self.role == AIController.ROLES.SCAVENGER) and 32 or 16
             local shotX = aimX + (self:random() - 0.5) * spread
             local shotY = aimY + (self:random() - 0.5) * spread
             self.ship:shootAtWorld(shotX, shotY)
+
+            -- Si el arma realmente disparó en este frame, descontar del cargador de ráfaga actual
+            if (self.ship._lastShotTimestamp or 0) > prevShotTime then
+                self.burstShotsLeft = (self.burstShotsLeft or 3) - 1
+                if self.burstShotsLeft <= 0 then
+                    self.burstPauseTimer = self:random(self.config.burstPauseMin or 0.4, self.config.burstPauseMax or 0.85)
+                    self.burstShotsLeft = math.floor(self:random(self.config.burstMin or 3, (self.config.burstMax or 5) + 0.9))
+                end
+            end
         end
     end
 end
 
--- Ejecución del estado SURVIVE (Huida táctica)
+-- Ejecución del estado SURVIVE (Huida con Señuelo de Carga y Evasión)
 function AIController:updateSurvive(dt)
     self.worldGoal.isWorking = false
+    self.telegraphTimer = 0
     local threat = self.lastAttacker or self.combatTarget
     if not threat or not threat.x then
         self.state = AIController.STATES.WORLD_GOAL
         return
     end
 
+    self:evaluateIncomingThreats(dt, threat)
+
+    -- Si es un Recolector (SCAVENGER) en pánico y aún no ha soltado señuelo, suelta una caja de mineral para distraer al Corsario
+    if self.role == AIController.ROLES.SCAVENGER and not self.panicJettisoned then
+        self.panicJettisoned = true
+        self:dropLoot(1)
+    end
+
     local dx = self.ship.x - threat.x
     local dy = self.ship.y - threat.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
-    if dist > 1400 then
-        -- Logró escapar de la amenaza
+    if dist > 1450 then
         self.combatTarget = nil
         self.lastAttacker = nil
         self.state = AIController.STATES.WORLD_GOAL
         return
     end
 
-    local fleeX = self.ship.x + (dx / math.max(1, dist)) * 600
-    local fleeY = self.ship.y + (dy / math.max(1, dist)) * 600
+    local nx = dx / math.max(1, dist)
+    local ny = dy / math.max(1, dist)
+    local weave = math.sin((love.timer and love.timer.getTime() or 0) * 4.5 + (self.ship.shipId or 1)) * 0.52
+    local fleeX = self.ship.x + (nx - ny * weave) * 600
+    local fleeY = self.ship.y + (ny + nx * weave) * 600
 
     self.ship.isBoostActive = true
     self:steerTowards(dt, fleeX, fleeY, 1.25, 0)
 end
 
--- Ciclo principal de actualización de la IA (llamado desde Naves:update)
+-- Ciclo principal de actualización de la IA
 function AIController:update(dt)
     if not self.active or not self.ship then return end
-    if self.state == AIController.STATES.DISABLED or self.ship.isAbandoned then return end
+    if self.state == AIController.STATES.DISABLED or self.state == AIController.STATES.DESTROYED or self.ship.isAbandoned or self.ship.isDestroyed then
+        return
+    end
 
     if self.combatMemoryTimer > 0 then
         self.combatMemoryTimer = math.max(0, self.combatMemoryTimer - dt)
+    end
+    if (self.satiatedTimer or 0) > 0 then
+        self.satiatedTimer = math.max(0, self.satiatedTimer - dt)
+    end
+    if (self.hangarFlashTimer or 0) > 0 then
+        self.hangarFlashTimer = math.max(0, self.hangarFlashTimer - dt)
+    end
+    if (self.warpInTimer or 0) > 0 then
+        self.warpInTimer = math.max(0, self.warpInTimer - dt)
     end
 
     self.decisionTimer = self.decisionTimer - dt
@@ -617,6 +1526,8 @@ function AIController:update(dt)
         self:updateSurvive(dt)
     elseif self.state == AIController.STATES.COMBAT then
         self:updateCombat(dt)
+    elseif self.state == AIController.STATES.ALERT then
+        self:updateAlert(dt)
     else
         self:updateWorldGoal(dt)
     end
@@ -625,6 +1536,8 @@ function AIController:update(dt)
     local maxSpd = self.ship.maxSpeed or 80
     if self.ship.isBoostActive then
         maxSpd = maxSpd * (self.ship.boostMultiplier or 1.5)
+    elseif self.ship.isDrifting then
+        maxSpd = maxSpd * 1.10
     end
     local spd = math.sqrt((self.ship.dx or 0)^2 + (self.ship.dy or 0)^2)
     if spd > maxSpd and spd > 0 then
@@ -658,14 +1571,26 @@ function AIController:update(dt)
     end
 end
 
--- Callback cuando la nave recibe daño de cualquier fuente (jugador, otro NPC o asteroide)
+-- Callback cuando la nave recibe daño
 function AIController:onDamaged(damage, attacker)
-    if not self.active or self.state == AIController.STATES.DISABLED then return end
+    if not self.active or self.state == AIController.STATES.DISABLED or self.state == AIController.STATES.DESTROYED then return end
 
     if attacker and attacker ~= self.ship then
         self.lastAttacker = attacker
         self.combatTarget = attacker
+        self.alertTarget = nil
         self.combatMemoryTimer = 10.0
+
+        -- Impulso evasivo inmediato al recibir impacto sorpresa
+        if self.jukeTimer <= 0 and self.dodgeCooldown <= 0 then
+            local side = (self:random() < 0.5) and 1 or -1
+            local rot = self.ship.rotation or 0
+            self.jukeDirX = math.cos(rot) * side
+            self.jukeDirY = math.sin(rot) * side
+            self.jukeTimer = 0.25
+            self.dodgeCooldown = 0.85
+            self.rcsThrustDir = side
+        end
 
         local hpPct = (self.ship.stats and self.ship.stats:getHealthPercentage()) or 100
         if hpPct <= (self.config.fleeHealthRatio * 100) and self.config.fleeHealthRatio > 0 then
@@ -676,52 +1601,114 @@ function AIController:onDamaged(damage, attacker)
     end
 end
 
--- Callback cuando el casco de la nave llega a 0: se convierte en un pecio abordable y suelta botín físico
-function AIController:onDisabled(attacker)
-    if self.state == AIController.STATES.DISABLED then return end
-
-    self.state = AIController.STATES.DISABLED
-    self.active = false
-    self.worldGoal.isWorking = false
-
+-- Suelta el botín físico al espacio exterior
+function AIController:dropLoot(numDrops)
     local ship = self.ship
     if not ship then return end
-
-    ship.isAI = false
-    ship.isAbandoned = true
-    ship.isPiloted = false
-    ship.engineGlow = 0
-    ship.driftAngularSpeed = (self:random() - 0.5) * 0.12
-
-    -- Dejar 1 punto de casco residual para que si el jugador decide abordarla en EVA pueda repararla o pilotarla en emergencia
-    if ship.stats and ship.stats.health then
-        ship.stats.health.currentHealth = math.max(2, math.floor(ship.stats.health.maxHealth * 0.15))
-    end
-
-    -- Soltar parte de sus suministros (Fuel / Materiales / Baterías de Escudo) al espacio exterior
     local WorldItems = package.loaded['src.item_systems.world_items']
     local ItemSystem = package.loaded['src.item_systems.item_system']
     if WorldItems and WorldItems.drop and ItemSystem and ItemSystem.getItem then
-        local dropTable = { "iron_ore", "energy_crystal", "shield_battery", "health_potion" }
-        local numDrops = (self.role == AIController.ROLES.SCAVENGER) and 3 or 2
+        local dropTable = { "iron_ore", "energy_crystal", "shield_battery", "health_potion", "basic_circuit" }
         for i = 1, numDrops do
-            local itemId = dropTable[1 + ((i + ship.shipId) % #dropTable)]
+            local itemId = dropTable[1 + ((i + (ship.shipId or 1)) % #dropTable)]
             local itemData = ItemSystem:getItem(itemId)
             if itemData then
-                local angle = (i / numDrops) * math.pi * 2 + self:random(-0.3, 0.3)
-                local tx = ship.x + math.cos(angle) * 45
-                local ty = ship.y + math.sin(angle) * 45
+                local angle = (i / numDrops) * math.pi * 2 + self:random(-0.35, 0.35)
+                local tx = ship.x + math.cos(angle) * 48
+                local ty = ship.y + math.sin(angle) * 48
                 pcall(function() WorldItems.drop(itemData, ship.x, ship.y, tx, ty, 1) end)
             end
         end
     end
+end
 
-    if ship.addImpactEffect then
-        ship:addImpactEffect(ship.x, ship.y, {1.0, 0.45, 0.15, 1.0})
+-- Callback cuando el casco de la nave llega a 0:
+--   - ~78% (100% en SENTINEL): Se destruye por completo.
+--   - ~22%: Queda intacta pero completamente inmóvil (dx=0, dy=0, driftAngularSpeed=0), abordable en EVA.
+function AIController:onKilled(attacker)
+    if self.state == AIController.STATES.DISABLED or self.state == AIController.STATES.DESTROYED then return end
+
+    self.active = false
+    self.worldGoal.isWorking = false
+    self.telegraphTimer = 0
+
+    local ship = self.ship
+    if not ship then return end
+
+    -- Colapso de Comando de Escuadrón (si esta nave era una Nodriza / Portanaves)
+    local isMothership = (ship.shipConfig and ship.shipConfig.isMothership) or false
+    if isMothership and self.escorts then
+        for _, escort in ipairs(self.escorts) do
+            if escort and not escort.isDestroyed and escort.aiController then
+                escort.aiController.wingmanOf = nil
+                escort.aiController.isReceivingCarrierShield = false
+                if escort.aiController.role == AIController.ROLES.SCAVENGER then
+                    escort.aiController.lastAttacker = attacker or escort.aiController.combatTarget
+                    escort.aiController.state = AIController.STATES.SURVIVE
+                end
+            end
+        end
     end
 
-    print(string.format("[ECOSYSTEM] %s (%s) quedó inutilizada en (%.0f, %.0f) y ahora es abordable/saqueable.",
-        ship.shipName or "Nave", self.role, ship.x, ship.y))
+    local unmanned = ship.shipConfig and ship.shipConfig.unmanned
+    local intactChance = unmanned and 0.0 or (self.config.intactChance or 0.22)
+    local roll = self:random()
+
+    local World = package.loaded['src.core.world']
+    local Naves = package.loaded['src.entities.naves']
+
+    if roll <= intactChance then
+        self.state = AIController.STATES.DISABLED
+        ship.isAI = false
+        ship.isAbandoned = true
+        ship.isImmobilized = true
+        ship.isPiloted = false
+        ship.isDrifting = false
+        ship.engineGlow = 0
+
+        ship.dx = 0
+        ship.dy = 0
+        ship.driftAngularSpeed = 0
+
+        if ship.stats and ship.stats.health then
+            ship.stats.health.currentHealth = math.max(2, math.floor(ship.stats.health.maxHealth * 0.18))
+        end
+
+        self:dropLoot(isMothership and 3 or 1)
+
+        if ship.addImpactEffect then
+            ship:addImpactEffect(ship.x, ship.y, {0.3, 0.85, 1.0, 1.0})
+        end
+
+        print(string.format("[ECOSYSTEM] %s (%s) quedó INTACTA E INMÓVIL (%.0f%% roll) en (%.0f, %.0f) -> Abordable en EVA.",
+            ship.shipName or "Nave", ship.shipType or "SHIP", roll * 100, ship.x, ship.y))
+    else
+        self.state = AIController.STATES.DESTROYED
+        ship.isAI = false
+        ship.isDestroyed = true
+        ship.isAbandoned = false
+        ship.isPiloted = false
+
+        local drops = isMothership and 5 or ((self.role == AIController.ROLES.SCAVENGER) and 3 or 2)
+        self:dropLoot(drops)
+
+        local audio = World and ((World.getAudio and World.getAudio()) or World.get('audio'))
+        if audio and audio.play then
+            pcall(function() audio:play('Thrusters_Explosion', { volume = 0.65 }) end)
+        end
+
+        if Naves and Naves.removeShip then
+            Naves.removeShip(ship.shipId)
+        end
+        if World and World.removeEntity then
+            World.removeEntity(ship)
+        end
+
+        print(string.format("[ECOSYSTEM] %s (%s) fue DESTRUIDA por completo en (%.0f, %.0f).",
+            ship.shipName or "Nave", ship.shipType or "SHIP", ship.x, ship.y))
+    end
 end
+
+AIController.onDisabled = AIController.onKilled
 
 return AIController

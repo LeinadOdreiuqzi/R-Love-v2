@@ -71,6 +71,30 @@ local SHIP_INVENTORY_CONFIG = {
     },
     CARGO = {
         inventorySlots = 35
+    },
+    INTERCEPTOR = {
+        inventorySlots = 10
+    },
+    GUNSHIP = {
+        inventorySlots = 18
+    },
+    SALVAGER = {
+        inventorySlots = 30
+    },
+    SENTINEL = {
+        inventorySlots = 8
+    },
+    TITAN_EXCAVATOR = {
+        inventorySlots = 40
+    },
+    ECLIPSE = {
+        inventorySlots = 28
+    },
+    DREADNOUGHT = {
+        inventorySlots = 28
+    },
+    ARK_MONOLITH = {
+        inventorySlots = 24
     }
 }
 

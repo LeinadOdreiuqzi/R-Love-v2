@@ -35,6 +35,14 @@ local SOUNDTRACKS = {
 -- Lista de submundos y sus subniveles
 local SUBWORLDS = {
     {
+        id = "ships_debug",
+        name = "Naves y Nodrizas (Hangar)",
+        color = { 0.82, 0.35, 1.00 },
+        levels = {
+            { id = "ships_gallery_all", name = "Catálogo Completo (10 Clases)", tier = "debug_ships", width = 16, height = 16, color = { 0.82, 0.35, 1.00 } }
+        }
+    },
+    {
         id = "nebulae_debug",
         name = "Nebulosas (Laboratorio)",
         color = { 0.85, 0.45, 0.95 },

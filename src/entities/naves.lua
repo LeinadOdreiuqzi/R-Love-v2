@@ -53,8 +53,107 @@ local SHIP_TYPES = {
         maxSpeed = 50,
         acceleration = 8,
         defaultWeapon = "basic_laser_pistol"  -- Arma básica para defensa
+    },
+    INTERCEPTOR = {
+        name = "Interceptor",
+        size = 11,
+        maxFuel = 500,
+        maxHealth = 60,
+        maxShield = 25,
+        hyperTravelCapable = false,
+        boostMultiplier = 2.6,
+        maxSpeed = 145,
+        acceleration = 24,
+        defaultWeapon = "kinetic_assault_rifle"  -- Pasadas rápidas de ataque (Hit & Run)
+    },
+    GUNSHIP = {
+        name = "Gunship",
+        size = 18,
+        maxFuel = 900,
+        maxHealth = 125,
+        maxShield = 55,
+        hyperTravelCapable = true,
+        boostMultiplier = 1.4,
+        maxSpeed = 62,
+        acceleration = 9,
+        defaultWeapon = "heavy_plasma_cannon"  -- Corbeta artillera pesada
+    },
+    SALVAGER = {
+        name = "Salvager",
+        size = 17,
+        maxFuel = 1800,
+        maxHealth = 135,
+        maxShield = 65,
+        hyperTravelCapable = true,
+        boostMultiplier = 1.45,
+        maxSpeed = 58,
+        acceleration = 10,
+        defaultWeapon = "energy_shotgun"       -- Buque industrial de desmantelamiento
+    },
+    SENTINEL = {
+        name = "Sentinel",
+        size = 15,
+        maxFuel = 2000,
+        maxHealth = 110,
+        maxShield = 85,
+        hyperTravelCapable = false,
+        boostMultiplier = 1.9,
+        maxSpeed = 95,
+        acceleration = 16,
+        unmanned = true,                       -- Autómata sin cabina (siempre se destruye al morir)
+        defaultWeapon = "plasma_rifle"
+    },
+    -- =========================================================================
+    -- NAVES NODRIZAS (MOTHERSHIPS / CARRIERS)
+    -- =========================================================================
+    TITAN_EXCAVATOR = {
+        name = "Titan Excavator",
+        size = 38,
+        maxFuel = 4000,
+        maxHealth = 380,
+        maxShield = 160,
+        hyperTravelCapable = true,
+        boostMultiplier = 1.25,
+        maxSpeed = 34,
+        acceleration = 5,
+        isMothership = true,
+        hangarClass = "SALVAGER",
+        hangarReserve = 1,
+        defaultWeapon = "energy_shotgun"       -- Barcaza Madre Industrial
+    },
+    ECLIPSE = {
+        name = "Portanaves Eclipse",
+        size = 36,
+        maxFuel = 3200,
+        maxHealth = 340,
+        maxShield = 150,
+        hyperTravelCapable = true,
+        boostMultiplier = 1.35,
+        maxSpeed = 42,
+        acceleration = 6,
+        isMothership = true,
+        hangarClass = "INTERCEPTOR",
+        hangarReserve = 2,
+        defaultWeapon = "heavy_plasma_cannon"  -- Portanaves Eclipse (Obsidiana/Violeta)
+    },
+    ARK_MONOLITH = {
+        name = "Ark Monolith",
+        size = 40,
+        maxFuel = 5000,
+        maxHealth = 420,
+        maxShield = 200,
+        hyperTravelCapable = false,
+        boostMultiplier = 1.30,
+        maxSpeed = 36,
+        acceleration = 6,
+        isMothership = true,
+        unmanned = true,
+        hangarClass = "SENTINEL",
+        hangarReserve = 2,
+        defaultWeapon = "plasma_rifle"         -- Arca Centinela de Contención
     }
 }
+SHIP_TYPES.DREADNOUGHT = SHIP_TYPES.ECLIPSE
 
 -- Registro global de naves
 local shipRegistry = {}
@@ -143,6 +242,7 @@ function Naves:new(x, y, shipType)
     player.size = shipConfig.size or 14  -- Tamaño según tipo de nave
     player.isPiloted = false             -- Controlado por el jugador o inactivo
     player.isAbandoned = true            -- Por defecto abandonada hasta que se asigne piloto
+    player.useStarterSprite = (player.shipId == 1) -- Solo la nave inicial del jugador usa el sprite Nave.png
     player.sprite = nil
     player.spriteScale = 1.0  -- Scale factor for the sprite
     player.spriteOffsetX = 0  -- Offset for centering
@@ -354,53 +454,6 @@ function Naves:updatePassivePhysics(dt)
     end
 end
 
--- Calcula la Firma de Emisión Espacial en tiempo real (Puente entre Jugador y Ecosistema)
-function Naves:updateSignature(dt)
-    self._signatureShotBoost = math.max(0, (self._signatureShotBoost or 0) - 220 * dt)
-
-    local baseSig = 200
-    if self.shipType == "CARGO" then
-        baseSig = 250
-    elseif self.shipType == "FIGHTER" then
-        baseSig = 180
-    end
-
-    local thrustSig = (self.engineGlow or 0) * 260
-    local boostSig = (self.isBoostActive and (self.boostDuration or 0) > 0) and 520 or 0
-    local shieldSig = (self.stats and self.stats.shield and (self.stats.shield.currentShield or 0) > 0) and 85 or 0
-    local shotSig = self._signatureShotBoost or 0
-
-    -- Modificador ambiental por Bioma (las nebulosas ocultan la firma; la radiación distorsiona sensores)
-    local biomeMult = 1.0
-    local BiomeSystem = package.loaded['src.maps.biome_system']
-    local MapConfig = package.loaded['src.maps.config.map_config']
-    if BiomeSystem and BiomeSystem.getBiomeForChunk and MapConfig and MapConfig.chunk then
-        local ws = MapConfig.chunk.worldScale or 1.0
-        local strideScaled = ((MapConfig.chunk.size * MapConfig.chunk.tileSize) + (MapConfig.chunk.spacing or 0)) * ws
-        local cx = math.floor((self.x or 0) / strideScaled)
-        local cy = math.floor((self.y or 0) / strideScaled)
-        local ok, biome = pcall(BiomeSystem.getBiomeForChunk, cx, cy)
-        local bType = ok and biome and (type(biome) == "table" and biome.type or biome)
-        if bType == BiomeSystem.BiomeType.NEBULA_FIELD then
-            biomeMult = 0.42
-        elseif bType == BiomeSystem.BiomeType.RADIOACTIVE_ZONE then
-            biomeMult = 0.68
-        end
-    end
-
-    -- Modificador de aditivos temporales (si existe un inhibidor térmico activo)
-    local additiveMult = (self.signatureMultiplier or 1.0)
-
-    if self.isAbandoned then
-        self.signatureRadius = baseSig * 0.45 * biomeMult
-    elseif self.isInEVA and self.evaPlayer then
-        self.signatureRadius = (baseSig * 0.55 + shieldSig * 0.5) * biomeMult
-        self.evaPlayer.signatureRadius = 90 * biomeMult * additiveMult
-    else
-        self.signatureRadius = (baseSig + thrustSig + boostSig + shieldSig + shotSig) * biomeMult * additiveMult
-    end
-end
-
 function Naves:update(dt)
     -- Actualizar registro de nave
     self:updateShipRegistry()
@@ -409,9 +462,6 @@ function Naves:update(dt)
     
     local World = getWorld()
     local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
-
-    -- Actualizar Firma de Emisión Espacial
-    self:updateSignature(dt)
 
     -- Si esta nave no está siendo controlada por el jugador:
     if not isPlayer then
@@ -824,7 +874,7 @@ function Naves:resolveAsteroidCollisions(dt)
                 local chunkBaseY = cy * strideScaled
                 for i = 1, #chunk.specialObjects do
                     local obj = chunk.specialObjects[i]
-                    if obj and (obj.type == "mega_asteroid" or obj.type == "ancient_station" or obj.type == "dead_star" or obj.type == MapConfig.ObjectType.STATION) then
+                    if obj and (obj.type == "mega_asteroid" or obj.type == "dead_star") then
                         local objX = chunkBaseX + (obj.x or 0) * ws
                         local objY = chunkBaseY + (obj.y or 0) * ws
                         local objRadius = (obj.size or 30) * 0.85
@@ -952,8 +1002,32 @@ function Naves:takeDamage(damage, attacker)
     self.lastAttacker = attacker or self.lastAttacker
     self.lastDamageTime = love.timer.getTime()
 
-    local died = self.stats:takeDamage(damage)
     local w = getWorld()
+    local mainPlayer = w and (w.getPlayer and w.getPlayer() or w.get('player'))
+
+    -- PROTECCIÓN DE ESCARAMUZAS FUERA DE CÁMARA ("Testigo Presencial"):
+    -- Si dos naves IA pelean lejos de la cámara del jugador (> 1050px), reducir el daño al 10%
+    -- e impedir que se maten entre sí hasta que el jugador esté lo bastante cerca para presenciar el encuentro.
+    if self.isAI and not self.isPiloted and mainPlayer and self ~= mainPlayer and (not attacker or (attacker ~= mainPlayer and not attacker.isPiloted)) then
+        local activeP = (mainPlayer.getActiveEntity and mainPlayer:getActiveEntity()) or mainPlayer
+        local px, py = activeP.x or mainPlayer.x or 0, activeP.y or mainPlayer.y or 0
+        local distSqToPlayer = ((self.x or 0) - px)^2 + ((self.y or 0) - py)^2
+        if distSqToPlayer > (1050 * 1050) then
+            damage = damage * 0.10
+            if self.stats and self.stats.health then
+                local minOffscreenHP = self.stats.health.maxHealth * 0.40
+                if (self.stats.health.currentHealth - damage) < minOffscreenHP then
+                    self.stats.health.currentHealth = math.max(minOffscreenHP, self.stats.health.currentHealth)
+                    if self.aiController and self.aiController.onDamaged then
+                        self.aiController:onDamaged(0, attacker)
+                    end
+                    return false
+                end
+            end
+        end
+    end
+
+    local died = self.stats:takeDamage(damage)
     local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
 
     -- Atenuar sonido de impacto/explosión si ocurre en una nave lejana del ecosistema
@@ -978,8 +1052,8 @@ function Naves:takeDamage(damage, attacker)
 
     -- Notificar al controlador de IA si esta nave es un agente del ecosistema
     if self.aiController then
-        if died and self.aiController.onDisabled then
-            self.aiController:onDisabled(attacker)
+        if died and self.aiController.onKilled then
+            self.aiController:onKilled(attacker)
             return true
         elseif self.aiController.onDamaged then
             self.aiController:onDamaged(damage, attacker)

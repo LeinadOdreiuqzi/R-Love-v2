@@ -16,9 +16,17 @@ local WEAPON_CONFIG = {
 
 -- Armas por defecto para cada tipo de nave
 local DEFAULT_WEAPONS = {
-    EXPLORER = "basic_laser_pistol",  -- Arma versátil para exploración
-    FIGHTER = "kinetic_assault_rifle", -- Arma de combate de alta cadencia
-    CARGO = "basic_laser_pistol"      -- Arma básica para defensa
+    EXPLORER = "basic_laser_pistol",        -- Arma versátil para exploración
+    FIGHTER = "kinetic_assault_rifle",       -- Arma de combate de alta cadencia
+    CARGO = "basic_laser_pistol",            -- Arma básica para defensa
+    INTERCEPTOR = "kinetic_assault_rifle",   -- Ráfagas rápidas de asalto
+    GUNSHIP = "heavy_plasma_cannon",         -- Artillería pesada de plasma
+    SALVAGER = "energy_shotgun",             -- Dispersión industrial a corta distancia
+    SENTINEL = "plasma_rifle",               -- Rifle de precisión autómata
+    TITAN_EXCAVATOR = "energy_shotgun",      -- Defensas de racimo en Barcaza Madre
+    ECLIPSE = "heavy_plasma_cannon",         -- Artillería pesada de Portanaves Eclipse
+    DREADNOUGHT = "heavy_plasma_cannon",     -- Alias compatible
+    ARK_MONOLITH = "plasma_rifle"            -- Haz de contención de Arca Centinela
 }
 
 -- Tipos de proyectiles por arma
@@ -372,6 +380,11 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
         effectiveDamage = baseDamage * (1.0 + (dmgMod > 1 and (dmgMod / 100.0) or dmgMod))
     end
 
+    -- Balancear daño saliente de agentes IA para permitir duelos tácticos sin muertes instantáneas
+    if self.player and self.player.isAI and not self.player.isPiloted then
+        effectiveDamage = math.max(4, effectiveDamage * 0.34)
+    end
+
     -- Si estamos dentro de un subnivel, aplicar límites de mundo a proyectiles
     local custom_config = {
         owner = self.player,
@@ -452,11 +465,8 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
     if projectilesCreated > 0 then
         -- Actualizar tiempo del último disparo
         self.lastShotTime = love.timer.getTime()
-
-        -- Incrementar Firma de Emisión Espacial por disparo
         if self.player then
-            local shotSpike = (weaponId == "heavy_plasma_cannon" or weaponId == "energy_shotgun") and 480 or 320
-            self.player._signatureShotBoost = math.min(600, (self.player._signatureShotBoost or 0) + shotSpike)
+            self.player._lastShotTimestamp = self.lastShotTime
         end
         
         -- Audio de disparo según tipo de arma (con atenuación espacial para naves del ecosistema)

@@ -466,14 +466,16 @@ function Projectile:checkSpatialCollisions()
                 local chunkBaseX = cx * strideScaled
                 local chunkBaseY = cy * strideScaled
 
-                -- Objetos sólidos especiales del chunk (mega_asteroid, estaciones, dead_star)
+                -- Objetos sólidos físicos del chunk (mega_asteroid, dead_star).
+                -- Nota: Las estaciones y ruinas (ancient_station / ancientRuinsPlaceholders) están en el plano de atraque inferior
+                -- y NO deben absorber proyectiles para permitir combate limpio en sus inmediaciones.
                 if chunk.specialObjects then
                     for i = 1, #chunk.specialObjects do
                         local obj = chunk.specialObjects[i]
-                        if obj and (obj.type == "mega_asteroid" or obj.type == "ancient_station" or obj.type == "dead_star" or obj.type == MapConfig.ObjectType.STATION) then
+                        if obj and (obj.type == "mega_asteroid" or obj.type == "dead_star") then
                             local objX = chunkBaseX + (obj.x or 0) * ws
                             local objY = chunkBaseY + (obj.y or 0) * ws
-                            local objRadius = (obj.size or 30) * 0.95
+                            local objRadius = (obj.size or 30) * 0.90
                             local hitDist = objRadius + projRadius
                             local distSq, hitX, hitY = distSqPointToSegment(objX, objY, x1, y1, px, py)
                             if distSq <= (hitDist * hitDist) then
@@ -485,29 +487,6 @@ function Projectile:checkSpatialCollisions()
                                 end
                                 self.x, self.y = hitX, hitY
                                 self:destroy("special_object_hit")
-                                return
-                            end
-                        end
-                    end
-                end
-
-                -- Estaciones / Ruinas Antiguas (ancientRuinsPlaceholders)
-                if chunk.ancientRuinsPlaceholders then
-                    for i = 1, #chunk.ancientRuinsPlaceholders do
-                        local st = chunk.ancientRuinsPlaceholders[i]
-                        if st and st.x and st.y then
-                            local stRadius = (st.size or 120) * 0.85
-                            local hitDist = stRadius + projRadius
-                            local distSq, hitX, hitY = distSqPointToSegment(st.x, st.y, x1, y1, px, py)
-                            if distSq <= (hitDist * hitDist) then
-                                if audio and audio.play then
-                                    audio.play("hit", { volume = 0.5, pitchVariation = 0.1 })
-                                end
-                                if self.owner and self.owner.addImpactEffect then
-                                    self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
-                                end
-                                self.x, self.y = hitX, hitY
-                                self:destroy("station_hit")
                                 return
                             end
                         end

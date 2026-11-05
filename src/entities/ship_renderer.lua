@@ -291,6 +291,437 @@ function ShipRenderer.drawExplorerShape(self, size, isAbandoned)
     end
 end
 
+function ShipRenderer.drawInterceptorShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+
+    -- Sombra
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.push()
+    love.graphics.translate(3, 3)
+    love.graphics.polygon("fill",
+        0, -size * 2.1,
+        -size * 1.35, -size * 0.3,
+        -size * 0.55, size * 1.1,
+        0, size * 0.5,
+        size * 0.55, size * 1.1,
+        size * 1.35, -size * 0.3
+    )
+    love.graphics.pop()
+
+    -- Paleta (Obsidiana sigilosa + violeta plasma + visor magenta)
+    local cBody = isAbandoned and {0.12, 0.11, 0.18, alpha} or {0.16, 0.14, 0.25, alpha}
+    local cAccent = isAbandoned and {0.42, 0.18, 0.52, alpha} or {0.82, 0.24, 0.96, alpha}
+    local cBlade = isAbandoned and {0.26, 0.25, 0.32, alpha} or {0.48, 0.45, 0.62, alpha}
+    local cGlass = isAbandoned and {0.32, 0.14, 0.35, alpha * 0.7} or {1.0, 0.32, 0.82, 0.95}
+
+    -- 1. Alas invertidas hacia adelante (Forward-swept interceptor blades)
+    love.graphics.setColor(cBody[1], cBody[2], cBody[3], cBody[4])
+    love.graphics.polygon("fill",
+        -size * 0.25, size * 0.3,
+        -size * 1.35, -size * 0.45,
+        -size * 1.05, -size * 0.95,
+        -size * 0.70, size * 0.85
+    )
+    love.graphics.polygon("fill",
+        size * 0.25, size * 0.3,
+        size * 1.35, -size * 0.45,
+        size * 1.05, -size * 0.95,
+        size * 0.70, size * 0.85
+    )
+
+    -- 2. Filos de plasma en las puntas de ala
+    love.graphics.setColor(cAccent[1], cAccent[2], cAccent[3], cAccent[4])
+    love.graphics.polygon("fill",
+        -size * 1.35, -size * 0.45,
+        -size * 1.05, -size * 0.95,
+        -size * 0.90, -size * 0.20
+    )
+    love.graphics.polygon("fill",
+        size * 1.35, -size * 0.45,
+        size * 1.05, -size * 0.95,
+        size * 0.90, -size * 0.20
+    )
+
+    -- 3. Aguja central hipersónica
+    love.graphics.setColor(cBlade[1], cBlade[2], cBlade[3], cBlade[4])
+    love.graphics.polygon("fill",
+        0, -size * 2.15,
+        -size * 0.34, size * 0.2,
+        -size * 0.22, size * 1.05,
+        0, size * 0.80,
+        size * 0.22, size * 1.05,
+        size * 0.34, size * 0.2
+    )
+
+    -- 4. Visor longitudinal
+    love.graphics.setColor(cGlass[1], cGlass[2], cGlass[3], cGlass[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.45,
+        -size * 0.15, -size * 0.35,
+        0, -size * 0.05,
+        size * 0.15, -size * 0.35
+    )
+
+    -- 5. Propulsor vectorial central
+    if not isAbandoned and self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+        self:drawThrusterFlame(0, size * 1.0, size * 0.52, {0.88, 0.25, 1.0})
+    end
+end
+
+function ShipRenderer.drawGunshipShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+
+    -- Sombra
+    love.graphics.setColor(0, 0, 0, 0.28)
+    love.graphics.push()
+    love.graphics.translate(4, 4)
+    love.graphics.polygon("fill",
+        -size * 0.65, -size * 1.5,
+        size * 0.65, -size * 1.5,
+        size * 1.55, -size * 0.3,
+        size * 1.35, size * 1.1,
+        -size * 1.35, size * 1.1,
+        -size * 1.55, -size * 0.3
+    )
+    love.graphics.pop()
+
+    -- Paleta (Acero pesado + naranja artillería + bronce oscuro)
+    local cHull = isAbandoned and {0.18, 0.17, 0.16, alpha} or {0.26, 0.24, 0.23, alpha}
+    local cPlate = isAbandoned and {0.28, 0.25, 0.22, alpha} or {0.44, 0.38, 0.34, alpha}
+    local cAccent = isAbandoned and {0.52, 0.24, 0.12, alpha} or {0.96, 0.42, 0.12, alpha}
+    local cGlass = isAbandoned and {0.35, 0.18, 0.12, alpha * 0.7} or {1.0, 0.35, 0.18, 0.95}
+
+    -- 1. Bastiones laterales portacañones (Sponsons)
+    love.graphics.setColor(cHull[1], cHull[2], cHull[3], cHull[4])
+    love.graphics.polygon("fill",
+        -size * 0.6, -size * 1.3,
+        size * 0.6, -size * 1.3,
+        size * 1.55, -size * 0.25,
+        size * 1.35, size * 1.05,
+        -size * 1.35, size * 1.05,
+        -size * 1.55, -size * 0.25
+    )
+
+    -- 2. Cañones gemelos pesados sobresaliendo al frente
+    love.graphics.setColor(0.12, 0.12, 0.14, alpha)
+    love.graphics.rectangle("fill", -size * 1.15, -size * 1.65, size * 0.28, size * 0.95, 1, 1)
+    love.graphics.rectangle("fill", size * 0.87, -size * 1.65, size * 0.28, size * 0.95, 1, 1)
+
+    -- 3. Placa de blindaje frontal y franjas de artillería
+    love.graphics.setColor(cPlate[1], cPlate[2], cPlate[3], cPlate[4])
+    love.graphics.polygon("fill",
+        -size * 0.75, -size * 1.25,
+        size * 0.75, -size * 1.25,
+        size * 0.95, size * 0.85,
+        -size * 0.95, size * 0.85
+    )
+    love.graphics.setColor(cAccent[1], cAccent[2], cAccent[3], cAccent[4])
+    love.graphics.rectangle("fill", -size * 0.85, -size * 0.95, size * 1.7, size * 0.22)
+
+    -- 4. Torreta / Puente acorazado
+    love.graphics.setColor(cGlass[1], cGlass[2], cGlass[3], cGlass[4])
+    love.graphics.polygon("fill",
+        -size * 0.45, -size * 0.55,
+        size * 0.45, -size * 0.55,
+        size * 0.30, -size * 0.15,
+        -size * 0.30, -size * 0.15
+    )
+
+    -- 5. Propulsores dobles de alto empuje
+    if not isAbandoned and self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+        self:drawThrusterFlame(-size * 0.65, size * 1.10, size * 0.55, {1.0, 0.42, 0.12})
+        self:drawThrusterFlame(size * 0.65, size * 1.10, size * 0.55, {1.0, 0.42, 0.12})
+    elseif isAbandoned then
+        local blink = 0.3 + 0.7 * math.abs(math.sin(time * 2.4))
+        love.graphics.setColor(1.0, 0.4, 0.1, blink)
+        love.graphics.circle("fill", -size * 1.0, -size * 1.65, 2.2)
+        love.graphics.circle("fill", size * 1.0, -size * 1.65, 2.2)
+    end
+end
+
+function ShipRenderer.drawSalvagerShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+
+    -- Paleta (Verde oliva industrial + ámbar de excavación)
+    local cBody = isAbandoned and {0.18, 0.22, 0.19, alpha} or {0.25, 0.33, 0.28, alpha}
+    local cClaw = isAbandoned and {0.35, 0.32, 0.22, alpha} or {0.78, 0.64, 0.18, alpha}
+    local cGlass = isAbandoned and {0.20, 0.32, 0.22, alpha * 0.7} or {0.45, 1.0, 0.55, 0.95}
+
+    -- 1. Pinzas frontales de desmantelamiento (Mandíbulas industriales)
+    love.graphics.setColor(cClaw[1], cClaw[2], cClaw[3], cClaw[4])
+    love.graphics.polygon("fill",
+        -size * 0.95, -size * 0.6,
+        -size * 0.55, -size * 1.75,
+        -size * 0.30, -size * 1.55,
+        -size * 0.55, -size * 0.6
+    )
+    love.graphics.polygon("fill",
+        size * 0.95, -size * 0.6,
+        size * 0.55, -size * 1.75,
+        size * 0.30, -size * 1.55,
+        size * 0.55, -size * 0.6
+    )
+
+    -- 2. Chasis compacto de remolcador
+    love.graphics.setColor(cBody[1], cBody[2], cBody[3], cBody[4])
+    love.graphics.polygon("fill",
+        -size * 0.85, -size * 0.85,
+        size * 0.85, -size * 0.85,
+        size * 1.10, size * 0.85,
+        -size * 1.10, size * 0.85
+    )
+
+    -- 3. Cabina panorámica industrial
+    love.graphics.setColor(cGlass[1], cGlass[2], cGlass[3], cGlass[4])
+    love.graphics.rectangle("fill", -size * 0.42, -size * 0.65, size * 0.84, size * 0.32, 2, 2)
+
+    if not isAbandoned and self.engineGlow > 0 and (not self.stats or self.stats:canMove()) then
+        self:drawThrusterFlame(-size * 0.45, size * 0.90, size * 0.42, {0.4, 0.95, 0.55})
+        self:drawThrusterFlame(size * 0.45, size * 0.90, size * 0.42, {0.4, 0.95, 0.55})
+    end
+end
+
+function ShipRenderer.drawSentinelShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+    local pulse = 0.7 + 0.3 * math.sin(time * 6.0)
+
+    -- Paleta (Marfil monolítico antiguo + cian de contención)
+    local cMonolith = isAbandoned and {0.22, 0.26, 0.30, alpha} or {0.72, 0.80, 0.88, alpha}
+    local cDark = isAbandoned and {0.10, 0.14, 0.18, alpha} or {0.14, 0.22, 0.32, alpha}
+    local cCore = isAbandoned and {0.15, 0.40, 0.45, alpha} or {0.15, 0.92, 1.0, alpha * pulse}
+
+    -- 1. Rombo exterior segmentado (Geometría ancestral)
+    love.graphics.setColor(cMonolith[1], cMonolith[2], cMonolith[3], cMonolith[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.85,
+        -size * 1.35, 0,
+        0, size * 1.45,
+        size * 1.35, 0
+    )
+
+    -- 2. Cavidad interior oscura
+    love.graphics.setColor(cDark[1], cDark[2], cDark[3], cDark[4])
+    love.graphics.polygon("fill",
+        0, -size * 1.15,
+        -size * 0.75, 0,
+        0, size * 0.85,
+        size * 0.75, 0
+    )
+
+    -- 3. Anillo y Ojo de Contención Cian
+    love.graphics.setColor(cCore[1], cCore[2], cCore[3], cCore[4])
+    love.graphics.circle("fill", 0, -size * 0.1, size * 0.38)
+    love.graphics.circle("line", 0, -size * 0.1, size * 0.62, 16)
+
+    if not isAbandoned and self.engineGlow > 0 then
+        self:drawThrusterFlame(0, size * 1.45, size * 0.50, {0.15, 0.95, 1.0})
+    end
+end
+
+function ShipRenderer.drawTitanExcavatorShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+    local pulse = 0.7 + 0.3 * math.sin(time * 4.5)
+
+    -- Sombra pesada
+    love.graphics.setColor(0, 0, 0, 0.32)
+    love.graphics.push()
+    love.graphics.translate(5, 5)
+    love.graphics.rectangle("fill", -size * 1.4, -size * 1.6, size * 2.8, size * 3.1, 6, 6)
+    love.graphics.pop()
+
+    local cHull = isAbandoned and {0.19, 0.22, 0.20, alpha} or {0.26, 0.32, 0.29, alpha}
+    local cPlate = isAbandoned and {0.28, 0.31, 0.29, alpha} or {0.38, 0.45, 0.41, alpha}
+    local cAmber = isAbandoned and {0.48, 0.36, 0.14, alpha} or {0.95, 0.72, 0.18, alpha}
+    local cCore = isAbandoned and {0.20, 0.35, 0.25, alpha * 0.7} or {0.35, 1.0, 0.60, alpha * pulse}
+
+    -- 1. Brazos de excavación y molienda frontales masivos
+    love.graphics.setColor(cAmber[1], cAmber[2], cAmber[3], cAmber[4])
+    love.graphics.polygon("fill",
+        -size * 1.35, -size * 0.75,
+        -size * 0.85, -size * 1.95,
+        -size * 0.45, -size * 1.70,
+        -size * 0.75, -size * 0.75
+    )
+    love.graphics.polygon("fill",
+        size * 1.35, -size * 0.75,
+        size * 0.85, -size * 1.95,
+        size * 0.45, -size * 1.70,
+        size * 0.75, -size * 0.75
+    )
+
+    -- 2. Casco central de Barcaza Madre (Plataforma octogonal pesada)
+    love.graphics.setColor(cHull[1], cHull[2], cHull[3], cHull[4])
+    love.graphics.polygon("fill",
+        -size * 0.95, -size * 1.45,
+        size * 0.95, -size * 1.45,
+        size * 1.45, -size * 0.70,
+        size * 1.45, size * 1.05,
+        size * 1.00, size * 1.45,
+        -size * 1.00, size * 1.45,
+        -size * 1.45, size * 1.05,
+        -size * 1.45, -size * 0.70
+    )
+
+    -- 3. Bahías laterales de atraque de recolectores y silos de mineral
+    love.graphics.setColor(cPlate[1], cPlate[2], cPlate[3], cPlate[4])
+    love.graphics.rectangle("fill", -size * 1.32, -size * 0.55, size * 0.52, size * 1.45, 3, 3)
+    love.graphics.rectangle("fill", size * 0.80, -size * 0.55, size * 0.52, size * 1.45, 3, 3)
+
+    -- 4. Horno / Reactor central de refinado (Esmeralda industrial)
+    love.graphics.setColor(0.10, 0.14, 0.12, alpha)
+    love.graphics.circle("fill", 0, -size * 0.15, size * 0.48)
+    love.graphics.setColor(cCore[1], cCore[2], cCore[3], cCore[4])
+    love.graphics.circle("fill", 0, -size * 0.15, size * 0.30)
+    love.graphics.circle("line", 0, -size * 0.15, size * 0.42, 20)
+
+    -- 5. Puente de comando superior
+    love.graphics.setColor(cAmber[1], cAmber[2], cAmber[3], cAmber[4])
+    love.graphics.rectangle("fill", -size * 0.55, -size * 1.15, size * 1.10, size * 0.26, 2, 2)
+
+    -- 6. Cuatro propulsores pesados de crucero
+    if not isAbandoned and self.engineGlow > 0 then
+        self:drawThrusterFlame(-size * 0.85, size * 1.48, size * 0.45, {0.3, 0.95, 0.55})
+        self:drawThrusterFlame(-size * 0.30, size * 1.52, size * 0.55, {0.3, 0.95, 0.55})
+        self:drawThrusterFlame(size * 0.30, size * 1.52, size * 0.55, {0.3, 0.95, 0.55})
+        self:drawThrusterFlame(size * 0.85, size * 1.48, size * 0.45, {0.3, 0.95, 0.55})
+    end
+end
+
+function ShipRenderer.drawDreadnoughtShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+    local pulse = 0.72 + 0.28 * math.sin(time * 6.0)
+
+    -- Sombra de acorazado
+    love.graphics.setColor(0, 0, 0, 0.34)
+    love.graphics.push()
+    love.graphics.translate(5, 5)
+    love.graphics.polygon("fill",
+        0, -size * 2.1,
+        -size * 1.55, -size * 0.2,
+        -size * 1.15, size * 1.5,
+        size * 1.15, size * 1.5,
+        size * 1.55, -size * 0.2
+    )
+    love.graphics.pop()
+
+    -- Paleta (Obsidiana imperial + púrpura plasma + carmesí corsario)
+    local cBody = isAbandoned and {0.11, 0.10, 0.16, alpha} or {0.15, 0.12, 0.24, alpha}
+    local cArmor = isAbandoned and {0.20, 0.18, 0.28, alpha} or {0.28, 0.23, 0.42, alpha}
+    local cPurple = isAbandoned and {0.42, 0.16, 0.52, alpha} or {0.84, 0.22, 0.98, alpha}
+    local cCrimson = isAbandoned and {0.50, 0.14, 0.18, alpha} or {0.96, 0.18, 0.28, alpha}
+
+    -- 1. Alas acorazadas en punta de lanza con espolones hacia adelante
+    love.graphics.setColor(cBody[1], cBody[2], cBody[3], cBody[4])
+    love.graphics.polygon("fill",
+        -size * 0.35, -size * 1.25,
+        -size * 1.55, -size * 0.25,
+        -size * 1.25, size * 1.35,
+        0, size * 1.05,
+        size * 1.25, size * 1.35,
+        size * 1.55, -size * 0.25,
+        size * 0.35, -size * 1.25
+    )
+
+    -- 2. Espolón bifurcado de proa (Prow Prongs con pista de lanzamiento de cazas en el medio)
+    love.graphics.setColor(cArmor[1], cArmor[2], cArmor[3], cArmor[4])
+    love.graphics.polygon("fill",
+        -size * 0.68, -size * 0.85,
+        -size * 0.32, -size * 2.15,
+        -size * 0.16, -size * 1.85,
+        -size * 0.22, size * 1.15,
+        -size * 0.72, size * 1.15
+    )
+    love.graphics.polygon("fill",
+        size * 0.68, -size * 0.85,
+        size * 0.32, -size * 2.15,
+        size * 0.16, -size * 1.85,
+        size * 0.22, size * 1.15,
+        size * 0.72, size * 1.15
+    )
+
+    -- 3. Pista magnética de lanzamiento del Hangar Central (Brillo magenta/violeta)
+    love.graphics.setColor(0.06, 0.04, 0.10, alpha)
+    love.graphics.rectangle("fill", -size * 0.18, -size * 1.65, size * 0.36, size * 2.25)
+    love.graphics.setColor(cPurple[1], cPurple[2], cPurple[3], alpha * pulse)
+    love.graphics.rectangle("fill", -size * 0.08, -size * 1.55, size * 0.16, size * 1.95)
+
+    -- 4. Filos de energía púrpura y baterías carmesí en los bastiones laterales
+    love.graphics.setColor(cCrimson[1], cCrimson[2], cCrimson[3], cCrimson[4])
+    love.graphics.polygon("fill",
+        -size * 1.55, -size * 0.25,
+        -size * 1.15, -size * 0.85,
+        -size * 0.95, size * 0.45
+    )
+    love.graphics.polygon("fill",
+        size * 1.55, -size * 0.25,
+        size * 1.15, -size * 0.85,
+        size * 0.95, size * 0.45
+    )
+
+    -- 5. Puente de mando imperial
+    love.graphics.setColor(1.0, 0.32, 0.85, 0.95 * alpha)
+    love.graphics.polygon("fill",
+        0, size * 0.05,
+        -size * 0.38, size * 0.55,
+        0, size * 0.78,
+        size * 0.38, size * 0.55
+    )
+
+    if not isAbandoned and self.engineGlow > 0 then
+        self:drawThrusterFlame(-size * 0.75, size * 1.35, size * 0.55, {0.88, 0.22, 1.0})
+        self:drawThrusterFlame(0, size * 1.25, size * 0.70, {0.98, 0.25, 0.55})
+        self:drawThrusterFlame(size * 0.75, size * 1.35, size * 0.55, {0.88, 0.22, 1.0})
+    end
+end
+
+function ShipRenderer.drawArkMonolithShape(self, size, isAbandoned)
+    local time = love.timer.getTime()
+    local alpha = isAbandoned and 0.85 or 1.0
+    local pulse = 0.7 + 0.3 * math.sin(time * 5.0)
+
+    local cIvory = isAbandoned and {0.25, 0.28, 0.32, alpha} or {0.78, 0.85, 0.92, alpha}
+    local cGold = isAbandoned and {0.35, 0.32, 0.22, alpha} or {0.92, 0.78, 0.38, alpha}
+    local cCyan = isAbandoned and {0.15, 0.42, 0.48, alpha} or {0.18, 0.94, 1.0, alpha * pulse}
+
+    -- 1. Anillo exterior sagrado y arcos flotantes
+    love.graphics.setColor(cGold[1], cGold[2], cGold[3], cGold[4] * 0.85)
+    love.graphics.setLineWidth(3)
+    love.graphics.circle("line", 0, 0, size * 1.35, 32)
+    love.graphics.setLineWidth(1)
+
+    -- 2. Cuatro pilares monolíticos en cruz/estrella
+    love.graphics.setColor(cIvory[1], cIvory[2], cIvory[3], cIvory[4])
+    love.graphics.polygon("fill",
+        0, -size * 2.05,
+        -size * 0.55, -size * 0.45,
+        0, size * 1.65,
+        size * 0.55, -size * 0.45
+    )
+    love.graphics.polygon("fill",
+        -size * 1.65, -size * 0.15,
+        -size * 0.45, -size * 0.65,
+        size * 1.65, -size * 0.15,
+        size * 0.45, size * 0.45
+    )
+
+    -- 3. Esfera de Singularidad Cian en el corazón del Arca
+    love.graphics.setColor(0.06, 0.12, 0.18, alpha)
+    love.graphics.circle("fill", 0, -size * 0.1, size * 0.58)
+    love.graphics.setColor(cCyan[1], cCyan[2], cCyan[3], cCyan[4])
+    love.graphics.circle("fill", 0, -size * 0.1, size * 0.38)
+    love.graphics.circle("line", 0, -size * 0.1, size * 0.78, 24)
+
+    if not isAbandoned and self.engineGlow > 0 then
+        self:drawThrusterFlame(0, size * 1.65, size * 0.65, {0.18, 0.95, 1.0})
+    end
+end
+
 function ShipRenderer.drawGeometricShip(self, isAbandoned)
     local size = self.size * (self.worldScale or 1)
     local shipType = self.shipType or "EXPLORER"
@@ -299,6 +730,20 @@ function ShipRenderer.drawGeometricShip(self, isAbandoned)
         self:drawFighterShape(size, isAbandoned)
     elseif shipType == "CARGO" then
         self:drawCargoShape(size, isAbandoned)
+    elseif shipType == "INTERCEPTOR" then
+        self:drawInterceptorShape(size, isAbandoned)
+    elseif shipType == "GUNSHIP" then
+        self:drawGunshipShape(size, isAbandoned)
+    elseif shipType == "SALVAGER" then
+        self:drawSalvagerShape(size, isAbandoned)
+    elseif shipType == "SENTINEL" then
+        self:drawSentinelShape(size, isAbandoned)
+    elseif shipType == "TITAN_EXCAVATOR" then
+        self:drawTitanExcavatorShape(size, isAbandoned)
+    elseif shipType == "ECLIPSE" or shipType == "DREADNOUGHT" then
+        self:drawDreadnoughtShape(size, isAbandoned)
+    elseif shipType == "ARK_MONOLITH" then
+        self:drawArkMonolithShape(size, isAbandoned)
     else
         self:drawExplorerShape(size, isAbandoned)
     end
@@ -337,8 +782,8 @@ function ShipRenderer.drawAbandonedShip(self)
     
     local r, g, b, a = love.graphics.getColor()
     
-    -- Si tiene sprite y es EXPLORER:
-    if self.sprite and self.shipType == "EXPLORER" then
+    -- Si tiene sprite de nave inicial del jugador (useStarterSprite) y es EXPLORER:
+    if self.sprite and self.useStarterSprite and self.shipType == "EXPLORER" then
         love.graphics.setColor(0, 0, 0, 0.2)
         love.graphics.push()
         love.graphics.translate(3, 3)
@@ -404,18 +849,92 @@ function ShipRenderer.drawAIShip(self)
         love.graphics.setLineWidth(1)
     end
 
-    -- 2. Si es un Centinela (WARDEN), dibujar anillo tenue de perímetro de escaneo
-    if ai and ai.role == "WARDEN" then
-        local scanPulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 3.5)
-        local bCol = (ai.config and ai.config.beaconColor) or {0.25, 0.88, 1.0}
-        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.14 + 0.08 * scanPulse)
-        love.graphics.circle("line", renderX, renderY, (self.size or 14) * 2.8, 28)
+    -- 2. Si es un Centinela (WARDEN) o está en modo ADVERTENCIA (ALERT: WARN), dibujar anillo/arco diegético
+    if ai and (ai.role == "WARDEN" or (ai.state == "ALERT" and ai.alertMode == "WARN")) then
+        local isWarn = (ai.state == "ALERT" and ai.alertMode == "WARN")
+        local freq = isWarn and 9.5 or 3.5
+        local scanPulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * freq)
+        local bCol = isWarn and {1.0, 0.72, 0.15} or ((ai.config and ai.config.beaconColor) or {0.25, 0.88, 1.0})
+        love.graphics.setColor(bCol[1], bCol[2], bCol[3], (isWarn and 0.28 or 0.14) + 0.12 * scanPulse)
+        love.graphics.circle("line", renderX, renderY, (self.size or 14) * (isWarn and 2.3 or 2.8), 28)
     end
 
-    -- 3. Dibujar cuerpo activo de la nave y escudo
+    -- 2.5. Telegrafía de Ataque Pesado (Laser Lock / Carga antes de disparar en GUNSHIP o SENTINEL)
+    if ai and ai.telegraphTimer and ai.telegraphTimer > 0 and ai.telegraphAimX and ai.telegraphAimY then
+        local chargeRatio = 1.0 - math.min(1.0, ai.telegraphTimer / (ai.telegraphDuration or 0.55))
+        local prowX = renderX + math.sin(renderRot) * (self.size or 14) * 1.25
+        local prowY = renderY - math.cos(renderRot) * (self.size or 14) * 1.25
+        love.graphics.setColor(1.0, 0.25, 0.15, 0.25 + 0.60 * chargeRatio)
+        love.graphics.setLineWidth(1.5 + 2.0 * chargeRatio)
+        love.graphics.line(prowX, prowY, ai.telegraphAimX, ai.telegraphAimY)
+        love.graphics.setColor(1.0, 0.85, 0.35, 0.90)
+        love.graphics.circle("fill", prowX, prowY, 2.5 + 4.5 * chargeRatio)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- 2.6. Enlace de Recarga de Escudo desde Nodriza (Carrier Shield Tether)
+    if ai and ai.isReceivingCarrierShield and ai.wingmanOf and not ai.wingmanOf.isDestroyed and not ai.wingmanOf.isAbandoned then
+        local mx = MathUtil.lerp(ai.wingmanOf.prevX or ai.wingmanOf.x, ai.wingmanOf.x, alpha)
+        local my = MathUtil.lerp(ai.wingmanOf.prevY or ai.wingmanOf.y, ai.wingmanOf.y, alpha)
+        local tPulse = 0.55 + 0.45 * math.sin(love.timer.getTime() * 14.0)
+        local isEclipse = (ai.wingmanOf.shipType == "ECLIPSE" or ai.wingmanOf.shipType == "DREADNOUGHT")
+        local tetherCol = isEclipse and {0.85, 0.25, 1.0} or {0.20, 0.90, 1.0}
+        love.graphics.setColor(tetherCol[1], tetherCol[2], tetherCol[3], 0.38 * tPulse)
+        love.graphics.setLineWidth(4.5)
+        love.graphics.line(mx, my, renderX, renderY)
+        love.graphics.setColor(0.85, 0.98, 1.0, 0.85 * tPulse)
+        love.graphics.setLineWidth(1.5)
+        love.graphics.line(mx, my, renderX, renderY)
+        love.graphics.circle("line", renderX, renderY, (self.size or 14) * 1.75, 20)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- 2.7. Destello de Despliegue de Hangar (cuando una Nodriza lanza escoltas de refuerzo)
+    if ai and ai.hangarFlashTimer and ai.hangarFlashTimer > 0 then
+        local fRatio = math.max(0, math.min(1, ai.hangarFlashTimer / 0.85))
+        local isEclipse = (self.shipType == "ECLIPSE" or self.shipType == "DREADNOUGHT")
+        local fCol = isEclipse and {0.92, 0.20, 1.0}
+            or ((self.shipType == "TITAN_EXCAVATOR") and {1.0, 0.78, 0.22} or {0.20, 0.95, 1.0})
+        love.graphics.setColor(fCol[1], fCol[2], fCol[3], 0.55 * fRatio)
+        love.graphics.circle("line", renderX, renderY, (self.size or 36) * (1.2 + (1.0 - fRatio) * 1.1), 28)
+        love.graphics.setColor(1.0, 1.0, 1.0, 0.45 * fRatio)
+        love.graphics.circle("fill", renderX, renderY, (self.size or 36) * 0.40 * fRatio)
+    end
+
+    -- 2.8. Estela de Entrada por Impulso Sub-Warp (evita que las naves parezcan aparecer de la nada)
+    if ai and ai.warpInTimer and ai.warpInTimer > 0 then
+        local wRatio = math.max(0, math.min(1, ai.warpInTimer / 0.90))
+        local bCol = (ai.config and ai.config.beaconColor) or {0.35, 0.85, 1.0}
+        local tailLen = (self.size or 16) * 12.0 * wRatio
+        local tailX = renderX - math.sin(renderRot) * tailLen
+        local tailY = renderY + math.cos(renderRot) * tailLen
+        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.55 * wRatio)
+        love.graphics.setLineWidth(4.5 * wRatio + 1.0)
+        love.graphics.line(tailX, tailY, renderX, renderY)
+        love.graphics.setColor(1.0, 1.0, 1.0, 0.85 * wRatio)
+        love.graphics.circle("line", renderX, renderY, (self.size or 16) * (1.2 + wRatio * 1.8), 24)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- 3. Dibujar cuerpo activo de la nave, propulsores laterales RCS (Drift/Juke) y escudo
     love.graphics.push()
     love.graphics.translate(renderX, renderY)
     love.graphics.rotate(renderRot)
+
+    -- Propulsores laterales RCS visibles cuando hace Derrape Inercial (isDrifting) o Esquiva Reactiva (jukeTimer > 0)
+    if ai and (self.isDrifting or (ai.jukeTimer and ai.jukeTimer > 0) or (ai.rcsThrustDir and ai.rcsThrustDir ~= 0)) then
+        local sz = (self.size or 14) * (self.worldScale or 1)
+        local rcsSide = (ai.rcsThrustDir and ai.rcsThrustDir ~= 0) and ai.rcsThrustDir or 1
+        local rcsAlpha = (ai.jukeTimer and ai.jukeTimer > 0) and 0.85 or 0.45
+        love.graphics.setColor(0.65, 0.90, 1.0, rcsAlpha)
+        -- El chorro sale del flanco opuesto al empuje lateral
+        local nozzleX = -rcsSide * sz * 0.85
+        love.graphics.polygon("fill",
+            nozzleX, -sz * 0.25,
+            nozzleX - rcsSide * sz * 0.75, 0,
+            nozzleX, sz * 0.25
+        )
+    end
 
     self:drawShieldEffect()
     self:drawGeometricShip(false)
@@ -433,15 +952,16 @@ function ShipRenderer.drawAIShip(self)
 
     -- 4. Micro-indicador diegético de casco/escudo cuando la nave está dañada o en combate
     local hpPct = (self.stats and self.stats:getHealthPercentage()) or 100
-    if hpPct < 99 or (ai and ai.state == "COMBAT") then
-        local barW = 28
-        local barH = 3
+    local isMothership = (self.shipConfig and self.shipConfig.isMothership)
+    if hpPct < 99 or (ai and ai.state == "COMBAT") or isMothership then
+        local barW = isMothership and 56 or 28
+        local barH = isMothership and 4.5 or 3
         local bx = renderX - barW * 0.5
-        local by = renderY - (self.size or 14) * 1.9
-        love.graphics.setColor(0.05, 0.07, 0.10, 0.75)
+        local by = renderY - (self.size or 14) * (isMothership and 1.55 or 1.9)
+        love.graphics.setColor(0.05, 0.07, 0.10, 0.82)
         love.graphics.rectangle("fill", bx - 1, by - 1, barW + 2, barH + 2, 1, 1)
         local bCol = (ai and ai.config and ai.config.beaconColor) or {0.9, 0.3, 0.2}
-        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.90)
+        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.92)
         love.graphics.rectangle("fill", bx, by, barW * math.max(0, math.min(1, hpPct / 100)), barH, 1, 1)
     end
 
@@ -493,8 +1013,8 @@ function ShipRenderer.drawShip(self)
     -- Escudo visual activo
     self:drawShieldEffect()
     
-    -- Dibujar la nave según sprite (Explorer) o geometría especializada (Fighter, Cargo, Explorer fallback)
-    if self.sprite and self.shipType == "EXPLORER" then
+    -- Dibujar la nave según sprite inicial (si useStarterSprite) o geometría especializada de su clase
+    if self.sprite and self.useStarterSprite and self.shipType == "EXPLORER" then
         love.graphics.setColor(0, 0, 0, 0.3)
         love.graphics.push()
         love.graphics.translate(3, 3)
@@ -562,6 +1082,13 @@ function ShipRenderer.install(Naves)
     Naves.drawFighterShape = ShipRenderer.drawFighterShape
     Naves.drawCargoShape = ShipRenderer.drawCargoShape
     Naves.drawExplorerShape = ShipRenderer.drawExplorerShape
+    Naves.drawInterceptorShape = ShipRenderer.drawInterceptorShape
+    Naves.drawGunshipShape = ShipRenderer.drawGunshipShape
+    Naves.drawSalvagerShape = ShipRenderer.drawSalvagerShape
+    Naves.drawSentinelShape = ShipRenderer.drawSentinelShape
+    Naves.drawTitanExcavatorShape = ShipRenderer.drawTitanExcavatorShape
+    Naves.drawDreadnoughtShape = ShipRenderer.drawDreadnoughtShape
+    Naves.drawArkMonolithShape = ShipRenderer.drawArkMonolithShape
     Naves.drawGeometricShip = ShipRenderer.drawGeometricShip
     Naves.drawShieldEffect = ShipRenderer.drawShieldEffect
     Naves.drawAbandonedShip = ShipRenderer.drawAbandonedShip

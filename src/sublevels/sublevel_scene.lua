@@ -58,7 +58,15 @@ function SubLevelScene:enter(params)
     local camX, camY = 0, 0
     local targetZoom = 0.55
     local tier = (cfg.meta and cfg.meta.tier) or 1
-    if cfg.meta and cfg.meta.subworldId == "stations_debug" then
+    if cfg.meta and cfg.meta.subworldId == "ships_debug" then
+        local ShipsDebugWorld = require 'src.sublevels.ships_debug_world'
+        ShipsDebugWorld.init(cfg)
+        entryX = 0
+        entryY = 340
+        camX = 0
+        camY = 340
+        targetZoom = 0.55
+    elseif cfg.meta and cfg.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         StationsDebugWorld.init(cfg)
         entryX = -1400
@@ -240,8 +248,11 @@ function SubLevelScene:update(dt)
         self.world:update(dt, player)
     end
 
-    -- Actualizar submundo de depuración de estaciones si está activo
-    if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+    -- Actualizar submundo de depuración si está activo
+    if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
+        local ShipsDebugWorld = require 'src.sublevels.ships_debug_world'
+        ShipsDebugWorld.update(dt, player)
+    elseif self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         StationsDebugWorld.update(dt, player)
     elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
@@ -350,8 +361,11 @@ function SubLevelScene:draw()
     -- Grilla de debug (F4) dentro del subnivel
     if DebugGrid and DebugGrid.draw then DebugGrid.draw(camera) end
 
-    -- Dibujar estaciones espaciales en el submundo de depuración
-    if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+    -- Dibujar submundo de depuración si está activo
+    if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
+        local ShipsDebugWorld = require 'src.sublevels.ships_debug_world'
+        ShipsDebugWorld.draw(camera, player)
+    elseif self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         StationsDebugWorld.draw(camera, player)
     elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
@@ -403,8 +417,11 @@ function SubLevelScene:draw()
             love.graphics.setColor(1, 1, 1, 1)
         end
 
-        -- Dibujar HUD de controles de depuración de estaciones
-        if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+        -- Dibujar HUD de controles de depuración
+        if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
+            local ShipsDebugWorld = require 'src.sublevels.ships_debug_world'
+            ShipsDebugWorld.drawHUD()
+        elseif self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
             local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
             StationsDebugWorld.drawHUD()
         elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
@@ -450,8 +467,14 @@ function SubLevelScene:keypressed(key)
         return false
     end
 
-    -- Atajos específicos del submundo de depuración de estaciones (1-9 teletransporte, 0 origen, R rotación)
-    if self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
+    -- Atajos específicos del submundo de depuración (1-9, 0 teletransporte, R rotación, T/F efectos)
+    if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
+        local ShipsDebugWorld = require 'src.sublevels.ships_debug_world'
+        local camera = World.get('camera')
+        if ShipsDebugWorld.keypressed(key, player, camera) then
+            return true
+        end
+    elseif self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         local camera = World.get('camera')
         if StationsDebugWorld.keypressed(key, player, camera) then
@@ -503,10 +526,18 @@ function SubLevelScene:keypressed(key)
         return true
     end
 
-    -- 'e': Recolección manual, balizas de salto y portales de salida
+    -- 'e': Abordaje en EVA, recolección manual, balizas de salto y portales de salida
     if key == 'e' then
-        local CelestialRenderer = require 'src.sublevels.celestial_renderer'
         local player = World.get('player')
+        if player and player.isInEVA and player.evaPlayer and player.evaPlayer.canEnterShip then
+            local canEnter, targetShip = player.evaPlayer:canEnterShip()
+            if canEnter and targetShip then
+                player:exitEVA(targetShip)
+                return true
+            end
+        end
+
+        local CelestialRenderer = require 'src.sublevels.celestial_renderer'
         local beacon = CelestialRenderer.checkBeaconInteraction(self.config, player)
         if beacon then
             if beacon.targetTier then
@@ -657,7 +688,28 @@ function SubLevelScene:mousereleased(x, y, button)
     return false
 end
 
+function SubLevelScene:wheelmoved(x, y)
+    local PauseMenu = require 'src.ui.pause_menu'
+    if PauseMenu.isOpen() then
+        if PauseMenu.wheelmoved then PauseMenu.wheelmoved(x, y) end
+        return true
+    end
+    local camera = World.get('camera')
+    if camera and camera.wheelmoved then
+        camera:wheelmoved(x, y)
+        return true
+    end
+    return false
+end
+
 function SubLevelScene:exit()
+    -- Limpiar entidades del hangar de naves si estaba activo
+    if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
+        local ok, ShipsDebugWorld = pcall(require, 'src.sublevels.ships_debug_world')
+        if ok and ShipsDebugWorld and ShipsDebugWorld.cleanup then
+            ShipsDebugWorld.cleanup()
+        end
+    end
     -- Asegurar restauración de contexto del mapa principal
     SubLevelManager.exit()
     self.world = nil

@@ -77,8 +77,10 @@ function InputManager.keypressed(key)
     if stateManager and stateManager.keypressed and stateManager:keypressed(key) then
         return
     end
-    if stateManager and stateManager.blocksUnderlying and stateManager:blocksUnderlying() then
-        -- Permitir solo atajos globales esenciales de ventana/pausa cuando la escena bloquea el Overworld
+    local topState = stateManager and stateManager.top and stateManager:top()
+    local isSubLevel = topState and topState.name == "SubLevelScene"
+    if stateManager and stateManager.blocksUnderlying and stateManager:blocksUnderlying() and not isSubLevel then
+        -- Permitir solo atajos globales esenciales de ventana/pausa cuando una estación (StationScene) bloquea el Overworld
         if key == "escape" or key == "p" then
             PauseMenu.toggle()
         elseif (key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))) or key == "f11" then
