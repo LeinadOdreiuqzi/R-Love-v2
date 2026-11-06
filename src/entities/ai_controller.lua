@@ -208,7 +208,15 @@ function AIController:new(ship, opts)
         decisionInterval = 0.25,
         strafeDir = (opts.wingmanOf and -1) or 1,
         strafeSwitchTimer = 2.0,
-        salvageDropTimer = 0
+        salvageDropTimer = 0,
+
+        -- Ciclo ecológico de botín (Carroñero oportunista post-batalla)
+        scavengedLoot = {},
+        salvageScheduleTimer = 0,
+        salvageSiteTarget = nil,
+        isTractorBeaming = false,
+        tractorTargetX = nil,
+        tractorTargetY = nil
     }, self)
 
     -- Inicializar personalidad única del piloto usando el RNG determinista
@@ -723,8 +731,22 @@ function AIController:evaluatePerception()
     end
 end
 
+-- Programa una incursión oportunista a un sitio de escombros/pecio detectado en el sector
+function AIController:scheduleSalvageOpportunistic(x, y, delay, wreckShip)
+    if self.state == AIController.STATES.SURVIVE then return end
+    if self.state == AIController.STATES.COMBAT and (self.combatMemoryTimer or 0) > 8 then return end
+
+    self.salvageScheduleTimer = math.max(0.1, delay or 6.0)
+    self.salvageSiteTarget = {
+        x = x,
+        y = y,
+        wreck = wreckShip
+    }
+end
+
 -- Selecciona una nueva tarea en el mundo
 function AIController:pickNewWorldGoal()
+    self.isTractorBeaming = false
     local wg = self.worldGoal
     wg.isWorking = false
     wg.timer = 0
@@ -740,8 +762,8 @@ function AIController:pickNewWorldGoal()
         return
     end
 
-    local WorldItems = package.loaded['src.item_systems.world_items']
-    local Naves = package.loaded['src.entities.naves']
+    local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
+    local Naves = package.loaded['src.entities.naves'] or require('src.entities.naves')
     local Map = package.loaded['src.maps.map']
     local MapConfig = package.loaded['src.maps.config.map_config']
 
@@ -750,7 +772,7 @@ function AIController:pickNewWorldGoal()
 
     if self.role == AIController.ROLES.SCAVENGER and not shouldMigrateChunk then
         if WorldItems and WorldItems.getNearbyItems then
-            local items = WorldItems.getNearbyItems(self.ship.x, self.ship.y, 700)
+            local items = WorldItems.getNearbyItems(self.ship.x, self.ship.y, 700, true)
             if items and #items > 0 then
                 local entry = items[1]
                 local itemObj = entry.item or entry
@@ -1093,10 +1115,134 @@ function AIController:updateWorldGoal(dt)
         return
     end
 
+    if wg.type == "investigate_salvage" then
+        local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
+        local Naves = package.loaded['src.entities.naves'] or require('src.entities.naves')
+        local nearbyItems = WorldItems and WorldItems.getNearbyItems and WorldItems.getNearbyItems(self.ship.x, self.ship.y, 650, true)
+
+        if nearbyItems and #nearbyItems > 0 then
+            -- 1. Hay ítems sueltos flotando: dirigirse al más cercano y aspirarlo con rayo tractor
+            local entry = nearbyItems[1]
+            local itemObj = entry.item or entry
+            local itemDist = entry.distance or math.sqrt((itemObj.x - self.ship.x)^2 + (itemObj.y - self.ship.y)^2)
+
+            if itemDist <= 180 then
+                self.isTractorBeaming = true
+                self.tractorTargetX = itemObj.x
+                self.tractorTargetY = itemObj.y
+
+                -- Tirar físicamente del ítem hacia la nave
+                local pullSpd = 145 * dt
+                local toShipX = (self.ship.x - itemObj.x) / math.max(1, itemDist)
+                local toShipY = (self.ship.y - itemObj.y) / math.max(1, itemDist)
+                itemObj.x = itemObj.x + toShipX * pullSpd
+                itemObj.y = itemObj.y + toShipY * pullSpd
+
+                if itemDist <= 85 then
+                    local picked = WorldItems.tryPickup(self.ship.x, self.ship.y, self.ship.inventory, false)
+                    if picked and #picked > 0 then
+                        self.scavengedLoot = self.scavengedLoot or {}
+                        for _, p in ipairs(picked) do
+                            table.insert(self.scavengedLoot, {
+                                data = p.itemData or { id = p.name, name = p.name },
+                                quantity = p.quantity or 1,
+                                name = p.name
+                            })
+                        end
+                        if self.ship.inventory and self.ship.inventory.items then
+                            for slot = 1, (self.ship.inventory.maxSlots or 12) do
+                                self.ship.inventory.items[slot] = nil
+                            end
+                        end
+                    end
+                end
+                self:steerTowards(dt, itemObj.x, itemObj.y, 0.45, 45, itemObj.x, itemObj.y)
+            else
+                self.isTractorBeaming = false
+                self:steerTowards(dt, itemObj.x, itemObj.y, 0.78, 55, itemObj.x, itemObj.y)
+            end
+            wg.timer = 0
+            return
+        end
+
+        -- 2. Si no hay ítems sueltos, buscar si hay algún pecio inmóvil / abordable en la zona
+        local wreck = wg.targetEntity
+        if not wreck or wreck.isDestroyed or (not wreck.isAbandoned and not wreck.isInEVA) then
+            if Naves and Naves.getNearbyShips then
+                local nearby = Naves.getNearbyShips(self.ship.x, self.ship.y, 800)
+                for _, sEntry in ipairs(nearby) do
+                    local s = sEntry.ship
+                    if s and s ~= self.ship and not s.isDestroyed and (s.isAbandoned or s.isInEVA) then
+                        wreck = s
+                        wg.targetEntity = s
+                        break
+                    end
+                end
+            end
+        end
+
+        if wreck and not wreck.isDestroyed and (wreck.isAbandoned or wreck.isInEVA) then
+            local wDx = wreck.x - self.ship.x
+            local wDy = wreck.y - self.ship.y
+            local wDist = math.sqrt(wDx * wDx + wDy * wDy)
+
+            if wDist <= 145 then
+                self.isTractorBeaming = true
+                self.tractorTargetX = wreck.x
+                self.tractorTargetY = wreck.y
+                self.salvageDropTimer = (self.salvageDropTimer or 0) + dt
+
+                if self.salvageDropTimer >= 2.5 then
+                    self.salvageDropTimer = 0
+                    if wreck.stats and wreck.stats.fuel and wreck.stats.fuel.currentFuel > 5 then
+                        wreck.stats.fuel.currentFuel = math.max(0, wreck.stats.fuel.currentFuel - 15)
+                        if self.ship.stats and self.ship.stats.fuel then
+                            self.ship.stats:addFuel(15)
+                        end
+                    end
+                    local dropId = (self:random() < 0.45) and "energy_crystal" or "iron_ore"
+                    local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
+                    local itemData = ItemSystem and ItemSystem.getItem and ItemSystem:getItem(dropId)
+                    if itemData then
+                        self.scavengedLoot = self.scavengedLoot or {}
+                        table.insert(self.scavengedLoot, { data = itemData, quantity = 1, name = itemData.name })
+                    end
+                    if wreck.addImpactEffect then
+                        wreck:addImpactEffect(wreck.x, wreck.y, {1.0, 0.8, 0.2, 1.0})
+                    end
+                end
+
+                wg.timer = wg.timer + dt
+                if wg.timer >= (wg.maxTimer or 14.0) then
+                    self.isTractorBeaming = false
+                    self:pickNewWorldGoal()
+                    return
+                end
+                self:steerTowards(dt, wreck.x, wreck.y, 0.35, 115, wreck.x, wreck.y)
+                return
+            else
+                self.isTractorBeaming = false
+                self:steerTowards(dt, wreck.x, wreck.y, 0.75, 115, wreck.x, wreck.y)
+                return
+            end
+        end
+
+        -- 3. Si no hay ítems ni pecios en la zona: volar hacia el punto de escombros
+        self.isTractorBeaming = false
+        local distToTarget = self:steerTowards(dt, wg.targetX, wg.targetY, self.config.cruiseSpeedFactor, 60)
+        wg.timer = wg.timer + dt
+        if distToTarget <= 75 or wg.timer >= (wg.maxTimer or 18.0) then
+            self:pickNewWorldGoal()
+            return
+        end
+        return
+    end
+
     if wg.targetEntity then
         if wg.type == "salvage_wreck" then
             local wreck = wg.targetEntity
             if wreck.isDestroyed or (not wreck.isAbandoned and not wreck.isInEVA) then
+                self.isTractorBeaming = false
                 self:pickNewWorldGoal()
                 return
             end
@@ -1104,6 +1250,7 @@ function AIController:updateWorldGoal(dt)
         elseif wg.type == "collect_item" then
             local item = wg.targetEntity
             if not item or not item.x then
+                self.isTractorBeaming = false
                 self:pickNewWorldGoal()
                 return
             end
@@ -1122,6 +1269,9 @@ function AIController:updateWorldGoal(dt)
             wg.timer = wg.timer + dt
 
             if wg.type == "salvage_wreck" and wg.targetEntity then
+                self.isTractorBeaming = true
+                self.tractorTargetX = wg.targetX
+                self.tractorTargetY = wg.targetY
                 self.salvageDropTimer = self.salvageDropTimer + dt
                 if self.salvageDropTimer >= 2.8 then
                     self.salvageDropTimer = 0
@@ -1132,6 +1282,13 @@ function AIController:updateWorldGoal(dt)
                             self.ship.stats:addFuel(15)
                         end
                     end
+                    local dropId = (self:random() < 0.40) and "energy_crystal" or "iron_ore"
+                    local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
+                    local itemData = ItemSystem and ItemSystem.getItem and ItemSystem:getItem(dropId)
+                    if itemData then
+                        self.scavengedLoot = self.scavengedLoot or {}
+                        table.insert(self.scavengedLoot, { data = itemData, quantity = 1, name = itemData.name })
+                    end
                     if wreck.addImpactEffect then
                         wreck:addImpactEffect(wreck.x, wreck.y, {1.0, 0.8, 0.2, 1.0})
                     end
@@ -1140,8 +1297,9 @@ function AIController:updateWorldGoal(dt)
 
             if wg.timer >= wg.maxTimer then
                 wg.isWorking = false
+                self.isTractorBeaming = false
                 if self.ship.inventory and self.ship.inventory.addItem then
-                    local ItemSystem = package.loaded['src.item_systems.item_system']
+                    local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
                     if ItemSystem and ItemSystem.createItemInstance then
                         local dropId = (self:random() < 0.40) and "energy_crystal" or "iron_ore"
                         local inst = ItemSystem:createItemInstance(dropId, 2)
@@ -1153,18 +1311,31 @@ function AIController:updateWorldGoal(dt)
                 self:pickNewWorldGoal()
             end
         elseif wg.type == "collect_item" then
-            local WorldItems = package.loaded['src.item_systems.world_items']
+            local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
             if WorldItems and WorldItems.tryPickup and self.ship and self.ship.inventory then
-                pcall(function() WorldItems.tryPickup(self.ship.x, self.ship.y, self.ship.inventory, false) end)
+                local picked = WorldItems.tryPickup(self.ship.x, self.ship.y, self.ship.inventory, false)
+                if picked and #picked > 0 then
+                    self.scavengedLoot = self.scavengedLoot or {}
+                    for _, p in ipairs(picked) do
+                        table.insert(self.scavengedLoot, {
+                            data = p.itemData or { id = p.name, name = p.name },
+                            quantity = p.quantity or 1,
+                            name = p.name
+                        })
+                    end
+                end
             end
+            self.isTractorBeaming = false
             self:pickNewWorldGoal()
         else
+            self.isTractorBeaming = false
             wg.timer = wg.timer + dt
             if wg.timer >= 1.2 then
                 self:pickNewWorldGoal()
             end
         end
     else
+        self.isTractorBeaming = false
         wg.isWorking = false
         wg.timer = wg.timer + dt * 0.25
         if wg.timer >= wg.maxTimer * 2.0 then
@@ -1469,7 +1640,7 @@ function AIController:updateSurvive(dt)
     -- Si es un Recolector (SCAVENGER) en pánico y aún no ha soltado señuelo, suelta una caja de mineral para distraer al Corsario
     if self.role == AIController.ROLES.SCAVENGER and not self.panicJettisoned then
         self.panicJettisoned = true
-        self:dropLoot(1)
+        self:dropLoot(1, false)
     end
 
     local dx = self.ship.x - threat.x
@@ -1512,6 +1683,26 @@ function AIController:update(dt)
     if (self.warpInTimer or 0) > 0 then
         self.warpInTimer = math.max(0, self.warpInTimer - dt)
     end
+    if (self.salvageScheduleTimer or 0) > 0 then
+        self.salvageScheduleTimer = self.salvageScheduleTimer - dt
+        if self.salvageScheduleTimer <= 0 then
+            self.salvageScheduleTimer = 0
+            if self.salvageSiteTarget and self.state ~= AIController.STATES.SURVIVE and self.state ~= AIController.STATES.COMBAT then
+                local st = self.salvageSiteTarget
+                self.worldGoal = {
+                    type = "investigate_salvage",
+                    targetX = st.x,
+                    targetY = st.y,
+                    targetEntity = st.wreck,
+                    timer = 0,
+                    maxTimer = 28.0,
+                    isWorking = false
+                }
+                self.state = AIController.STATES.WORLD_GOAL
+                self.salvageSiteTarget = nil
+            end
+        end
+    end
 
     self.decisionTimer = self.decisionTimer - dt
     if self.decisionTimer <= 0 then
@@ -1521,6 +1712,9 @@ function AIController:update(dt)
 
     self.ship.isBoostActive = false
     self.ship._aiIsMoving = false
+    if self.state ~= AIController.STATES.WORLD_GOAL then
+        self.isTractorBeaming = false
+    end
 
     if self.state == AIController.STATES.SURVIVE then
         self:updateSurvive(dt)
@@ -1580,6 +1774,8 @@ function AIController:onDamaged(damage, attacker)
         self.combatTarget = attacker
         self.alertTarget = nil
         self.combatMemoryTimer = 10.0
+        self.isTractorBeaming = false
+        self.salvageScheduleTimer = 0
 
         -- Impulso evasivo inmediato al recibir impacto sorpresa
         if self.jukeTimer <= 0 and self.dodgeCooldown <= 0 then
@@ -1601,22 +1797,64 @@ function AIController:onDamaged(damage, attacker)
     end
 end
 
--- Suelta el botín físico al espacio exterior
-function AIController:dropLoot(numDrops)
+-- Suelta el botín físico al espacio exterior (y eyecta el botín robado si dropAllScavenged es true)
+function AIController:dropLoot(numDrops, dropAllScavenged)
     local ship = self.ship
     if not ship then return end
-    local WorldItems = package.loaded['src.item_systems.world_items']
-    local ItemSystem = package.loaded['src.item_systems.item_system']
+    local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
+    local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
     if WorldItems and WorldItems.drop and ItemSystem and ItemSystem.getItem then
-        local dropTable = { "iron_ore", "energy_crystal", "shield_battery", "health_potion", "basic_circuit" }
-        for i = 1, numDrops do
+        local dropTable = { "iron_ore", "energy_crystal", "repair_kit", "basic_circuit", "energy_stim" }
+        for i = 1, (numDrops or 1) do
             local itemId = dropTable[1 + ((i + (ship.shipId or 1)) % #dropTable)]
             local itemData = ItemSystem:getItem(itemId)
             if itemData then
-                local angle = (i / numDrops) * math.pi * 2 + self:random(-0.35, 0.35)
+                local angle = (i / math.max(1, numDrops or 1)) * math.pi * 2 + self:random(-0.35, 0.35)
                 local tx = ship.x + math.cos(angle) * 48
                 local ty = ship.y + math.sin(angle) * 48
                 pcall(function() WorldItems.drop(itemData, ship.x, ship.y, tx, ty, 1) end)
+            end
+        end
+
+        -- CAZADOR CAZADO: Al ser destruida o inutilizada la nave, soltar todo el botín acumulado/robado
+        if dropAllScavenged ~= false and self.scavengedLoot and #self.scavengedLoot > 0 then
+            print(string.format("[ECOSYSTEM] ¡CAZADOR CAZADO! %s soltó %d ítems previamente recolectados/robados.",
+                ship.shipName or "Carroñero", #self.scavengedLoot))
+            for _, loot in ipairs(self.scavengedLoot) do
+                local itemData = loot.data or loot
+                if itemData then
+                    local angle = self:random(0, math.pi * 2)
+                    local dist = self:random(40, 95)
+                    local tx = ship.x + math.cos(angle) * dist
+                    local ty = ship.y + math.sin(angle) * dist
+                    local qty = loot.quantity or 1
+                    pcall(function() WorldItems.drop(itemData, ship.x, ship.y, tx, ty, qty) end)
+                end
+            end
+            self.scavengedLoot = {}
+        elseif dropAllScavenged == false and self.scavengedLoot and #self.scavengedLoot > 0 then
+            -- Soltar solo 1 ítem carroñado como señuelo de pánico
+            local decoy = table.remove(self.scavengedLoot, 1)
+            if decoy and decoy.data then
+                local angle = self:random(0, math.pi * 2)
+                local tx = ship.x + math.cos(angle) * 45
+                local ty = ship.y + math.sin(angle) * 45
+                pcall(function() WorldItems.drop(decoy.data, ship.x, ship.y, tx, ty, decoy.quantity or 1) end)
+            end
+        end
+
+        -- Eyectar cualquier inventario residual en slots
+        if dropAllScavenged ~= false and ship.inventory and ship.inventory.items then
+            for slot = 1, (ship.inventory.maxSlots or 12) do
+                local slotItem = ship.inventory.items[slot]
+                if slotItem and slotItem.data then
+                    local angle = self:random(0, math.pi * 2)
+                    local dist = self:random(40, 95)
+                    local tx = ship.x + math.cos(angle) * dist
+                    local ty = ship.y + math.sin(angle) * dist
+                    pcall(function() WorldItems.drop(slotItem.data, ship.x, ship.y, tx, ty, slotItem.quantity or 1) end)
+                    ship.inventory.items[slot] = nil
+                end
             end
         end
     end
@@ -1631,6 +1869,8 @@ function AIController:onKilled(attacker)
     self.active = false
     self.worldGoal.isWorking = false
     self.telegraphTimer = 0
+    self.isTractorBeaming = false
+    self.salvageScheduleTimer = 0
 
     local ship = self.ship
     if not ship then return end
@@ -1674,7 +1914,13 @@ function AIController:onKilled(attacker)
             ship.stats.health.currentHealth = math.max(2, math.floor(ship.stats.health.maxHealth * 0.18))
         end
 
-        self:dropLoot(isMothership and 3 or 1)
+        local drops = isMothership and 3 or 1
+        self:dropLoot(drops, true)
+
+        local director = World and (World.get('director') or World.get('gameDirector'))
+        if director and director.notifyDebrisSite then
+            director:notifyDebrisSite(ship.x, ship.y, drops, ship)
+        end
 
         if ship.addImpactEffect then
             ship:addImpactEffect(ship.x, ship.y, {0.3, 0.85, 1.0, 1.0})
@@ -1690,7 +1936,12 @@ function AIController:onKilled(attacker)
         ship.isPiloted = false
 
         local drops = isMothership and 5 or ((self.role == AIController.ROLES.SCAVENGER) and 3 or 2)
-        self:dropLoot(drops)
+        self:dropLoot(drops, true)
+
+        local director = World and (World.get('director') or World.get('gameDirector'))
+        if director and director.notifyDebrisSite then
+            director:notifyDebrisSite(ship.x, ship.y, drops, nil)
+        end
 
         local audio = World and ((World.getAudio and World.getAudio()) or World.get('audio'))
         if audio and audio.play then

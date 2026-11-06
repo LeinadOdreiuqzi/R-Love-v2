@@ -47,7 +47,9 @@ function GameDirector:new(runState, opts)
             lastMajorClashX = nil,
             lastMajorClashY = nil,
             minTimeBetweenMajorClashes = 90,  -- Mínimo ~1.5 minutos entre batallas de flotas masivas pre-iniciadas
-            minDistBetweenMajorClashes = 4500 -- Mínimo ~4500px entre zonas de guerra masivas pre-iniciadas
+            minDistBetweenMajorClashes = 4500, -- Mínimo ~4500px entre zonas de guerra masivas pre-iniciadas
+            debrisSites = {},
+            lastOpportunisticScavTime = -999
         },
 
         -- Sistema de eventos
@@ -57,7 +59,11 @@ function GameDirector:new(runState, opts)
 
         debug = false
     }
-    return setmetatable(o, self)
+    local gd = setmetatable(o, self)
+    gd:addListener("SPAWN_OPPORTUNISTIC_SCAVENGER", function(payload)
+        gd:handleOpportunisticScavengerSpawn(payload)
+    end)
+    return gd
 end
 
 -- Obtiene la semilla numérica base de la run actual
@@ -90,6 +96,9 @@ function GameDirector:spawnEcologicalShip(x, y, shipType, role, rng, extraOpts)
         warpInTimer = extraOpts.warpInTimer or 0.90
     })
     ship.aiController = ai
+    if ship.inventory then
+        ship.inventory.isAI = true
+    end
     if extraOpts.faction then
         ship.aiFaction = extraOpts.faction
     end
@@ -347,8 +356,8 @@ end
 -- Crea un sitio post-batalla (Arqueología Espacial + Rastro de Escombros) determinista por Seed
 function GameDirector:spawnAftermathSite(x, y, rng)
     local Naves = package.loaded['src.entities.naves'] or require('src.entities.naves')
-    local WorldItems = package.loaded['src.item_systems.world_items']
-    local ItemSystem = package.loaded['src.item_systems.item_system']
+    local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
+    local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
     if not Naves then return end
 
     local shipTypes = { "SALVAGER", "INTERCEPTOR", "GUNSHIP", "FIGHTER", "CARGO" }
@@ -388,6 +397,111 @@ function GameDirector:spawnAftermathSite(x, y, rng)
     end
 
     return wreck
+end
+
+-- Notifica al ecosistema sobre la creación de un nuevo sitio de escombros o pecios post-combate
+function GameDirector:notifyDebrisSite(x, y, lootCount, wreckShip)
+    if not x or not y then return end
+    lootCount = lootCount or 1
+
+    local now = self.time or 0
+    if not self.ecosystem.debrisSites then
+        self.ecosystem.debrisSites = {}
+    end
+
+    table.insert(self.ecosystem.debrisSites, {
+        x = x,
+        y = y,
+        lootCount = lootCount,
+        wreck = wreckShip,
+        createdTime = now
+    })
+
+    -- 1. Buscar si hay algún carroñero ya activo en el sector (< 2200px)
+    local bestScavenger = nil
+    local bestDistSq = 2200 * 2200
+
+    for _, agent in ipairs(self.ecosystem.activeAgents or {}) do
+        if agent and not agent.isDestroyed and not agent.isAbandoned and agent.aiController then
+            local ai = agent.aiController
+            local isScavengerRole = (ai.role == AIController.ROLES.SCAVENGER) or (agent.shipType == "SALVAGER") or (agent.shipType == "CARGO")
+            local isAvailable = (ai.state == AIController.STATES.WORLD_GOAL or (ai.state == AIController.STATES.COMBAT and (ai.combatMemoryTimer or 0) <= 6))
+            if isScavengerRole and isAvailable then
+                local dx = agent.x - x
+                local dy = agent.y - y
+                local dSq = dx * dx + dy * dy
+                if dSq < bestDistSq then
+                    bestDistSq = dSq
+                    bestScavenger = ai
+                end
+            end
+        end
+    end
+
+    if bestScavenger then
+        -- Carroñero local en el sector: programar su llegada con un retraso natural (6.0 - 10.0s)
+        -- para otorgar al jugador ventaja táctica y tiempo para recoger el botín inicial
+        local delay = 6.0 + bestScavenger:random() * 4.0
+        bestScavenger:scheduleSalvageOpportunistic(x, y, delay, wreckShip)
+        return
+    end
+
+    -- 2. Si no hay carroñeros en el sector y hay suficiente botín (lootCount >= 2 o pecio intacto):
+    -- Evaluar cooldown de aparición en el horizonte (mínimo 45s)
+    local lastHorizonScav = self.ecosystem.lastOpportunisticScavTime or -999
+    if (now - lastHorizonScav) >= 45 and #self.ecosystem.activeAgents < self.ecosystem.maxActiveAgents then
+        self.ecosystem.lastOpportunisticScavTime = now
+        local horizonDelay = 7.5 + (math.random() * 4.0)
+        self:scheduleEvent(horizonDelay, "SPAWN_OPPORTUNISTIC_SCAVENGER", {
+            targetX = x,
+            targetY = y,
+            wreck = wreckShip
+        })
+    end
+end
+
+-- Despliega un carroñero oportunista desde el anillo de horizonte para investigar un sitio de escombros
+function GameDirector:handleOpportunisticScavengerSpawn(payload)
+    if not payload or not payload.targetX or not payload.targetY then return end
+    if #self.ecosystem.activeAgents >= self.ecosystem.maxActiveAgents then return end
+
+    local player = World.get('player')
+    local px = (player and player.x) or payload.targetX
+    local py = (player and player.y) or payload.targetY
+
+    local baseSeed = self:getNumericSeed()
+    local rng = SeedSystem.makeRNG((baseSeed + math.floor((self.time or 0) * 100)) % 2147483647)
+
+    -- Aparece en el Anillo de Horizonte (1480 - 1780 px del jugador o del sitio)
+    local angle = rng:random() * math.pi * 2
+    local dist = 1480 + rng:random() * 300
+    local spawnX = payload.targetX + math.cos(angle) * dist
+    local spawnY = payload.targetY + math.sin(angle) * dist
+
+    local towardSiteAngle = math.atan2(payload.targetY - spawnY, payload.targetX - spawnX)
+
+    local scavType = (rng:random() < 0.70) and "SALVAGER" or "CARGO"
+    local scavShip = self:spawnEcologicalShip(spawnX, spawnY, scavType, AIController.ROLES.SCAVENGER, rng, {
+        faction = "SIGNAL_AMBER",
+        isFactionCombatant = true,
+        entryAngle = towardSiteAngle,
+        homeX = payload.targetX,
+        homeY = payload.targetY
+    })
+
+    if scavShip and scavShip.aiController then
+        scavShip.aiController.worldGoal = {
+            type = "investigate_salvage",
+            targetX = payload.targetX,
+            targetY = payload.targetY,
+            targetEntity = payload.wreck,
+            timer = 0,
+            maxTimer = 28.0,
+            isWorking = false
+        }
+        print(string.format("[ECOSYSTEM] Carroñero Oportunista %s detectó escombros en (%.0f, %.0f) y se aproxima desde el horizonte (%.0f, %.0f).",
+            scavShip.shipName or scavType, payload.targetX, payload.targetY, spawnX, spawnY))
+    end
 end
 
 -- Limpia agentes autónomos muy lejanos o ya destruidos para mantener el rendimiento óptimo
@@ -904,6 +1018,8 @@ function GameDirector:reset()
     self.ecosystem.lastMajorClashTime = -999
     self.ecosystem.lastMajorClashX = nil
     self.ecosystem.lastMajorClashY = nil
+    self.ecosystem.debrisSites = {}
+    self.ecosystem.lastOpportunisticScavTime = -999
     self.playerActions = {
         isBoosting = false,
         isHyper = false,

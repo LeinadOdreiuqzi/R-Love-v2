@@ -252,7 +252,7 @@ function WorldItems.tryPickup(x, y, inventory, isEVA)
         local dy = item.y - y
         local distance = math.sqrt(dx * dx + dy * dy)
         
-        if distance <= pickupDistance and item.fadeInComplete then
+        if distance <= pickupDistance and (item.fadeInComplete or (inventory and inventory.isAI)) then
             -- Intentar agregar al inventario
             local success = false
             
@@ -272,10 +272,11 @@ function WorldItems.tryPickup(x, y, inventory, isEVA)
                 end
             end
             
-            if success then
+            if success or (inventory and inventory.isAI) then
                 table.insert(pickedItems, {
-                    name = item.itemData.name,
-                    quantity = item.quantity
+                    name = item.itemData and item.itemData.name or "Objeto",
+                    quantity = item.quantity,
+                    itemData = item.itemData
                 })
                 table.remove(worldItems, i)
             end
@@ -285,8 +286,8 @@ function WorldItems.tryPickup(x, y, inventory, isEVA)
     return pickedItems
 end
 
--- Obtener items cerca de una posición (para mostrar en UI)
-function WorldItems.getNearbyItems(x, y, distance)
+-- Obtener items cerca de una posición (para mostrar en UI o escaneo IA)
+function WorldItems.getNearbyItems(x, y, distance, includeFading)
     distance = distance or CONFIG.PICKUP_DISTANCE
     local nearbyItems = {}
     
@@ -295,7 +296,7 @@ function WorldItems.getNearbyItems(x, y, distance)
         local dy = item.y - y
         local itemDistance = math.sqrt(dx * dx + dy * dy)
         
-        if itemDistance <= distance and item.fadeInComplete then
+        if itemDistance <= distance and (item.fadeInComplete or includeFading) then
             table.insert(nearbyItems, {
                 item = item,
                 distance = itemDistance

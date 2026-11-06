@@ -916,6 +916,45 @@ function ShipRenderer.drawAIShip(self)
         love.graphics.setLineWidth(1)
     end
 
+    -- 2.9. Haz Tractor / Rayo de Chatarrería Industrial (Salvager Tractor Beam)
+    if ai and ai.isTractorBeaming and ai.tractorTargetX and ai.tractorTargetY then
+        local tTime = love.timer and love.timer.getTime and love.timer.getTime() or 0
+        local tx = ai.tractorTargetX
+        local ty = ai.tractorTargetY
+        local prowX = renderX + math.sin(renderRot) * (self.size or 14) * 1.15
+        local prowY = renderY - math.cos(renderRot) * (self.size or 14) * 1.15
+
+        local pulse = 0.65 + 0.35 * math.sin(tTime * 16.0)
+
+        -- Haz exterior: cono / línea dorada-ámbar gruesa pulsante
+        love.graphics.setColor(1.0, 0.72, 0.18, 0.38 * pulse)
+        love.graphics.setLineWidth(5.0 + pulse * 2.0)
+        love.graphics.line(prowX, prowY, tx, ty)
+
+        -- Haz medio: amarillo intenso concentrado
+        love.graphics.setColor(1.0, 0.88, 0.35, 0.75 * pulse)
+        love.graphics.setLineWidth(2.2)
+        love.graphics.line(prowX, prowY, tx, ty)
+
+        -- Núcleo central blanco caliente
+        love.graphics.setColor(1.0, 1.0, 0.9, 0.90 * pulse)
+        love.graphics.setLineWidth(1.0)
+        love.graphics.line(prowX, prowY, tx, ty)
+
+        -- Emisor de proa
+        love.graphics.setColor(1.0, 0.90, 0.40, 0.95)
+        love.graphics.circle("fill", prowX, prowY, 2.8)
+
+        -- Anillo gravítico de captura en el objetivo
+        local ringR = 9.0 + 4.0 * math.sin(tTime * 12.0)
+        love.graphics.setColor(1.0, 0.75, 0.15, 0.65 * pulse)
+        love.graphics.circle("line", tx, ty, ringR, 16)
+        love.graphics.setColor(1.0, 0.95, 0.60, 0.45 * pulse)
+        love.graphics.circle("fill", tx, ty, 3.5)
+
+        love.graphics.setLineWidth(1)
+    end
+
     -- 3. Dibujar cuerpo activo de la nave, propulsores laterales RCS (Drift/Juke) y escudo
     love.graphics.push()
     love.graphics.translate(renderX, renderY)
