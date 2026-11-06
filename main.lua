@@ -19,13 +19,6 @@ World.set('stateManager', stateManager)
 print("[MAIN] Globals purged. Using World and specific modules.")
 
 function love.load(args)
-    for _, arg in ipairs(args or {}) do
-        if arg == "--test-scavengers" then
-            require '_test_priority1_scavengers'
-            return
-        end
-    end
-
     love.graphics.setDefaultFilter("nearest", "nearest")
     
     if FullscreenManager and FullscreenManager.init then
