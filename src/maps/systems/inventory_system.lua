@@ -220,11 +220,11 @@ function InventorySystem:new(shipType)
         allowedTypes = { tool = true, consumable = true, resource = true }
     }
     
-    -- Compartimento de armas: 4 slots para armas equipadas
+    -- Compartimento de armas: 9 slots para armas equipadas (estilo Enter the Gungeon: teclas 1 a 9)
     inventory.compartments.weapons = {
         name = "weapons",
-        maxSlots = 4,
-        items = { nil, nil, nil, nil },
+        maxSlots = 9,
+        items = { nil, nil, nil, nil, nil, nil, nil, nil, nil },
         allowedTypes = { weapon = true },
         slotRestrictions = {
             [1] = "default_weapon_only"  -- Slot 1 reservado para arma por defecto
@@ -643,10 +643,14 @@ function InventorySystem:getWeaponInSlot(slot)
 end
 
 function InventorySystem:isDefaultWeapon(weaponId)
-    -- Lista de armas por defecto (debería coincidir con DEFAULT_WEAPONS en weapon_system.lua)
+    -- Lista de armas por defecto (coincide con DEFAULT_WEAPONS en weapon_system.lua)
     local defaultWeapons = {
         "basic_laser_pistol",
-        "kinetic_assault_rifle"
+        "kinetic_assault_rifle",
+        "heavy_plasma_cannon",
+        "energy_shotgun",
+        "plasma_rifle",
+        "laser_basic"
     }
     
     for _, defaultId in ipairs(defaultWeapons) do
@@ -659,7 +663,9 @@ end
 
 -- Transferir arma al inventario principal
 function InventorySystem:transferWeaponToInventory(slot)
-    if slot < 1 or slot > 4 then return false end
+    local weaponsComp = self:getCompartment('weapons')
+    local maxWeaponSlots = (weaponsComp and weaponsComp.maxSlots) or 9
+    if not slot or slot < 1 or slot > maxWeaponSlots then return false end
     
     -- No se puede remover el arma del slot 1 (arma por defecto)
     if slot == 1 then
@@ -686,7 +692,9 @@ end
 
 -- Transferir item desde inventario principal a slot de arma
 function InventorySystem:transferItemToWeaponSlot(inventorySlot, weaponSlot)
-    if inventorySlot < 1 or weaponSlot < 1 or weaponSlot > 4 then return false end
+    local weaponsComp = self:getCompartment('weapons')
+    local maxWeaponSlots = (weaponsComp and weaponsComp.maxSlots) or 9
+    if not inventorySlot or not weaponSlot or inventorySlot < 1 or weaponSlot < 1 or weaponSlot > maxWeaponSlots then return false end
     
     local shipComp = self:getCompartment('ship')
     if not shipComp or inventorySlot > shipComp.maxSlots then return false end

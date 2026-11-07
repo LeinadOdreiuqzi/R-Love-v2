@@ -164,18 +164,43 @@ function InputManager.keypressed(key)
     end
 
     -- 7. LÓGICA DE JUEGO / ACCIONES
+    local slotNumber = tonumber(key)
     if key == "tab" then
         InputManager.toggleInventory(gameState, player, InventoryUI, EVAInventoryUI)
-    elseif key == "r" then
-        if player and player.weaponSystem then player.weaponSystem:reload() end
+    elseif key == "c" then -- Recarga manual (liberando 'R' para Habilidad Definitiva)
+        if player and not player.isInEVA and player.weaponSystem then
+            player.weaponSystem:reload()
+        end
+    elseif key == "q" then -- Habilidad Táctica / Utilidad (Cooldown corto)
+        if player and not player.isInEVA then
+            if player.abilitySystem and player.abilitySystem.triggerTactical then
+                player.abilitySystem:triggerTactical()
+            elseif player.triggerTacticalAbility then
+                player:triggerTacticalAbility()
+            end
+        end
+    elseif key == "r" then -- Habilidad Fuerte / Definitiva (Ultimate)
+        if player and not player.isInEVA then
+            if player.abilitySystem and player.abilitySystem.triggerUltimate then
+                player.abilitySystem:triggerUltimate()
+            elseif player.triggerUltimateAbility then
+                player:triggerUltimateAbility()
+            end
+        end
+    elseif slotNumber and slotNumber >= 1 and slotNumber <= 9 then
+        if (love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")) and slotNumber == 1 then
+            if player and InventoryUI then InventoryUI:createTestInventory(player) end
+        elseif player and not player.isInEVA and player.weaponSystem then
+            player.weaponSystem:switchToSlot(slotNumber)
+        end
+    elseif key == "b" then -- Debug: Crear inventario de prueba (antes en tecla '1')
+        if player and InventoryUI then InventoryUI:createTestInventory(player) end
     elseif key == "e" then
         InputManager.handleInteraction(World, HUD, Map)
     elseif key == "h" then -- Debug Heal
         if player and player.heal then player:heal(2); print("Healed") end
     elseif key == "u" then -- Debug Fuel / Pruebas
         if player and player.addFuel then player:addFuel(25); print("Fuel added") end
-    elseif key == "1" then -- Test Inventory
-        if player and InventoryUI then InventoryUI:createTestInventory(player) end
     elseif key == "m" then -- Passive debug
         local PassiveManager = package.loaded['src.item_systems.passive_manager']
         if PassiveManager then PassiveManager.printDebugInfo() end
@@ -330,9 +355,11 @@ function InputManager.mousepressed(x, y, button)
         return
     end
 
-    -- 3. Gameplay: Disparo
+    -- 3. Gameplay: Disparo (Botón Izquierdo) y Recarga Manual (Botón Central)
     if button == 1 and player and not player.isInEVA then
         player:shoot(x, y)
+    elseif button == 3 and player and not player.isInEVA and player.weaponSystem then
+        player.weaponSystem:reload()
     end
 end
 
@@ -392,8 +419,16 @@ function InputManager.wheelmoved(x, y)
 
     local stateManager = World.get('stateManager')
     local camera = World.getCamera()
+    local player = World.getPlayer()
 
     if stateManager and stateManager.wheelmoved and stateManager:wheelmoved(x, y) then
+        return
+    end
+
+    -- Si el jugador tiene 2+ armas equipadas y no mantiene Ctrl presionado, ciclar armas con la rueda
+    local ctrlHeld = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
+    if not ctrlHeld and player and not player.isInEVA and player.weaponSystem and player.weaponSystem.getEquippedWeaponCount and player.weaponSystem:getEquippedWeaponCount() > 1 then
+        player.weaponSystem:wheelmoved(x, y)
         return
     end
 

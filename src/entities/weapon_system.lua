@@ -7,12 +7,15 @@ local World = require 'src.core.world'
 
 -- Configuración del sistema de armas
 local WEAPON_CONFIG = {
-    MAX_WEAPON_SLOTS = 4,  -- Máximo 4 armas equipadas simultáneamente
-    QUICK_SWITCH_KEYS = {"1", "2", "3", "4"},  -- Teclas para cambio rápido
+    MAX_WEAPON_SLOTS = 9,  -- Máximo 9 armas equipadas simultáneamente (estilo Enter the Gungeon)
+    QUICK_SWITCH_KEYS = {"1", "2", "3", "4", "5", "6", "7", "8", "9"},  -- Teclas para cambio rápido
     SCROLL_SWITCH = true,  -- Permitir cambio con rueda del mouse
     AUTO_RELOAD = true,    -- Recarga automática cuando se acaba la munición
     SHOW_WEAPON_HUD = true -- Mostrar HUD de armas
 }
+
+WeaponSystem.MAX_WEAPON_SLOTS = WEAPON_CONFIG.MAX_WEAPON_SLOTS
+WeaponSystem.CONFIG = WEAPON_CONFIG
 
 -- Armas por defecto para cada tipo de nave
 local DEFAULT_WEAPONS = {
@@ -70,7 +73,7 @@ function WeaponSystem:new(player)
     
     -- Input state para evitar múltiples activaciones
     weaponSystem.keyStates = {}
-    for i = 1, 4 do
+    for i = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
         weaponSystem.keyStates[tostring(i)] = false
     end
     weaponSystem.scrollState = 0
@@ -196,6 +199,11 @@ function WeaponSystem:switchToSlot(slot)
     self.currentSlot = slot
     self.currentWeapon = weaponItem.data  -- Usar .data ya que el compartimento almacena {data, quantity}
     self.isReloading = false  -- Cancelar recarga si estaba en proceso
+
+    -- Inicializar munición si aún no existe (por ej., equipada vía drag-and-drop en inventario)
+    if self.currentWeapon and self.currentWeapon.maxAmmo and self.ammunition[self.currentWeapon.id] == nil then
+        self.ammunition[self.currentWeapon.id] = self.currentWeapon.maxAmmo
+    end
     
     -- Notificar al WeaponHUD del cambio
     local WeaponHUD = require 'src.ui.weapon_hud'
@@ -569,7 +577,18 @@ end
 
 -- Manejar input para cambio de armas
 function WeaponSystem:handleWeaponSwitchInput()
-    -- Cambio con teclas numéricas
+    if self.player and self.player.isAI and not self.player.isPiloted then
+        return
+    end
+    if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
+        return
+    end
+    local HUD = package.loaded['src.ui.hud']
+    if HUD and HUD.isSeedInputVisible and HUD.isSeedInputVisible() then
+        return
+    end
+
+    -- Cambio con teclas numéricas (1 a 9)
     for i = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
         local key = tostring(i)
         local isPressed = love.keyboard.isDown(key)
@@ -651,6 +670,20 @@ function WeaponSystem:getEquippedWeapons()
         end
     end
     return weapons
+end
+
+-- Obtener cantidad de armas actualmente equipadas en los 9 slots
+function WeaponSystem:getEquippedWeaponCount()
+    if not self.player or not self.player.inventory then
+        return 0
+    end
+    local count = 0
+    for slot = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
+        if self.player.inventory:getWeaponInSlot(slot) then
+            count = count + 1
+        end
+    end
+    return count
 end
 
 -- Auto-equipar arma desde inventario

@@ -508,8 +508,8 @@ function SubLevelScene:keypressed(key)
         return true
     end
 
-    -- 'q': Salir del subnivel y regresar al mapa principal
-    if key == 'q' then
+    -- 'Ctrl + q': Atajo debug para salir del subnivel (la tecla 'q' simple queda libre para Habilidad Táctica)
+    if key == 'q' and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl')) then
         SubLevelManager.exit()
         if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
         return true

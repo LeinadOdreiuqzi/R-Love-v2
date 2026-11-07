@@ -1147,14 +1147,13 @@ function InventoryUI:createTestInventory(player)
     for _, itemId in ipairs(testItems) do
         local itemData = ItemSystem.getItem(itemId)
         if itemData then
+            local fullData = {}
+            for k, v in pairs(itemData) do
+                fullData[k] = v
+            end
+            fullData.id = itemId
             shipComp.items[slotIndex] = {
-                data = {
-                    id = itemId,
-                    name = itemData.name,
-                    category = itemData.category,
-                    rarity = itemData.rarity,
-                    equipType = itemData.equipType,
-                },
+                data = fullData,
                 quantity = itemData.category == "material" and 5 or 1
             }
             slotIndex = slotIndex + 1
