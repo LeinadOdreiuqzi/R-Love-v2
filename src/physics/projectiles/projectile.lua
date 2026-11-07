@@ -12,6 +12,7 @@
     - Cálculo de trayectorias
 --]]
 
+local ProjectileVFX = require('src.physics.projectiles.projectile_vfx')
 local Projectile = {}
 Projectile.__index = Projectile
 
@@ -51,18 +52,27 @@ function Projectile.new(world, x, y, angle, speed, config)
     self.type = config.type or ProjectileType.BASIC
     self.state = ProjectileState.ACTIVE
     
-    -- Propiedades físicas
+    -- Propiedades físicas (con soporte para calibración de hardpoint Nivel 4)
+    local speedMult = (config and config.speedMultiplier) or 1.0
+    local effectiveSpeed = speed * speedMult
     self.x = x
     self.y = y
     self.prevX = x
     self.prevY = y
     self.angle = angle
-    self.speed = speed
-    self.initial_velocity_x = math.cos(angle) * speed
-    self.initial_velocity_y = math.sin(angle) * speed
+    self.speed = effectiveSpeed
+    self.initial_velocity_x = math.cos(angle) * effectiveSpeed
+    self.initial_velocity_y = math.sin(angle) * effectiveSpeed
     
     -- Configuración del proyectil
     self.config = self:mergeConfig(config)
+    if config and config.scaleMultiplier then
+        self.config.size = (self.config.size or 1.0) * config.scaleMultiplier
+        self.scaleMultiplier = config.scaleMultiplier
+    end
+    self.hardpointOrigin = config and config.hardpointOrigin or "NOSE_CENTER"
+    self.hardpointLevel = config and config.hardpointLevel or 1
+    self.overcharged = not not (config and config.overcharged)
     
     -- Propiedades de vida útil
     self.lifetime = self.config.lifetime or PhysicsConfig.PROJECTILE_LIFETIME.DEFAULT
@@ -82,6 +92,13 @@ function Projectile.new(world, x, y, angle, speed, config)
     self.owner = self.config.owner
     self.explosion_radius = self.config.explosion_radius or 0
     self.penetration = self.config.penetration or false
+    self.bouncesRemaining = tonumber(self.config.bounces) or 0
+    self.homingStrength = tonumber(self.config.homingStrength) or 0
+    self.isBoomerang = not not self.config.isBoomerang
+    self.chainArc = tonumber(self.config.chainArc) or 0
+    self.knockbackForce = tonumber(self.config.knockbackForce) or 0
+    self.graviticPull = tonumber(self.config.graviticPull) or 0
+    self.hitTargets = {}
     
     -- Referencias de Box2D
     self.body = nil
@@ -97,6 +114,7 @@ function Projectile.new(world, x, y, angle, speed, config)
     
     -- Configurar callbacks
     self:setupCallbacks()
+    ProjectileVFX.attach(self)
     
     return self
 end
@@ -222,6 +240,73 @@ function Projectile:update(dt)
     
     -- Actualizar edad
     self.age = self.age + dt
+
+    -- Comportamientos cinemáticos especiales (Homing, Boomerang, Atracción Gravítica)
+    local Naves = package.loaded['src.entities.naves']
+    if self.isBoomerang and self.owner and self.owner.x and self.owner.y and self.age > (self.lifetime * 0.45) then
+        local dx = self.owner.x - self.x
+        local dy = self.owner.y - self.y
+        local distSq = dx * dx + dy * dy
+        if distSq > 400 then
+            local targetAngle = math.atan2(dy, dx)
+            local diff = targetAngle - (self.angle or 0)
+            while diff > math.pi do diff = diff - 2 * math.pi end
+            while diff < -math.pi do diff = diff + 2 * math.pi end
+            self.angle = (self.angle or 0) + diff * math.min(1.0, dt * 6.5)
+            local spd = self.speed or 320
+            self.vx = math.cos(self.angle) * spd
+            self.vy = math.sin(self.angle) * spd
+            if self.body then self.body:setLinearVelocity(self.vx, self.vy) end
+        else
+            self:destroy("boomerang_returned")
+            return
+        end
+    elseif self.homingStrength and self.homingStrength > 0 and Naves and Naves.getAllShips then
+        local ships = Naves.getAllShips()
+        local bestShip, bestDistSq = nil, 460 * 460
+        for i = 1, #ships do
+            local s = ships[i]
+            if s and s ~= self.owner and not s.isAbandoned and s.x and s.y then
+                local dx = s.x - self.x
+                local dy = s.y - self.y
+                local dSq = dx * dx + dy * dy
+                if dSq < bestDistSq then
+                    bestDistSq = dSq
+                    bestShip = s
+                end
+            end
+        end
+        if bestShip then
+            local targetAngle = math.atan2(bestShip.y - self.y, bestShip.x - self.x)
+            local diff = targetAngle - (self.angle or 0)
+            while diff > math.pi do diff = diff - 2 * math.pi end
+            while diff < -math.pi do diff = diff + 2 * math.pi end
+            self.angle = (self.angle or 0) + diff * math.min(1.0, dt * self.homingStrength)
+            local spd = self.speed or 320
+            self.vx = math.cos(self.angle) * spd
+            self.vy = math.sin(self.angle) * spd
+            if self.body then self.body:setLinearVelocity(self.vx, self.vy) end
+        end
+    end
+
+    if self.graviticPull and self.graviticPull > 0 and Naves and Naves.getAllShips then
+        local ships = Naves.getAllShips()
+        local pullRadiusSq = 125 * 125
+        for i = 1, #ships do
+            local s = ships[i]
+            if s and s ~= self.owner and s.x and s.y then
+                local dx = self.x - s.x
+                local dy = self.y - s.y
+                local dSq = dx * dx + dy * dy
+                if dSq > 16 and dSq < pullRadiusSq then
+                    local dist = math.sqrt(dSq)
+                    local pull = (self.graviticPull * 0.12) * dt
+                    s.dx = (s.dx or 0) + (dx / dist) * pull
+                    s.dy = (s.dy or 0) + (dy / dist) * pull
+                end
+            end
+        end
+    end
     
     -- Actualizar distancia recorrida (cinemática o Box2D)
     if not self.body then
@@ -233,6 +318,8 @@ function Projectile:update(dt)
         self:updateDistanceTraveled(dt)
     end
     
+    ProjectileVFX.updateProjectile(self, dt)
+
     -- Verificar colisiones espaciales contra naves y asteroides
     self:checkSpatialCollisions()
     if self.state == ProjectileState.DESTROYED then
@@ -302,7 +389,7 @@ function Projectile:checkSpatialCollisions()
         local ships = Naves.getAllShips()
         for i = 1, #ships do
             local ship = ships[i]
-            if ship and ship ~= self.owner and ship.x and ship.y then
+            if ship and ship ~= self.owner and ship.x and ship.y and not (self.hitTargets and self.hitTargets[ship]) then
                 local shipRadius = math.max(15, (ship.size or 14) * 1.15)
                 local hitDist = shipRadius + projRadius
                 local distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
@@ -311,17 +398,61 @@ function Projectile:checkSpatialCollisions()
                         ship:takeDamage(self.damage, self.owner)
                     end
                     local angle = self.angle or self:getAngle()
-                    ship.dx = (ship.dx or 0) + math.cos(angle) * 2.0
-                    ship.dy = (ship.dy or 0) + math.sin(angle) * 2.0
+                    local kb = 2.0 + (self.knockbackForce or 0) * 0.08
+                    ship.dx = (ship.dx or 0) + math.cos(angle) * kb
+                    ship.dy = (ship.dy or 0) + math.sin(angle) * kb
 
+                    -- Efecto de ralentización criogénica
+                    if self.config and self.config.statusEffect == "cryo_slow" then
+                        ship.dx = (ship.dx or 0) * 0.65
+                        ship.dy = (ship.dy or 0) * 0.65
+                    end
+
+                    -- Arco voltaico en cadena (chainArc)
+                    if self.chainArc and self.chainArc > 0 then
+                        local arcsLeft = self.chainArc
+                        for j = 1, #ships do
+                            local otherShip = ships[j]
+                            if otherShip and otherShip ~= self.owner and otherShip ~= ship and otherShip.x and otherShip.y then
+                                local adx = otherShip.x - ship.x
+                                local ady = otherShip.y - ship.y
+                                if (adx * adx + ady * ady) <= (220 * 220) then
+                                    if otherShip.takeDamage then
+                                        otherShip:takeDamage(self.damage * 0.45, self.owner)
+                                        ProjectileVFX.arc(self, ship.x, ship.y, otherShip.x, otherShip.y)
+                                    end
+                                    arcsLeft = arcsLeft - 1
+                                    if arcsLeft <= 0 then break end
+                                end
+                            end
+                        end
+                    end
+
+                    ProjectileVFX.impact(self, hitX, hitY)
                     if ship.addImpactEffect then
                         ship:addImpactEffect(hitX, hitY, self.config and self.config.color)
                     elseif self.owner and self.owner.addImpactEffect then
                         self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
                     end
-                    self.x, self.y = hitX, hitY
-                    self:destroy("ship_hit")
-                    return
+
+                    if self.penetration then
+                        self.hitTargets = self.hitTargets or {}
+                        self.hitTargets[ship] = true
+                    elseif self.bouncesRemaining and self.bouncesRemaining > 0 then
+                        self.bouncesRemaining = self.bouncesRemaining - 1
+                        self.hitTargets = self.hitTargets or {}
+                        self.hitTargets[ship] = true
+                        self.angle = (self.angle or 0) + math.pi + (math.random() - 0.5) * 0.7
+                        local spd = self.speed or 320
+                        self.vx = math.cos(self.angle) * spd
+                        self.vy = math.sin(self.angle) * spd
+                        if self.body then self.body:setLinearVelocity(self.vx, self.vy) end
+                        return
+                    else
+                        self.x, self.y = hitX, hitY
+                        self:destroy("ship_hit")
+                        return
+                    end
                 end
             end
         end
@@ -543,6 +674,7 @@ end
     @param dt: tiempo delta
 --]]
 function Projectile:updateVisualEffects(dt)
+    if self.vfxProfile then return end
     -- TODO: Implementar actualización de efectos visuales
     
     -- Actualizar partículas de estela
@@ -772,6 +904,9 @@ function Projectile:destroy(reason)
     -- Crear efectos de destrucción si es necesario
     if self.explosion_radius > 0 then
         self:createExplosion()
+    elseif reason and reason ~= "ship_hit" and reason:match("_hit$") then
+        local x, y = self:getPosition()
+        ProjectileVFX.impact(self, x, y)
     end
     
     -- Limpiar cuerpo físico
@@ -792,12 +927,33 @@ end
     Crea una explosión en la posición del proyectil
 --]]
 function Projectile:createExplosion()
-    -- TODO: Implementar sistema de explosiones
     local x, y = self:getPosition()
-    
-    -- Crear efectos de explosión
-    -- Aplicar daño en área
-    -- Crear ondas de choque
+    local radius = tonumber(self.explosion_radius) or 0
+    if radius <= 0 then return end
+    ProjectileVFX.impact(self, x, y, radius)
+
+    local Naves = package.loaded['src.entities.naves']
+    if Naves and Naves.getAllShips then
+        local ships = Naves.getAllShips()
+        local rSq = radius * radius
+        for i = 1, #ships do
+            local s = ships[i]
+            if s and s ~= self.owner and s.x and s.y then
+                local dx = s.x - x
+                local dy = s.y - y
+                local dSq = dx * dx + dy * dy
+                if dSq <= rSq then
+                    local falloff = math.max(0.35, 1.0 - math.sqrt(dSq) / math.max(1, radius))
+                    if s.takeDamage then
+                        s:takeDamage((self.damage or 15) * 0.65 * falloff, self.owner)
+                    end
+                    if s.addImpactEffect then
+                        s:addImpactEffect(s.x, s.y, self.config and self.config.color)
+                    end
+                end
+            end
+        end
+    end
 end
 
 --[[

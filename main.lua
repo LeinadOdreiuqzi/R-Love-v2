@@ -1,5 +1,6 @@
 -- main.lua (SISTEMA COMPLETO DESACOPLADO)
 
+local CombatDebug = require 'src.ui.combat_debug_menu'
 local World = require 'src.core.world'
 local InputManager = require 'src.core.input_manager'
 local GameLoader = require 'src.core.game_loader'
@@ -40,31 +41,45 @@ function love.load(args)
 end
 
 function love.update(dt)
+    if CombatDebug.opened then return end
     GameLoop.update(dt)
 end
 
 function love.draw()
     GameLoop.draw()
+    CombatDebug.draw()
 end
 
 function love.keypressed(key)
+    if CombatDebug.opened then CombatDebug.keypressed(key); return end
     InputManager.keypressed(key)
 end
 
 function love.textinput(text)
+    if CombatDebug.opened then CombatDebug.textinput(text); return end
     InputManager.textinput(text)
 end
 
 function love.wheelmoved(x, y)
+    if CombatDebug.opened then CombatDebug.wheelmoved(x, y); return end
     InputManager.wheelmoved(x, y)
 end
 
 function love.mousepressed(x, y, button)
+    if CombatDebug.opened then CombatDebug.mousepressed(x, y, button); return end
     InputManager.mousepressed(x, y, button)
 end
 
 function love.mousereleased(x, y, button)
+    if CombatDebug.opened then
+        CombatDebug.mousereleased(x, y, button)
+        return
+    end
     InputManager.mousereleased(x, y, button)
+end
+
+function love.mousemoved(x, y)
+    if CombatDebug.opened then CombatDebug.mousemoved(x, y) end
 end
 
 function love.resize(w, h)

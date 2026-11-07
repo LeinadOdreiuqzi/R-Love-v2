@@ -1,3 +1,4 @@
+local ProjectileVFX = require('src.physics.projectiles.projectile_vfx')
 -- src/entities/naves.lua
 -- Sistema de gestión de naves con persistencia de estado individual
 
@@ -28,7 +29,15 @@ local SHIP_TYPES = {
         boostMultiplier = 1.8,
         maxSpeed = 80,
         acceleration = 12,
-        defaultWeapon = "basic_laser_pistol"  -- Arma versátil para exploración
+        defaultWeapon = "basic_laser_pistol",  -- Arma versátil para exploración
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -23.0 },
+            WING_LEFT     = { x = -10.5, y = -3.5  },
+            WING_RIGHT    = { x = 10.5,  y = -3.5  },
+            OUTER_WING_L  = { x = -15.5, y = 7.5   },
+            OUTER_WING_R  = { x = 15.5,  y = 7.5   },
+            DORSAL_TURRET = { x = 0,     y = -5.0  }
+        }
     },
     FIGHTER = {
         name = "Fighter",
@@ -40,7 +49,15 @@ local SHIP_TYPES = {
         boostMultiplier = 2.2,
         maxSpeed = 120,
         acceleration = 18,
-        defaultWeapon = "kinetic_assault_rifle"  -- Arma de combate de alta cadencia
+        defaultWeapon = "kinetic_assault_rifle",  -- Arma de combate de alta cadencia
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -24.0 },
+            WING_LEFT     = { x = -10.0, y = -2.0  },
+            WING_RIGHT    = { x = 10.0,  y = -2.0  },
+            OUTER_WING_L  = { x = -17.5, y = 6.0   },
+            OUTER_WING_R  = { x = 17.5,  y = 6.0   },
+            DORSAL_TURRET = { x = 0,     y = -6.0  }
+        }
     },
     CARGO = {
         name = "Cargo",
@@ -52,7 +69,15 @@ local SHIP_TYPES = {
         boostMultiplier = 1.3,
         maxSpeed = 50,
         acceleration = 8,
-        defaultWeapon = "basic_laser_pistol"  -- Arma básica para defensa
+        defaultWeapon = "basic_laser_pistol",  -- Arma básica para defensa
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -26.5 },
+            WING_LEFT     = { x = -13.0, y = -24.0 },
+            WING_RIGHT    = { x = 13.0,  y = -24.0 },
+            OUTER_WING_L  = { x = -25.0, y = -9.0  },
+            OUTER_WING_R  = { x = 25.0,  y = -9.0  },
+            DORSAL_TURRET = { x = 0,     y = -8.0  }
+        }
     },
     INTERCEPTOR = {
         name = "Interceptor",
@@ -64,7 +89,15 @@ local SHIP_TYPES = {
         boostMultiplier = 2.6,
         maxSpeed = 145,
         acceleration = 24,
-        defaultWeapon = "kinetic_assault_rifle"  -- Pasadas rápidas de ataque (Hit & Run)
+        defaultWeapon = "kinetic_assault_rifle",  -- Pasadas rápidas de ataque (Hit & Run)
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -24.0 },
+            WING_LEFT     = { x = -11.5, y = -10.5 }, -- Puntas de cuchillas barridas hacia adelante
+            WING_RIGHT    = { x = 11.5,  y = -10.5 },
+            OUTER_WING_L  = { x = -14.8, y = -5.0  },
+            OUTER_WING_R  = { x = 14.8,  y = -5.0  },
+            DORSAL_TURRET = { x = 0,     y = -7.0  }
+        }
     },
     GUNSHIP = {
         name = "Gunship",
@@ -76,7 +109,15 @@ local SHIP_TYPES = {
         boostMultiplier = 1.4,
         maxSpeed = 62,
         acceleration = 9,
-        defaultWeapon = "heavy_plasma_cannon"  -- Corbeta artillera pesada
+        defaultWeapon = "heavy_plasma_cannon",  -- Corbeta artillera pesada
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -24.5 },
+            WING_LEFT     = { x = -18.2, y = -30.0 }, -- Bocas de los cañones gemelos pesados
+            WING_RIGHT    = { x = 18.2,  y = -30.0 },
+            OUTER_WING_L  = { x = -26.5, y = -4.5  },
+            OUTER_WING_R  = { x = 26.5,  y = -4.5  },
+            DORSAL_TURRET = { x = 0,     y = -6.5  }
+        }
     },
     SALVAGER = {
         name = "Salvager",
@@ -88,7 +129,15 @@ local SHIP_TYPES = {
         boostMultiplier = 1.45,
         maxSpeed = 58,
         acceleration = 10,
-        defaultWeapon = "energy_shotgun"       -- Buque industrial de desmantelamiento
+        defaultWeapon = "energy_shotgun",       -- Buque industrial de desmantelamiento
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -18.0 },
+            WING_LEFT     = { x = -8.5,  y = -28.5 }, -- Extremos de las pinzas de desmantelamiento
+            WING_RIGHT    = { x = 8.5,   y = -28.5 },
+            OUTER_WING_L  = { x = -16.0, y = -9.5  },
+            OUTER_WING_R  = { x = 16.0,  y = -9.5  },
+            DORSAL_TURRET = { x = 0,     y = -4.5  }
+        }
     },
     SENTINEL = {
         name = "Sentinel",
@@ -101,7 +150,15 @@ local SHIP_TYPES = {
         maxSpeed = 95,
         acceleration = 16,
         unmanned = true,                       -- Autómata sin cabina (siempre se destruye al morir)
-        defaultWeapon = "plasma_rifle"
+        defaultWeapon = "plasma_rifle",
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -24.5 },
+            WING_LEFT     = { x = -12.5, y = -6.0  },
+            WING_RIGHT    = { x = 12.5,  y = -6.0  },
+            OUTER_WING_L  = { x = -18.5, y = 1.5   },
+            OUTER_WING_R  = { x = 18.5,  y = 1.5   },
+            DORSAL_TURRET = { x = 0,     y = 0     }
+        }
     },
     -- =========================================================================
     -- NAVES NODRIZAS (MOTHERSHIPS / CARRIERS)
@@ -119,7 +176,15 @@ local SHIP_TYPES = {
         isMothership = true,
         hangarClass = "SALVAGER",
         hangarReserve = 1,
-        defaultWeapon = "energy_shotgun"       -- Barcaza Madre Industrial
+        defaultWeapon = "energy_shotgun",      -- Barcaza Madre Industrial
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -58.0 },
+            WING_LEFT     = { x = -28.0, y = -48.0 },
+            WING_RIGHT    = { x = 28.0,  y = -48.0 },
+            OUTER_WING_L  = { x = -46.0, y = -18.0 },
+            OUTER_WING_R  = { x = 46.0,  y = -18.0 },
+            DORSAL_TURRET = { x = 0,     y = -14.0 }
+        }
     },
     ECLIPSE = {
         name = "Portanaves Eclipse",
@@ -134,7 +199,15 @@ local SHIP_TYPES = {
         isMothership = true,
         hangarClass = "INTERCEPTOR",
         hangarReserve = 2,
-        defaultWeapon = "heavy_plasma_cannon"  -- Portanaves Eclipse (Obsidiana/Violeta)
+        defaultWeapon = "heavy_plasma_cannon", -- Portanaves Eclipse (Obsidiana/Violeta)
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -62.0 },
+            WING_LEFT     = { x = -26.0, y = -46.0 },
+            WING_RIGHT    = { x = 26.0,  y = -46.0 },
+            OUTER_WING_L  = { x = -48.0, y = -12.0 },
+            OUTER_WING_R  = { x = 48.0,  y = -12.0 },
+            DORSAL_TURRET = { x = 0,     y = -16.0 }
+        }
     },
     ARK_MONOLITH = {
         name = "Ark Monolith",
@@ -150,7 +223,15 @@ local SHIP_TYPES = {
         unmanned = true,
         hangarClass = "SENTINEL",
         hangarReserve = 2,
-        defaultWeapon = "plasma_rifle"         -- Arca Centinela de Contención
+        defaultWeapon = "plasma_rifle",        -- Arca Centinela de Contención
+        hardpoints = {
+            NOSE_CENTER   = { x = 0,     y = -64.0 },
+            WING_LEFT     = { x = -30.0, y = -36.0 },
+            WING_RIGHT    = { x = 30.0,  y = -36.0 },
+            OUTER_WING_L  = { x = -50.0, y = 0.0   },
+            OUTER_WING_R  = { x = 50.0,  y = 0.0   },
+            DORSAL_TURRET = { x = 0,     y = 0.0   }
+        }
     }
 }
 SHIP_TYPES.DREADNOUGHT = SHIP_TYPES.ECLIPSE
@@ -174,6 +255,7 @@ function Naves:new(x, y, shipType)
     player.shipType = shipType
     player.shipName = shipConfig.name .. " #" .. player.shipId
     player.shipConfig = shipConfig
+    player.hardpoints = shipConfig.hardpoints
     
     -- Position and movement
     player.x = x or 0
@@ -329,6 +411,52 @@ end
 -- Métodos estáticos para gestión de naves
 function Naves.getShipRegistry()
     return shipRegistry
+end
+
+function Naves.getShipTypes()
+    return SHIP_TYPES
+end
+
+-- Debug chassis replacement keeps the entity and its equipped test loadout.
+function Naves:debugChangeShipType(shipType)
+    local config = SHIP_TYPES[shipType]
+    if not config or self.isInEVA then return false end
+    local previous = self.shipConfig
+    self.shipType, self.shipConfig = shipType, config
+    self.shipName = config.name .. " #" .. self.shipId
+    self.hardpoints, self.size = config.hardpoints, config.size
+    self.hyperTravelEnabled = false
+    self.maxSpeed = config.maxSpeed
+    self.forwardAccel = config.acceleration
+    self.strafeAccel = config.acceleration * .7
+    self.backwardAccel = config.acceleration * .5
+    self.drag = .94
+    self.boostMultiplier = config.boostMultiplier
+    self.dx, self.dy, self.boostDuration = 0, 0, 0
+    self.isBoostActive, self.isDrifting = false, false
+    self.baseParams = {maxSpeed = self.maxSpeed, forwardAccel = self.forwardAccel,
+        strafeAccel = self.strafeAccel, backwardAccel = self.backwardAccel, drag = self.drag}
+    self.shipSettings.hyperTravelEnabled = config.hyperTravelCapable
+    self.shipSettings.hyperTravelRange = config.hyperTravelCapable and 100000 or 0
+    self.damageState.hyperDriveStatus = config.hyperTravelCapable and 100 or 0
+    for _, resource in ipairs({{'health', 'maxHealth', 'currentHealth'},
+        {'shield', 'maxShield', 'currentShield'}, {'fuel', 'maxFuel', 'currentFuel'}}) do
+        local stats = self.stats[resource[1]]
+        local maximum, current = resource[2], resource[3]
+        local ratio = stats[current] / math.max(1, stats[maximum])
+        stats[maximum] = math.max(1, stats[maximum] + config[maximum] - previous[maximum])
+        stats[current] = math.min(stats[maximum], stats[maximum] * ratio)
+    end
+    self.inventory.shipType = shipType
+    local capacity = self.inventory:getShipConfig().inventorySlots
+    for slot in pairs(self.inventory.items) do capacity = math.max(capacity, slot) end
+    self.inventory.maxSlots = capacity
+    self.inventory:getCompartment('ship').maxSlots = capacity
+    if self.weaponSystem then self.weaponSystem.activeMuzzleFlashes = {} end
+    local registry = shipRegistry[self.shipId]
+    if registry then registry.type, registry.name = shipType, self.shipName end
+    self:updateShipRegistry()
+    return true
 end
 
 function Naves.getShipById(shipId)
@@ -515,8 +643,29 @@ function Naves:update(dt)
     while angleDiff > math.pi do angleDiff = angleDiff - 2 * math.pi end
     while angleDiff < -math.pi do angleDiff = angleDiff + 2 * math.pi end
     
-    -- Apply gradual rotation
-    self.rotation = self.rotation + angleDiff * self.rotationSpeed * dt
+    -- Apply gradual rotation (incluyendo modificador pasivo rotation_speed)
+    local rotMod = self.passiveModifiers and self.passiveModifiers.rotation_speed
+    local rotMult = 1.0
+    if type(rotMod) == "table" then
+        rotMult = 1.0 + ((rotMod.percent or 0) / 100.0)
+    elseif type(rotMod) == "number" then
+        rotMult = 1.0 + (rotMod > 1 and (rotMod / 100.0) or rotMod)
+    end
+    self.rotation = self.rotation + angleDiff * (self.rotationSpeed * rotMult) * dt
+
+    -- Regeneración pasiva de casco (Colonia de Nanobots de Reparación)
+    if self.abilities and self.abilities.passive_hull_regen and self.stats and self.stats.health then
+        self._nanobotTimer = (self._nanobotTimer or 0) + dt
+        if self._nanobotTimer >= 12.0 then
+            self._nanobotTimer = 0
+            if self.stats.health.currentHealth < self.stats.health.maxHealth then
+                self.stats.health.currentHealth = math.min(self.stats.health.maxHealth, self.stats.health.currentHealth + 1)
+                if self.stats.updateHeartDisplay then
+                    self.stats:updateHeartDisplay()
+                end
+            end
+        end
+    end
     
     -- Update mouse direction for movement
     local distance = math.sqrt(dx * dx + dy * dy)
@@ -525,10 +674,19 @@ function Naves:update(dt)
         self.mouseDirection.y = dy / distance
     end
     
-    -- SISTEMA DE BOOST TEMPORAL
-    if self.input.boost and self.boostDuration < self.maxBoostDuration then
+    -- SISTEMA DE BOOST TEMPORAL (incluyendo modificador pasivo boost_duration)
+    local boostDurMod = self.passiveModifiers and self.passiveModifiers.boost_duration
+    local boostDurMult = 1.0
+    if type(boostDurMod) == "table" then
+        boostDurMult = 1.0 + ((boostDurMod.percent or 0) / 100.0)
+    elseif type(boostDurMod) == "number" then
+        boostDurMult = 1.0 + (boostDurMod > 1 and (boostDurMod / 100.0) or boostDurMod)
+    end
+    local effectiveMaxBoostDuration = self.maxBoostDuration * boostDurMult
+
+    if self.input.boost and self.boostDuration < effectiveMaxBoostDuration then
         local wasBoostActive = self.isBoostActive
-        self.boostDuration = math.min(self.maxBoostDuration, self.boostDuration + dt)
+        self.boostDuration = math.min(effectiveMaxBoostDuration, self.boostDuration + dt)
         self.isBoostActive = true
         
         -- Incrementar contador de boosts en RunState cuando se activa por primera vez
@@ -1531,6 +1689,7 @@ end
     @param dt: tiempo delta
 --]]
 function Naves:updateProjectiles(dt)
+    ProjectileVFX.update(self, dt)
     if self.impactEffects then
         for i = #self.impactEffects, 1, -1 do
             local eff = self.impactEffects[i]
@@ -1564,10 +1723,11 @@ end
     Renderiza todos los proyectiles activos y efectos de impacto
 --]]
 function Naves:drawProjectiles()
+    ProjectileVFX.draw(self)
     if self.projectiles then
         for _, projectile in ipairs(self.projectiles) do
             if not projectile:isDestroyed() then
-                projectile:draw()
+                if not projectile.vfxProfile then projectile:draw() end
             end
         end
     end
@@ -1739,6 +1899,35 @@ function Naves:autoEquipWeaponsFromInventory()
         return self.weaponSystem:autoEquipFromInventory()
     end
     return false
+end
+
+-- ============================================================================
+-- SISTEMA DE HARDPOINTS GEOMÉTRICOS (ESTILO HEAVY WEAPON)
+-- ============================================================================
+
+function Naves:getHardpoints()
+    if self.hardpoints then
+        return self.hardpoints
+    end
+    local cfg = self.shipConfig or SHIP_TYPES[self.shipType or "EXPLORER"] or SHIP_TYPES.EXPLORER
+    return cfg and cfg.hardpoints or SHIP_TYPES.EXPLORER.hardpoints
+end
+
+function Naves:getHardpointLocalPosition(hardpointName)
+    local hps = self:getHardpoints()
+    local hp = (hps and hps[hardpointName]) or (hps and hps.NOSE_CENTER) or { x = 0, y = -(self.size or 14) * 1.5 }
+    local scale = self.worldScale or 1.0
+    return hp.x * scale, hp.y * scale
+end
+
+function Naves:getHardpointWorldPosition(hardpointName)
+    local lx, ly = self:getHardpointLocalPosition(hardpointName)
+    local rot = self.rotation or 0
+    local cosR = math.cos(rot)
+    local sinR = math.sin(rot)
+    local wx = (self.x or 0) + (lx * cosR - ly * sinR)
+    local wy = (self.y or 0) + (lx * sinR + ly * cosR)
+    return wx, wy, lx, ly
 end
 
 return Naves

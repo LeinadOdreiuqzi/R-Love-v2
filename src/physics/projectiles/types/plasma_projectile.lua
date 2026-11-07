@@ -120,6 +120,7 @@ end
 function PlasmaProjectile:update(dt)
     -- Llamar al update de la clase base
     Projectile.update(self, dt)
+    if self.vfxProfile then return end
     
     if self.state == Projectile.State.DESTROYED then
         return

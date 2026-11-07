@@ -9,9 +9,9 @@ local HUD_CONFIG = {
         x = 50,  -- Posición X desde la izquierda
         y = 50   -- Posición Y desde arriba
     },
-    slotSize = 60,      -- Tamaño de cada slot de arma
-    slotSpacing = 70,   -- Espaciado entre slots
-    maxSlots = 4,       -- Máximo número de slots a mostrar
+    slotSize = 48,      -- Tamaño compacto para cinta de 9 slots
+    slotSpacing = 54,   -- Espaciado entre slots
+    maxSlots = 9,       -- Máximo número de slots a mostrar (1 a 9)
     
     -- Colores
     colors = {
@@ -261,54 +261,85 @@ function WeaponHUD:drawCurrentWeaponInfo(weaponInfo)
     end
     
     local infoX = HUD_CONFIG.position.x
-    local infoY = HUD_CONFIG.position.y + HUD_CONFIG.slotSize + 20
+    local infoY = HUD_CONFIG.position.y + HUD_CONFIG.slotSize + 14
     
     -- Dibujar nombre del arma actual
     if HUD_CONFIG.fonts.weaponName then
         love.graphics.setFont(HUD_CONFIG.fonts.weaponName)
         love.graphics.setColor(HUD_CONFIG.colors.text)
-        love.graphics.print("Arma: " .. weaponInfo.name, infoX, infoY)
+        love.graphics.print("Arma: " .. tostring(weaponInfo.name), infoX, infoY)
     end
     
     -- Dibujar información de daño
-    if weaponInfo.damage and HUD_CONFIG.fonts.ammo then
+    if HUD_CONFIG.fonts.ammo then
         love.graphics.setFont(HUD_CONFIG.fonts.ammo)
         love.graphics.setColor(HUD_CONFIG.colors.ammoText)
-        local damageText = "Daño: " .. weaponInfo.damage.min .. "-" .. weaponInfo.damage.max
-        love.graphics.print(damageText, infoX, infoY + 20)
+        local dmgStr = "15"
+        if type(weaponInfo.damage) == "table" then
+            dmgStr = tostring(weaponInfo.damage.min or weaponInfo.damage[1] or 10) .. "-" .. tostring(weaponInfo.damage.max or weaponInfo.damage[2] or 15)
+        elseif weaponInfo.damage then
+            dmgStr = tostring(weaponInfo.damage)
+        end
+        love.graphics.print("Daño: " .. dmgStr, infoX, infoY + 18)
     end
     
     -- Dibujar estado de recarga
     if weaponInfo.isReloading then
         love.graphics.setColor(HUD_CONFIG.colors.reloadBar)
-        love.graphics.print("Recargando...", infoX, infoY + 35)
+        love.graphics.print("Recargando...", infoX, infoY + 34)
     end
 end
 
+local utf8 = require("utf8")
+
+-- Extrae los primeros `n` caracteres UTF-8 completos sin cortar secuencias multibyte (ñ, á, ★, etc.)
+local function utf8Sub(s, n)
+    if not s or s == "" or n <= 0 then return "" end
+    local ok, byteOffset = pcall(utf8.offset, s, n + 1)
+    if ok and byteOffset then
+        return string.sub(s, 1, byteOffset - 1)
+    end
+    return s
+end
+
+local function utf8Len(s)
+    if not s then return 0 end
+    local ok, len = pcall(utf8.len, s)
+    return (ok and len) or string.len(s)
+end
+
 function WeaponHUD:getShortWeaponName(fullName)
-    -- Acortar nombres largos para que quepan en el slot
-    if string.len(fullName) <= 8 then
-        return fullName
+    fullName = tostring(fullName or "Arma")
+    local cleanName = fullName:gsub("^★%s*", "")
+    local hasStar = (cleanName ~= fullName)
+
+    if utf8Len(cleanName) <= 8 then
+        return hasStar and ("★" .. utf8Sub(cleanName, 6)) or cleanName
     end
     
-    -- Crear abreviación inteligente
+    -- Crear abreviación inteligente respetando fronteras UTF-8
     local words = {}
-    for word in fullName:gmatch("%S+") do
+    for word in cleanName:gmatch("%S+") do
         table.insert(words, word)
     end
     
+    local result
     if #words == 1 then
-        return string.sub(fullName, 1, 8)
+        result = utf8Sub(cleanName, 7)
     elseif #words == 2 then
-        return string.sub(words[1], 1, 4) .. " " .. string.sub(words[2], 1, 3)
+        result = utf8Sub(words[1], 4) .. " " .. utf8Sub(words[2], 3)
     else
-        -- Usar iniciales
         local initials = ""
         for _, word in ipairs(words) do
-            initials = initials .. string.sub(word, 1, 1)
+            initials = initials .. utf8Sub(word, 1)
         end
-        return initials
+        result = initials
     end
+
+    if hasStar then
+        return "★" .. result
+    end
+    return result
 end
 
 function WeaponHUD:onWeaponSwitch(slot)

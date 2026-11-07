@@ -135,9 +135,9 @@ function InventoryUI:calculateLayout(player)
     uiState.layout.evaWidth = evaColumns * (slotSize + padding) - padding + panelPadding * 2
     uiState.layout.evaHeight = evaRows * (slotSize + padding) - padding + panelPadding * 2 + 35
     
-    -- Configuración del panel de armas (4 slots horizontales)
-    local weaponColumns = 4
-    local weaponRows = 1
+    -- Configuración del panel de armas (9 slots en grid 3x3 alineado con Pasivos)
+    local weaponColumns = 3
+    local weaponRows = 3
     uiState.layout.weaponWidth = weaponColumns * (slotSize + padding) - padding + panelPadding * 2
     uiState.layout.weaponHeight = weaponRows * (slotSize + padding) - padding + panelPadding * 2 + 35
     
@@ -640,14 +640,20 @@ function InventoryUI:drawItem(x, y, size, item)
     love.graphics.setLineWidth(1.5)
     love.graphics.rectangle("line", x + 4, y + 4, size - 8, size - 8, 2, 2)
     
-    -- Letra distintiva
+    -- Letra distintiva (segura para UTF-8 multibyte como ñ, á, ★)
     love.graphics.setColor(colors.text)
     love.graphics.setFont(uiState.font)
-    local itemName = item.data.name or "?"
-    local firstLetter = string.sub(itemName, 1, 1):upper()
-    local tw = uiState.font:getWidth(firstLetter)
+    local itemName = tostring(item.data.name or "?"):gsub("^★%s*", "")
+    local utf8 = require("utf8")
+    local ok, nextByte = pcall(utf8.offset, itemName, 2)
+    local firstChar = (ok and nextByte) and string.sub(itemName, 1, nextByte - 1) or string.sub(itemName, 1, 1)
+    if #firstChar == 1 then
+        firstChar = firstChar:upper()
+    end
+    local badgeText = item.data.isEvolved and ("★" .. firstChar) or firstChar
+    local tw = uiState.font:getWidth(badgeText)
     local th = uiState.font:getHeight()
-    love.graphics.print(firstLetter, x + (size - tw)/2, y + (size - th)/2)
+    love.graphics.print(badgeText, x + (size - tw)/2, y + (size - th)/2)
     
     -- Cantidad
     if item.quantity and item.quantity > 1 then
@@ -1132,33 +1138,64 @@ function InventoryUI:createTestInventory(player)
     -- Limpiar inventario actual del compartimento 'ship'
     local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
     shipComp.items = {}
+    player.inventory.items = shipComp.items
     
-    -- Items de ejemplo - Armas para testear integración con weapon_system
+    -- Items de ejemplo - Armas y Pasivas del Catálogo Fase 3 para testear Sinergias (Reglas 1, 2 y 3)
     local testItems = {
-        -- Armas principales
-        "basic_laser_pistol",
+        -- Armas listas para probar arquetipos y fusiones Regla 1
         "plasma_rifle",
-        "kinetic_assault_rifle",
-        "heavy_plasma_cannon",
-        "energy_shotgun"
+        "energy_shotgun",
+        "gauss_railgun",
+        "phase_beam_lance",
+        "arc_tesla_emitter",
+        "swarm_micro_missiles",
+        "ricochet_shard_gun",
+        "industrial_rip_saw",
+        "heavy_torpedo_launcher",
+        "gravitic_wave_projector",
+        "magma_slag_thrower",
+        "cryo_shard_blaster",
+        -- Pasivas listas para probar Regla 2 (Pasiva+Pasiva) y Regla 3 (Arma+Pasiva)
+        "voltaic_coil",
+        "prism_split_lens",
+        "tungsten_sabot",
+        "neural_homing_chip",
+        "autoloader_magazine"
     }
     
+    local autoEquipList = {
+        "gauss_railgun",
+        "swarm_micro_missiles",
+        "ricochet_shard_gun",
+        "heavy_torpedo_launcher"
+    }
+    for idx, wid in ipairs(autoEquipList) do
+        local wData = ItemSystem.getItem(wid)
+        if wData and player and player.weaponSystem and not player.inventory:getWeaponInSlot(idx + 1) then
+            local equipCopy = {}
+            for k, v in pairs(wData) do equipCopy[k] = v end
+            player.weaponSystem:equipWeapon(equipCopy, idx + 1)
+        end
+    end
+
     local slotIndex = 1
     for _, itemId in ipairs(testItems) do
-        local itemData = ItemSystem.getItem(itemId)
-        if itemData then
-            local fullData = {}
-            for k, v in pairs(itemData) do
-                fullData[k] = v
+        if slotIndex <= (shipComp.maxSlots or 20) then
+            local itemData = ItemSystem.getItem(itemId)
+            if itemData then
+                local fullData = {}
+                for k, v in pairs(itemData) do
+                    fullData[k] = v
+                end
+                fullData.id = itemId
+                shipComp.items[slotIndex] = {
+                    data = fullData,
+                    quantity = itemData.category == "material" and 5 or 1
+                }
+                slotIndex = slotIndex + 1
+            else
+                print("[WARNING] Item no encontrado: " .. itemId)
             end
-            fullData.id = itemId
-            shipComp.items[slotIndex] = {
-                data = fullData,
-                quantity = itemData.category == "material" and 5 or 1
-            }
-            slotIndex = slotIndex + 1
-        else
-            print("[WARNING] Item no encontrado: " .. itemId)
         end
     end
     

@@ -64,12 +64,16 @@ function WeaponSystem:new(player)
     -- Munición por arma (si aplica)
     weaponSystem.ammunition = {}
     
-    -- Efectos visuales
+    -- Nivel de progresión de hardpoints (1 a 4) por id de arma
+    weaponSystem.hardpointLevels = {}
+    
+    -- Efectos visuales por hardpoint
     weaponSystem.muzzleFlash = {
         active = false,
         duration = 0.1,
         timer = 0
     }
+    weaponSystem.activeMuzzleFlashes = {}
     
     -- Input state para evitar múltiples activaciones
     weaponSystem.keyStates = {}
@@ -134,6 +138,15 @@ function WeaponSystem:equipWeapon(weaponItem, slot)
         return false
     end
     
+    -- Inicializar nivel de hardpoint del arma (1 por defecto)
+    local hpLevel = math.max(1, math.min(4, tonumber(weaponItem.hardpointLevel or self.hardpointLevels[weaponItem.id]) or 1))
+    weaponItem.hardpointLevel = hpLevel
+    self.hardpointLevels[weaponItem.id] = hpLevel
+    local slotEntry = self.player.inventory:getWeaponInSlot(slot)
+    if slotEntry and slotEntry.data then
+        slotEntry.data.hardpointLevel = hpLevel
+    end
+
     -- Inicializar munición si es necesario
     if weaponItem.maxAmmo then
         self.ammunition[weaponItem.id] = weaponItem.maxAmmo
@@ -146,6 +159,89 @@ function WeaponSystem:equipWeapon(weaponItem, slot)
     
     -- Arma equipada
     return true
+end
+
+-- Obtener el nivel de hardpoint (1 a 4) de un slot o arma
+function WeaponSystem:getWeaponHardpointLevel(slotOrWeapon)
+    local w = nil
+    if type(slotOrWeapon) == "table" then
+        w = slotOrWeapon.data or slotOrWeapon
+    elseif type(slotOrWeapon) == "number" and self.player and self.player.inventory then
+        local entry = self.player.inventory:getWeaponInSlot(slotOrWeapon)
+        w = entry and entry.data
+    else
+        w = self.currentWeapon
+    end
+    if not w then return 1 end
+    return math.max(1, math.min(4, tonumber(w.hardpointLevel or self.hardpointLevels[w.id]) or 1))
+end
+
+-- Establecer el nivel de hardpoint (1 a 4) de un slot de arma
+function WeaponSystem:setWeaponHardpointLevel(slot, level)
+    slot = slot or self.currentSlot
+    local clamped = math.max(1, math.min(4, math.floor(tonumber(level) or 1)))
+    if not self.player or not self.player.inventory then return false end
+    local entry = self.player.inventory:getWeaponInSlot(slot)
+    if not entry or not entry.data then return false end
+    entry.data.hardpointLevel = clamped
+    self.hardpointLevels[entry.data.id] = clamped
+    if self.currentSlot == slot and self.currentWeapon then
+        self.currentWeapon.hardpointLevel = clamped
+    end
+    return true, clamped
+end
+
+-- Mejorar el nivel de hardpoints de un arma (ej. al recoger duplicado o mejora estilo Heavy Weapon)
+function WeaponSystem:upgradeWeaponHardpointLevel(slot, delta)
+    slot = slot or self.currentSlot
+    local current = self:getWeaponHardpointLevel(slot)
+    local nextLevel = math.max(1, math.min(4, current + (tonumber(delta) or 1)))
+    return self:setWeaponHardpointLevel(slot, nextLevel)
+end
+
+-- Obtener los emisores físicos activos según el nivel de hardpoints (1 a 4)
+function WeaponSystem:getActiveHardpointEmitters(weapon)
+    weapon = weapon or self.currentWeapon
+    local level = self:getWeaponHardpointLevel(weapon)
+    local weaponId = weapon and weapon.id or "basic_laser_pistol"
+    local isHeavyOrShotgun = (weaponId == "energy_shotgun" or weaponId == "heavy_plasma_cannon")
+
+    if level == 1 then
+        -- Nivel 1 (Estándar): Disparo central desde la proa de la nave (NOSE_CENTER)
+        return {
+            { name = "NOSE_CENTER", angleOffset = 0.0, damageScale = 1.0, speedMult = 1.0, scaleMult = 1.0, overcharged = false }
+        }, 1
+    elseif level == 2 then
+        -- Nivel 2: Simetría bilateral desde ambos extremos lógicos (Ala Izquierda + Ala Derecha)
+        return {
+            { name = "WING_LEFT",  angleOffset = 0.0, damageScale = 0.85, speedMult = 1.0, scaleMult = 1.0, overcharged = false },
+            { name = "WING_RIGHT", angleOffset = 0.0, damageScale = 0.85, speedMult = 1.0, scaleMult = 1.0, overcharged = false }
+        }, 2
+    elseif level == 3 then
+        -- Nivel 3: Batería trifásica (Ambos extremos de las alas + Cañón Central de Proa)
+        return {
+            { name = "WING_LEFT",   angleOffset = -0.025, damageScale = 0.80, speedMult = 1.05, scaleMult = 1.05, overcharged = false },
+            { name = "WING_RIGHT",  angleOffset =  0.025, damageScale = 0.80, speedMult = 1.05, scaleMult = 1.05, overcharged = false },
+            { name = "NOSE_CENTER", angleOffset =  0.0,   damageScale = 0.90, speedMult = 1.08, scaleMult = 1.10, overcharged = false }
+        }, 3
+    else
+        -- Nivel 4: Sobrecarga de proyectil + Emisores totales en extremos exteriores
+        if isHeavyOrShotgun then
+            return {
+                { name = "WING_LEFT",   angleOffset = -0.04, damageScale = 1.10, speedMult = 1.20, scaleMult = 1.30, overcharged = true },
+                { name = "WING_RIGHT",  angleOffset =  0.04, damageScale = 1.10, speedMult = 1.20, scaleMult = 1.30, overcharged = true },
+                { name = "NOSE_CENTER", angleOffset =  0.0,  damageScale = 1.25, speedMult = 1.25, scaleMult = 1.35, overcharged = true }
+            }, 4
+        else
+            return {
+                { name = "WING_LEFT",    angleOffset = -0.015, damageScale = 0.90, speedMult = 1.20, scaleMult = 1.25, overcharged = true },
+                { name = "WING_RIGHT",   angleOffset =  0.015, damageScale = 0.90, speedMult = 1.20, scaleMult = 1.25, overcharged = true },
+                { name = "NOSE_CENTER",  angleOffset =  0.0,   damageScale = 1.15, speedMult = 1.25, scaleMult = 1.35, overcharged = true },
+                { name = "OUTER_WING_L", angleOffset = -0.055, damageScale = 0.80, speedMult = 1.20, scaleMult = 1.20, overcharged = true },
+                { name = "OUTER_WING_R", angleOffset =  0.055, damageScale = 0.80, speedMult = 1.20, scaleMult = 1.20, overcharged = true }
+            }, 4
+        end
+    end
 end
 
 -- Desequipar arma de un slot
@@ -355,16 +451,10 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
         return false
     end
     
-    -- Normalizar dirección para calcular posición de spawn
+    -- Normalizar dirección base hacia el objetivo
     dx = dx / distance
     dy = dy / distance
-    
-    local spawnDistance = self.player.size + 10 -- Un poco adelante de la nave
-    local spawnX = self.player.x + dx * spawnDistance
-    local spawnY = self.player.y + dy * spawnDistance
-    
-    -- Calcular ángulo de disparo
-    local angle = math.atan2(dy, dx)
+    local baseAngle = math.atan2(dy, dx)
 
     -- Calcular daño efectivo incluyendo modificador pasivo de daño
     local rawDamage = self.currentWeapon.damage or 15
@@ -394,10 +484,6 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
     end
 
     -- Si estamos dentro de un subnivel, aplicar límites de mundo a proyectiles
-    local custom_config = {
-        owner = self.player,
-        damage = effectiveDamage
-    }
     local inSublevel = false
     local bounds = nil
     local ok, SubLevelManager = pcall(function() return require 'src.maps.systems.sublevel_manager' end)
@@ -408,41 +494,138 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
             bounds = { min_x = -20000, max_x = 20000, min_y = -20000, max_y = 20000 }
         end
     end
-    if inSublevel and bounds then
-        custom_config.world_bounds = bounds
-    end
-    
-    -- Crear el proyectil usando el tipo del arma actual
+
+    -- Crear proyectiles desde los Hardpoints Físicos activos (Niveles 1 a 4 estilo Heavy Weapon)
     local weaponId = self.currentWeapon.id
-    local projectileType = PROJECTILE_TYPES[weaponId] or "basic_red_projectile"
+    local projectileType = self.currentWeapon.projectileArchetype or PROJECTILE_TYPES[weaponId] or "basic_red_projectile"
     local ProjectileClass = require('src.physics.projectiles.types.' .. projectileType)
-    
+    local emitters, hpLevel = self:getActiveHardpointEmitters(self.currentWeapon)
     local projectilesCreated = 0
-    
-    -- Verificar si es una escopeta de energía para crear múltiples proyectiles
-    if weaponId == "energy_shotgun" then
-        -- Configuración de dispersión para escopeta
-        local pelletCount = 5 -- Número de proyectiles por disparo
-        local spreadAngle = math.pi / 6 -- 30 grados de dispersión total
-        
-        for i = 1, pelletCount do
-            -- Calcular ángulo de dispersión para cada proyectil
-            local spreadOffset = (i - (pelletCount + 1) / 2) / pelletCount
-            local pelletAngle = angle + spreadOffset * spreadAngle
-            
-            -- Añadir variación aleatoria pequeña
-            pelletAngle = pelletAngle + (math.random() - 0.5) * 0.1
-            
-            -- Crear proyectil individual
-            local projectile = ProjectileClass.new(box2dWorld, spawnX, spawnY, pelletAngle, nil, custom_config)
-            
-            -- Agregar el proyectil al sistema de física si está disponible
+
+    self.shotCounter = (self.shotCounter or 0) + 1
+    local synergyMods = self.currentWeapon.synergyMods or {}
+    if synergyMods.damageMult then
+        effectiveDamage = effectiveDamage * synergyMods.damageMult
+    end
+
+    -- Modificador pasivo de velocidad de proyectil (Acelerador Magnético, etc.)
+    local projSpeedMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.projectile_speed
+    local passiveSpeedMult = 1.0
+    if type(projSpeedMod) == "table" then
+        passiveSpeedMult = 1.0 + ((projSpeedMod.percent or 0) / 100.0)
+    elseif type(projSpeedMod) == "number" then
+        passiveSpeedMult = 1.0 + (projSpeedMod > 1 and (projSpeedMod / 100.0) or projSpeedMod)
+    end
+    local totalSpeedMult = passiveSpeedMult * (synergyMods.speedMult or 1.0)
+
+    -- Evaluar refracción prismática (por pasiva o amplificación de Regla 3)
+    local prismEveryN = synergyMods.prismEveryN
+    if not prismEveryN and self.player and self.player.abilities then
+        if tonumber(self.player.abilities.prism_extra_shot_every) then
+            prismEveryN = tonumber(self.player.abilities.prism_extra_shot_every)
+        end
+    end
+    local triggerPrismSplit = (prismEveryN and prismEveryN > 0 and (self.shotCounter % prismEveryN == 0))
+
+    -- Evaluar arco voltaico por impacto
+    local chainArcCount = (self.currentWeapon.chainArc or 0) + (synergyMods.chainArcBonus or 0)
+    if self.player and self.player.abilities and tonumber(self.player.abilities.chain_lightning_on_hit) then
+        chainArcCount = chainArcCount + tonumber(self.player.abilities.chain_lightning_on_hit)
+    end
+
+    for _, emitter in ipairs(emitters) do
+        local hpWorldX, hpWorldY, hpLocalX, hpLocalY
+        if self.player and self.player.getHardpointWorldPosition then
+            hpWorldX, hpWorldY, hpLocalX, hpLocalY = self.player:getHardpointWorldPosition(emitter.name)
+        else
+            local spawnDistance = (self.player and self.player.size or 14) + 10
+            hpWorldX = self.player.x + dx * spawnDistance
+            hpWorldY = self.player.y + dy * spawnDistance
+            hpLocalX, hpLocalY = 0, -spawnDistance
+        end
+
+        -- Calcular vector de convergencia desde este hardpoint hacia el objetivo
+        local hdx = worldMouseX - hpWorldX
+        local hdy = worldMouseY - hpWorldY
+        local hDist = math.sqrt(hdx * hdx + hdy * hdy)
+        local emitterAngle = baseAngle
+        if distance > 42 and hDist > 8 then
+            emitterAngle = math.atan2(hdy, hdx)
+        end
+        emitterAngle = emitterAngle + (emitter.angleOffset or 0)
+
+        -- Empujar levemente el origen a lo largo del vector de tiro para limpiar el casco
+        local spawnX = hpWorldX + math.cos(emitterAngle) * 5.0
+        local spawnY = hpWorldY + math.sin(emitterAngle) * 5.0
+
+        local emitterCustomConfig = {
+            owner = self.player,
+            weaponId = weaponId,
+            damage = effectiveDamage * (emitter.damageScale or 1.0),
+            hardpointOrigin = emitter.name,
+            hardpointLevel = hpLevel,
+            speedMultiplier = (emitter.speedMult or 1.0) * totalSpeedMult,
+            scaleMultiplier = emitter.scaleMult or 1.0,
+            overcharged = emitter.overcharged or false,
+            penetration = emitter.overcharged or self.currentWeapon.penetration or synergyMods.forcePenetration or false,
+            bounces = self.currentWeapon.bounces or 0,
+            homingStrength = (self.currentWeapon.homingStrength or 0) + (synergyMods.homingBonus or 0),
+            isBoomerang = self.currentWeapon.isBoomerang or false,
+            clusterCount = self.currentWeapon.clusterCount or 0,
+            chainArc = chainArcCount,
+            explosion_radius = (self.currentWeapon.explosionRadius or 0) * (1.0 + (synergyMods.explosionRadiusBonus or 0)),
+            knockbackForce = self.currentWeapon.knockbackForce or 0,
+            graviticPull = self.currentWeapon.graviticPull or 0,
+            statusEffect = self.currentWeapon.statusEffect or (synergyMods.addCryoSlow and "cryo_slow") or nil,
+            voidDetonator = self.currentWeapon.voidDetonator or false,
+            color = self.currentWeapon.color
+        }
+        if inSublevel and bounds then
+            emitterCustomConfig.world_bounds = bounds
+        end
+
+        -- Registrar fogonazo (muzzle flash) localizado en las coordenadas del hardpoint
+        self.activeMuzzleFlashes = self.activeMuzzleFlashes or {}
+        table.insert(self.activeMuzzleFlashes, {
+            name = emitter.name,
+            lx = hpLocalX,
+            ly = hpLocalY,
+            timer = 0,
+            duration = 0.09,
+            level = hpLevel,
+            overcharged = emitter.overcharged or false
+        })
+
+        local basePelletCount = tonumber(self.currentWeapon.projectileCount) or ((weaponId == "energy_shotgun") and 5 or 1)
+        if #emitters > 1 and basePelletCount >= 5 then
+            basePelletCount = math.max(3, basePelletCount - 1)
+        end
+        local spreadAngle = tonumber(self.currentWeapon.spreadAngle) or ((basePelletCount > 1) and (math.pi / 6) or 0.0)
+
+        if basePelletCount > 1 then
+            for i = 1, basePelletCount do
+                local spreadOffset = (i - (basePelletCount + 1) / 2) / math.max(1, basePelletCount - 1)
+                local jitter = (spreadAngle > 0.2) and ((math.random() - 0.5) * 0.06) or 0
+                local pelletAngle = emitterAngle + spreadOffset * spreadAngle + jitter
+                local projectile = ProjectileClass.new(box2dWorld, spawnX, spawnY, pelletAngle, nil, emitterCustomConfig)
+                if projectile then
+                    if physMgr and physMgr.addProjectile then
+                        physMgr:addProjectile(projectile)
+                    end
+                    if not self.player.projectiles then
+                        self.player.projectiles = {}
+                    end
+                    table.insert(self.player.projectiles, projectile)
+                    projectilesCreated = projectilesCreated + 1
+                end
+            end
+        else
+            local singleAngle = emitterAngle + ((spreadAngle > 0) and ((math.random() - 0.5) * spreadAngle) or 0)
+            local projectile = ProjectileClass.new(box2dWorld, spawnX, spawnY, singleAngle, nil, emitterCustomConfig)
             if projectile then
                 if physMgr and physMgr.addProjectile then
                     physMgr:addProjectile(projectile)
                 end
-                
-                -- Almacenar el proyectil para actualizaciones y renderizado
                 if not self.player.projectiles then
                     self.player.projectiles = {}
                 end
@@ -450,27 +633,43 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
                 projectilesCreated = projectilesCreated + 1
             end
         end
-    else
-        -- Disparo normal para otras armas
-        local projectile = ProjectileClass.new(box2dWorld, spawnX, spawnY, angle, nil, custom_config)
-        
-        -- Agregar el proyectil al sistema de física si está disponible
-        if projectile then
-            if physMgr and physMgr.addProjectile then
-                physMgr:addProjectile(projectile)
+
+        -- Proyectiles adicionales por Lente de Refracción Prismática / Matriz de Tormenta Refractada
+        if triggerPrismSplit then
+            for _, offsetRad in ipairs({ -0.14, 0.14 }) do
+                local splitConfig = {}
+                for k, v in pairs(emitterCustomConfig) do splitConfig[k] = v end
+                splitConfig.damage = (emitterCustomConfig.damage or 10) * 0.65
+                local splitProj = ProjectileClass.new(box2dWorld, spawnX, spawnY, emitterAngle + offsetRad, nil, splitConfig)
+                if splitProj then
+                    if physMgr and physMgr.addProjectile then
+                        physMgr:addProjectile(splitProj)
+                    end
+                    if not self.player.projectiles then
+                        self.player.projectiles = {}
+                    end
+                    table.insert(self.player.projectiles, splitProj)
+                    projectilesCreated = projectilesCreated + 1
+                end
             end
-            
-            -- Almacenar el proyectil para actualizaciones y renderizado
-            if not self.player.projectiles then
-                self.player.projectiles = {}
-            end
-            table.insert(self.player.projectiles, projectile)
-            projectilesCreated = 1
         end
     end
-    
+
     -- Si se crearon proyectiles exitosamente
     if projectilesCreated > 0 then
+        self.muzzleFlash.active = true
+        self.muzzleFlash.timer = 0
+
+        -- Aplicar micro-retroceso físico diegético (kickback) según calibre y número de emisores
+        if self.player and not self.player.hyperTravelEnabled then
+            local baseKick = (weaponId == "heavy_plasma_cannon" or weaponId == "energy_shotgun") and 1.45 or 0.55
+            local kickScale = baseKick * (0.75 + 0.25 * #emitters)
+            if self.player.isAI and not self.player.isPiloted then
+                kickScale = kickScale * 0.35
+            end
+            self.player.dx = (self.player.dx or 0) - dx * kickScale
+            self.player.dy = (self.player.dy or 0) - dy * kickScale
+        end
         -- Actualizar tiempo del último disparo
         self.lastShotTime = love.timer.getTime()
         if self.player then
@@ -520,6 +719,20 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
     end
 end
 
+-- Calcular tiempo de recarga efectivo (aplicando modificador pasivo reload_speed)
+function WeaponSystem:getEffectiveReloadTime(weapon)
+    weapon = weapon or self.currentWeapon
+    local baseReload = (weapon and weapon.reloadTime) or 2.0
+    local reloadMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.reload_speed
+    local reloadMult = 1.0
+    if type(reloadMod) == "table" then
+        reloadMult = 1.0 + ((reloadMod.percent or 0) / 100.0)
+    elseif type(reloadMod) == "number" then
+        reloadMult = 1.0 + (reloadMod > 1 and (reloadMod / 100.0) or reloadMod)
+    end
+    return baseReload / math.max(0.25, reloadMult)
+end
+
 -- Recargar arma actual
 function WeaponSystem:reload()
     if not self.currentWeapon or not self.currentWeapon.maxAmmo then
@@ -535,6 +748,18 @@ function WeaponSystem:reload()
         return false  -- Ya está llena
     end
     
+    -- Si el arma es un Detonador de Agujas de Vacío (voidDetonator), detonar proyectiles activos al recargar
+    if self.currentWeapon.voidDetonator and self.player and self.player.projectiles then
+        for i = #self.player.projectiles, 1, -1 do
+            local proj = self.player.projectiles[i]
+            if proj and proj.config and proj.config.voidDetonator and proj.state == "active" then
+                proj.explosion_radius = math.max(proj.explosion_radius or 0, 28)
+                proj.damage = (proj.damage or 14) * 1.45
+                proj:destroy("void_detonation")
+            end
+        end
+    end
+
     -- Iniciar recarga
     self.isReloading = true
     self.reloadStartTime = love.timer.getTime()
@@ -550,17 +775,41 @@ end
 
 -- Actualizar sistema de armas
 function WeaponSystem:update(dt)
-    -- Actualizar muzzle flash
+    -- Sincronizar currentWeapon por si ocurrió una evolución en el slot activo
+    if self.player and self.player.inventory then
+        local activeEntry = self.player.inventory:getWeaponInSlot(self.currentSlot)
+        if activeEntry and activeEntry.data and activeEntry.data ~= self.currentWeapon then
+            self.currentWeapon = activeEntry.data
+            if self.currentWeapon.maxAmmo and self.ammunition[self.currentWeapon.id] == nil then
+                self.ammunition[self.currentWeapon.id] = self.currentWeapon.maxAmmo
+            end
+        elseif not activeEntry and self.currentWeapon then
+            self:switchToNextAvailableWeapon()
+        end
+    end
+
+    -- Actualizar muzzle flash general
     if self.muzzleFlash.active then
         self.muzzleFlash.timer = self.muzzleFlash.timer + dt
         if self.muzzleFlash.timer >= self.muzzleFlash.duration then
             self.muzzleFlash.active = false
         end
     end
+
+    -- Actualizar fogonazos localizados por hardpoint
+    if self.activeMuzzleFlashes and #self.activeMuzzleFlashes > 0 then
+        for i = #self.activeMuzzleFlashes, 1, -1 do
+            local mf = self.activeMuzzleFlashes[i]
+            mf.timer = (mf.timer or 0) + dt
+            if mf.timer >= (mf.duration or 0.09) then
+                table.remove(self.activeMuzzleFlashes, i)
+            end
+        end
+    end
     
     -- Actualizar recarga
     if self.isReloading and self.currentWeapon then
-        local reloadTime = self.currentWeapon.reloadTime or 2.0
+        local reloadTime = self:getEffectiveReloadTime(self.currentWeapon)
         local currentTime = love.timer.getTime()
         
         if currentTime - self.reloadStartTime >= reloadTime then
@@ -568,6 +817,31 @@ function WeaponSystem:update(dt)
             self.ammunition[self.currentWeapon.id] = self.currentWeapon.maxAmmo
             self.isReloading = false
             -- Recarga completada
+        end
+    end
+
+    -- Pasiva: Funda de Recarga Inercial (holster_auto_reload) — recarga armas guardadas tras 2.5s
+    if self.player and self.player.abilities and self.player.abilities.holster_auto_reload and self.player.inventory then
+        self.holsterTimers = self.holsterTimers or {}
+        for slot = 1, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
+            local entry = self.player.inventory:getWeaponInSlot(slot)
+            if slot ~= self.currentSlot and entry and entry.data and entry.data.maxAmmo then
+                local wid = entry.data.id
+                local curAmmo = self.ammunition[wid]
+                if curAmmo == nil then
+                    self.ammunition[wid] = entry.data.maxAmmo
+                elseif curAmmo < entry.data.maxAmmo then
+                    self.holsterTimers[wid] = (self.holsterTimers[wid] or 0) + dt
+                    if self.holsterTimers[wid] >= 2.5 then
+                        self.ammunition[wid] = entry.data.maxAmmo
+                        self.holsterTimers[wid] = 0
+                    end
+                else
+                    self.holsterTimers[wid] = 0
+                end
+            elseif entry and entry.data then
+                self.holsterTimers[entry.data.id] = 0
+            end
         end
     end
     
@@ -625,11 +899,14 @@ function WeaponSystem:getCurrentWeaponInfo()
         return nil
     end
     
+    local emitters, hpLevel = self:getActiveHardpointEmitters(self.currentWeapon)
     local info = {
         name = self.currentWeapon.name,
         slot = self.currentSlot,
         damage = self.currentWeapon.damage,
         fireRate = self.currentWeapon.fireRate,
+        hardpointLevel = hpLevel,
+        emitterCount = #emitters,
         ammo = nil,
         maxAmmo = self.currentWeapon.maxAmmo,
         isReloading = self.isReloading,
@@ -665,6 +942,7 @@ function WeaponSystem:getEquippedWeapons()
             weapons[slot] = {
                 weapon = weaponItem.data,
                 ammo = self.ammunition[weaponItem.data.id],
+                hardpointLevel = self:getWeaponHardpointLevel(weaponItem.data),
                 isCurrent = (slot == self.currentSlot)
             }
         end

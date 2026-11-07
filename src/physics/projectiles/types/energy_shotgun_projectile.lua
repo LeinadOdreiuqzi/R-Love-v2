@@ -131,6 +131,11 @@ function EnergyShotgunProjectile:update(dt)
         self:fragmentProjectile()
     end
     
+    if self.vfxProfile then
+        self:updateFragments(dt)
+        return
+    end
+
     -- Actualizar estela del proyectil
     self:updateTrail(dt)
     

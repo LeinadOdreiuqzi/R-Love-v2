@@ -193,8 +193,8 @@ function InputManager.keypressed(key)
         elseif player and not player.isInEVA and player.weaponSystem then
             player.weaponSystem:switchToSlot(slotNumber)
         end
-    elseif key == "b" then -- Debug: Crear inventario de prueba (antes en tecla '1')
-        if player and InventoryUI then InventoryUI:createTestInventory(player) end
+    elseif key == "b" then -- Debug: selector de combate
+        require('src.ui.combat_debug_menu').open(player)
     elseif key == "e" then
         InputManager.handleInteraction(World, HUD, Map)
     elseif key == "h" then -- Debug Heal

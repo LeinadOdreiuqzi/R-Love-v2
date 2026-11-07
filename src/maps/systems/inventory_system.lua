@@ -8,6 +8,7 @@ InventorySystem.__index = InventorySystem
 local ItemSystem = require 'src.item_systems.item_system'
 local Passives = require 'src.item_systems.items.passives'
 local PassiveManager = require 'src.item_systems.passive_manager'
+local SynergyEngine = require 'src.item_systems.synergy_engine'
 
 -- Usar los tipos del sistema principal
 local CATEGORIES = ItemSystem.CATEGORIES
@@ -276,14 +277,14 @@ function InventorySystem:addItem(itemData, quantity)
                     existing.quantity = newQty
                     existing.data.quantity = newQty
                     quantity = quantity - canAdd
-                    if quantity <= 0 then return true end
+                    if quantity <= 0 then self:evaluateSynergies(); return true end
                 end
             end
         end
     end
     
     -- 2. Buscar slot vacío para el resto
-    if quantity <= 0 then return true end
+    if quantity <= 0 then self:evaluateSynergies(); return true end
     
     for i = 1, self.maxSlots do
         if not self.items[i] then
@@ -301,6 +302,7 @@ function InventorySystem:addItem(itemData, quantity)
                     quantity = quantity
                 }
             end
+            self:evaluateSynergies()
             return true
         end
     end
@@ -313,6 +315,7 @@ function InventorySystem:removeItem(slotIndex)
     if slotIndex >= 1 and slotIndex <= self.maxSlots then
         local item = self.items[slotIndex]
         self.items[slotIndex] = nil
+        self:evaluateSynergies()
         return item
     end
     return nil
@@ -325,6 +328,7 @@ function InventorySystem:moveItem(fromSlot, toSlot)
         local item = self.items[fromSlot]
         self.items[fromSlot] = self.items[toSlot]
         self.items[toSlot] = item
+        self:evaluateSynergies()
         return true
     end
     return false
@@ -373,6 +377,9 @@ end
 
 function InventorySystem:getCompartment(name)
     if not self.compartments then return nil end
+    if name == "ship" and self.compartments.ship then
+        self.compartments.ship.items = self.items
+    end
     return self.compartments[name]
 end
 
@@ -416,14 +423,14 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
                     existing.quantity = newQty
                     existing.data.quantity = newQty
                     quantity = quantity - canAdd
-                    if quantity <= 0 then return true end
+                    if quantity <= 0 then self:evaluateSynergies(); return true end
                 end
             end
         end
     end
     
     -- 2. Buscar slot vacío para el resto
-    if quantity <= 0 then return true end
+    if quantity <= 0 then self:evaluateSynergies(); return true end
 
     for i = 1, c.maxSlots do
         if not c.items[i] then
@@ -446,6 +453,7 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
             if name == "passives" then
                 handlePassiveEffects(newItem, self.player, "apply")
             end
+            self:evaluateSynergies()
             
             return true
         end
@@ -465,6 +473,7 @@ function InventorySystem:removeItemFromCompartment(name, slotIndex)
         end
         
         c.items[slotIndex] = nil
+        self:evaluateSynergies()
         return item
     end
     return nil
@@ -477,6 +486,7 @@ function InventorySystem:moveItemWithinCompartment(name, fromSlot, toSlot)
         local item = c.items[fromSlot]
         c.items[fromSlot] = c.items[toSlot]
         c.items[toSlot] = item
+        self:evaluateSynergies()
         return true
     end
     return false
@@ -564,6 +574,9 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
 
     fromC.items[fromSlot] = itemTo
     toC.items[toSlot] = itemFrom
+
+    self:evaluateSynergies()
+
     return true
 end
 
@@ -602,19 +615,22 @@ function InventorySystem:addWeaponToSlot(weaponData, slot, quantity)
         end
     end
     
-    -- Equipar arma (con robustez contra doble anidación)
+    -- Equipar arma (con robustez contra doble anidación y clonación de instancia para modificadores de sinergia)
     if type(weaponData) == "table" and weaponData.data then
         weaponsComp.items[slot] = weaponData
         if quantity and quantity > 1 then
             weaponsComp.items[slot].quantity = quantity
         end
     else
+        local clonedWeapon = {}
+        for k, v in pairs(weaponData) do clonedWeapon[k] = v end
         weaponsComp.items[slot] = {
-            data = weaponData,
+            data = clonedWeapon,
             quantity = quantity
         }
     end
     
+    self:evaluateSynergies()
     return true
 end
 
@@ -631,7 +647,15 @@ function InventorySystem:removeWeaponFromSlot(slot)
     
     local weapon = weaponsComp.items[slot]
     weaponsComp.items[slot] = nil
+    self:evaluateSynergies()
     return weapon
+end
+
+function InventorySystem:evaluateSynergies()
+    if self.player and SynergyEngine and SynergyEngine.evaluate then
+        return SynergyEngine.evaluate(self.player)
+    end
+    return nil
 end
 
 function InventorySystem:getWeaponInSlot(slot)
@@ -657,6 +681,11 @@ function InventorySystem:isDefaultWeapon(weaponId)
         if weaponId == defaultId then
             return true
         end
+    end
+    -- Permitir también armas evolucionadas si el arma inicial evolucionó en el Slot 1
+    local tpl = ItemSystem:getItem(weaponId)
+    if tpl and tpl.isEvolved then
+        return true
     end
     return false
 end
@@ -692,23 +721,7 @@ end
 
 -- Transferir item desde inventario principal a slot de arma
 function InventorySystem:transferItemToWeaponSlot(inventorySlot, weaponSlot)
-    local weaponsComp = self:getCompartment('weapons')
-    local maxWeaponSlots = (weaponsComp and weaponsComp.maxSlots) or 9
-    if not inventorySlot or not weaponSlot or inventorySlot < 1 or weaponSlot < 1 or weaponSlot > maxWeaponSlots then return false end
-    
-    local shipComp = self:getCompartment('ship')
-    if not shipComp or inventorySlot > shipComp.maxSlots then return false end
-    
-    local item = shipComp.items[inventorySlot]
-    if not item then return false end
-    
-    -- Intentar agregar al slot de arma
-    if self:addWeaponToSlot(item.data, weaponSlot) then
-        shipComp.items[inventorySlot] = nil
-        return true
-    end
-    
-    return false
+    return self:transferItemBetweenCompartments("ship", inventorySlot, "weapons", weaponSlot)
 end
 
 -- Intercambiar items entre compartimentos

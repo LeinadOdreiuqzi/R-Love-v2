@@ -977,6 +977,7 @@ function ShipRenderer.drawAIShip(self)
 
     self:drawShieldEffect()
     self:drawGeometricShip(false)
+    ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
 
     -- Baliza de rol / estado diegético sobre el fuselaje
     if ai and ai.config and ai.config.beaconColor then
@@ -1096,6 +1097,7 @@ function ShipRenderer.drawShip(self)
     else
         self:drawGeometricShip(false)
     end
+    ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
     
     -- Aviso de combustible crítico
     local fuelPercentage = self.stats and self.stats:getFuelPercentage() or 100
@@ -1115,9 +1117,58 @@ function ShipRenderer.drawShip(self)
 end
 
 
+-- Renderiza los montajes de hardpoints activos (Niveles 1-4 estilo Heavy Weapon) y sus fogonazos localizados
+function ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
+    if not self or not self.weaponSystem or self.isAbandoned then return end
+
+    -- 1. Indicadores diegéticos de torretas/emisores activos en el chasis cuando el arma está en Nivel >= 2
+    if self.weaponSystem.currentWeapon and self.weaponSystem.getActiveHardpointEmitters and self.getHardpointLocalPosition then
+        local emitters, hpLevel = self.weaponSystem:getActiveHardpointEmitters(self.weaponSystem.currentWeapon)
+        if emitters and hpLevel and hpLevel >= 2 then
+            for _, em in ipairs(emitters) do
+                local lx, ly = self:getHardpointLocalPosition(em.name)
+                if lx and ly then
+                    love.graphics.setColor(0.14, 0.18, 0.24, 0.90)
+                    love.graphics.rectangle("fill", lx - 1.6, ly - 3.6, 3.2, 5.2, 1, 1)
+                    if hpLevel >= 4 then
+                        love.graphics.setColor(1.0, 0.82, 0.22, 0.85)
+                    else
+                        love.graphics.setColor(0.35, 0.85, 1.0, 0.75)
+                    end
+                    love.graphics.circle("fill", lx, ly - 2.2, 1.3)
+                end
+            end
+        end
+    end
+
+    -- 2. Fogonazos localizados (Muzzle Flashes) en la coordenada exacta del hardpoint que disparó
+    local flashes = self.weaponSystem.activeMuzzleFlashes
+    if flashes and #flashes > 0 then
+        for i = 1, #flashes do
+            local mf = flashes[i]
+            if mf and mf.lx and mf.ly then
+                local progress = math.min(1.0, (mf.timer or 0) / math.max(0.01, mf.duration or 0.09))
+                local fade = 1.0 - progress
+                local radius = (mf.overcharged and 6.2 or 4.2) * (0.7 + 0.5 * fade)
+
+                if mf.overcharged then
+                    love.graphics.setColor(1.0, 0.85, 0.25, 0.55 * fade)
+                else
+                    love.graphics.setColor(0.35, 0.88, 1.0, 0.50 * fade)
+                end
+                love.graphics.circle("fill", mf.lx, mf.ly - 2.0, radius)
+
+                love.graphics.setColor(1.0, 1.0, 1.0, 0.92 * fade)
+                love.graphics.circle("fill", mf.lx, mf.ly - 2.5, radius * 0.48)
+            end
+        end
+    end
+end
+
 -- Instala los métodos de renderizado en la clase de naves para mantener la API existente (self:drawX(...))
 function ShipRenderer.install(Naves)
     Naves.drawThrusterFlame = ShipRenderer.drawThrusterFlame
+    Naves.drawHardpointsAndMuzzleFlashes = ShipRenderer.drawHardpointsAndMuzzleFlashes
     Naves.drawFighterShape = ShipRenderer.drawFighterShape
     Naves.drawCargoShape = ShipRenderer.drawCargoShape
     Naves.drawExplorerShape = ShipRenderer.drawExplorerShape

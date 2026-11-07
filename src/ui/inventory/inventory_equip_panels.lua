@@ -31,15 +31,18 @@ function InventoryEquipPanels.drawWeaponPanel(parentUI, uiState, weaponCompartme
     -- Título
     love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
-    love.graphics.print("ARMAS", layout.weaponX + panelPadding, layout.weaponY + 8)
+    love.graphics.print("ARMAS (1-9)", layout.weaponX + panelPadding, layout.weaponY + 8)
     
-    -- Slots (Horizontales)
+    -- Slots en Grid 3x3 (9 slots)
     local startX = layout.weaponX + panelPadding
     local startY = layout.weaponY + 35
+    local columns = 3
     
     for i = 1, weaponCompartment.maxSlots do
-        local x = startX + (i - 1) * (slotSize + padding)
-        local y = startY
+        local col = (i - 1) % columns
+        local row = math.floor((i - 1) / columns)
+        local x = startX + col * (slotSize + padding)
+        local y = startY + row * (slotSize + padding)
         InventoryEquipPanels.drawWeaponSlot(parentUI, uiState, x, y, i, weaponCompartment.items[i])
     end
 end
@@ -109,10 +112,13 @@ function InventoryEquipPanels.getWeaponSlotAt(uiState, x, y, weaponComp)
     
     local startX = layout.weaponX + panelPadding
     local startY = layout.weaponY + 35
+    local columns = 3
     
     for i = 1, weaponComp.maxSlots do
-        local slotX = startX + (i - 1) * (slotSize + padding)
-        local slotY = startY
+        local col = (i - 1) % columns
+        local row = math.floor((i - 1) / columns)
+        local slotX = startX + col * (slotSize + padding)
+        local slotY = startY + row * (slotSize + padding)
         if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
             return i
         end
@@ -207,10 +213,8 @@ function InventoryEquipPanels.transferInventoryToWeaponSlot(player, invSlot, wea
     end
     
     if not weaponSlot then
-        for i = 1, weaponComp.maxSlots do
-            if i == 1 and not item.data.isDefault then
-                -- skip default weapon slot
-            elseif not weaponComp.items[i] then
+        for i = 2, weaponComp.maxSlots do
+            if not weaponComp.items[i] then
                 weaponSlot = i
                 break
             end
@@ -221,8 +225,8 @@ function InventoryEquipPanels.transferInventoryToWeaponSlot(player, invSlot, wea
         end
     end
     
-    if weaponSlot == 1 and not item.data.isDefault then
-        print("[TRANSFER] Error: Solo armas por defecto pueden ir en el slot 1")
+    if weaponSlot == 1 and not (item.data.isDefault or item.data.isEvolved or (player.inventory.isDefaultWeapon and player.inventory:isDefaultWeapon(item.data.id))) then
+        print("[TRANSFER] Error: Solo armas por defecto o evolucionadas pueden ir en el slot 1")
         return false
     end
     
