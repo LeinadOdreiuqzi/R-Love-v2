@@ -352,6 +352,7 @@ function Naves:new(x, y, shipType)
     
     -- Sistema de armas con cambio rápido
     player.weaponSystem = WeaponSystem:new(player)
+    player.abilitySystem = require('src.entities.ability_system').new(player)
 
     -- Configuraciones específicas de la nave
     player.shipSettings = {
@@ -421,6 +422,7 @@ end
 function Naves:debugChangeShipType(shipType)
     local config = SHIP_TYPES[shipType]
     if not config or self.isInEVA then return false end
+    if self.abilitySystem then self.abilitySystem:cancel() end
     local previous = self.shipConfig
     self.shipType, self.shipConfig = shipType, config
     self.shipName = config.name .. " #" .. self.shipId
@@ -593,6 +595,7 @@ function Naves:update(dt)
 
     -- Si esta nave no está siendo controlada por el jugador:
     if not isPlayer then
+        if self.abilitySystem then self.abilitySystem:cancel() end
         if self.aiController and self.aiController.active and not self.isAbandoned then
             self.aiController:update(dt)
         else
@@ -601,6 +604,8 @@ function Naves:update(dt)
         return
     end
     
+    if self.abilitySystem then self.abilitySystem:update(dt, Naves.getAllShips()) end
+
     -- Handle EVA controls first
     self:handleEVAControls()
     
@@ -1185,7 +1190,15 @@ function Naves:takeDamage(damage, attacker)
         end
     end
 
+    local wasAlive = self.stats.health.currentHealth > 0
     local died = self.stats:takeDamage(damage)
+    if died and wasAlive then
+        if self.abilitySystem then self.abilitySystem:cancel() end
+        local source = attacker and (attacker.owner or attacker)
+        if source and source.abilitySystem and source.abilitySystem:isHostile(self) then
+            source.abilitySystem:onKill(self)
+        end
+    end
     local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
 
     -- Atenuar sonido de impacto/explosión si ocurre en una nave lejana del ecosistema
@@ -1465,6 +1478,7 @@ end
 
 -- EVA System Methods
 function Naves:enterEVA()
+    if self.abilitySystem then self.abilitySystem:cancel() end
     if self.isInEVA then return false end
     
     -- Update EVA player position to ship position
@@ -1723,6 +1737,7 @@ end
     Renderiza todos los proyectiles activos y efectos de impacto
 --]]
 function Naves:drawProjectiles()
+    if self.abilitySystem then self.abilitySystem:draw() end
     ProjectileVFX.draw(self)
     if self.projectiles then
         for _, projectile in ipairs(self.projectiles) do

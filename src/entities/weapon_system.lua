@@ -383,6 +383,7 @@ function WeaponSystem:canShoot()
     elseif type(fireRateMod) == "number" then
         fireRate = fireRate * (1.0 + (fireRateMod > 1 and (fireRateMod / 100.0) or fireRateMod))
     end
+    if self.player.abilitySystem and self.player.abilitySystem.overclock > 0 then fireRate = fireRate * 1.3 end
     local shotInterval = 1.0 / math.max(0.05, fireRate)
     
     if timeSinceLastShot < shotInterval then
@@ -402,7 +403,8 @@ function WeaponSystem:canShoot()
     end
     
     -- Verificar energía si aplica
-    if self.currentWeapon.energyCost and self.player.stats then
+    if self.currentWeapon.energyCost and self.player.stats
+        and not (self.player.abilitySystem and self.player.abilitySystem.overclock > 0) then
         local currentEnergy = self.player.stats.energy and self.player.stats.energy.currentEnergy or 100
         if currentEnergy < self.currentWeapon.energyCost then
             return false
@@ -613,6 +615,7 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
         end
         local spreadAngle = tonumber(self.currentWeapon.spreadAngle) or ((basePelletCount > 1) and (math.pi / 6) or 0.0)
 
+        if self.player.abilitySystem and self.player.abilitySystem.doubleCast > 0 then basePelletCount = basePelletCount * 2 end
         if basePelletCount > 1 then
             for i = 1, basePelletCount do
                 local spreadOffset = (i - (basePelletCount + 1) / 2) / math.max(1, basePelletCount - 1)
@@ -668,6 +671,11 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
 
     -- Si se crearon proyectiles exitosamente
     if projectilesCreated > 0 then
+        local energy = self.player.stats and self.player.stats.energy
+        if energy and self.currentWeapon.energyCost
+            and not (self.player.abilitySystem and self.player.abilitySystem.overclock > 0) then
+            energy.currentEnergy = math.max(0, energy.currentEnergy - self.currentWeapon.energyCost)
+        end
         self.muzzleFlash.active = true
         self.muzzleFlash.timer = 0
 

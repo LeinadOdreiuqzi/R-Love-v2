@@ -224,11 +224,28 @@ function Menu.draw()
     g.setScissor()
     Menu.scrollbar = nil
     if Menu.tab == 'abilities' then
+        local ability = player.abilitySystem
         g.setFont(Menu.font)
-        g.print('Q · Habilidad táctica', 24, 195)
-        g.print('R · Habilidad definitiva', 24, 255)
+        g.print('Q · Phase Dash — desplazamiento táctico', 24, 195)
+        g.print('R · Matrix Overload — campo de daño y control', 24, 295)
         g.setFont(Menu.small)
-        g.printf('Pendientes de implementación en fase 4. El proyecto aún no contiene un catálogo ni un sistema de habilidades activas seleccionables.', 24, 310, 900)
+        g.print('Q: 6 s de recarga · R: radio 180 / duración 5 s / recarga 25 s', 24, 390)
+        g.print('Las pasivas equipadas modifican estas habilidades. Cierra el menú para avanzar el tiempo.', 24, 420)
+        if ability then
+            button('Probar Q', 24, 235, 180, function()
+                local ok = ability:triggerTactical()
+                Menu.message = ok and 'Phase Dash activado' or 'Q no disponible'
+            end)
+            button('Probar R', 24, 335, 180, function()
+                local ok = ability:triggerUltimate()
+                Menu.message = ok and 'Matrix Overload activado' or 'R no disponible'
+            end)
+            button('Reiniciar recargas', 24, 470, 240, function()
+                ability.q, ability.r = 0, 0
+                Menu.message = 'Recargas Q/R reiniciadas para debug'
+            end)
+            g.print(string.format('Recarga Q: %.1f s · R: %.1f s', ability.q, ability.r), 24, 525)
+        end
     else
         if Menu.tab == 'weapons' then
             button('<', 700, 125, 32, function() Menu.slot = (Menu.slot - 2) % 9 + 1 end)

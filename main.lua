@@ -50,6 +50,8 @@ end
 
 function love.draw()
     GameLoop.draw()
+    local player = World.getPlayer()
+    if player and player.abilitySystem then player.abilitySystem:drawHUD() end
     CombatDebug.draw()
 end
 

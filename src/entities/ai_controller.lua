@@ -1011,6 +1011,7 @@ function AIController:updateAlert(dt)
     end
 
     local targetEntity = (target.getActiveEntity and target:getActiveEntity()) or target
+    if target.abilitySystem and target.abilitySystem.decoy then targetEntity = target.abilitySystem.decoy end
     local tx, ty = targetEntity.x or target.x, targetEntity.y or target.y
     local dx = tx - self.ship.x
     local dy = ty - self.ship.y
@@ -1367,6 +1368,7 @@ function AIController:updateCombat(dt)
     self:evaluateIncomingThreats(dt, target)
 
     local targetEntity = (target.getActiveEntity and target:getActiveEntity()) or target
+    if target.abilitySystem and target.abilitySystem.decoy then targetEntity = target.abilitySystem.decoy end
     local tx, ty = targetEntity.x or target.x, targetEntity.y or target.y
     local rawTvx, rawTvy = targetEntity.dx or target.dx or 0, targetEntity.dy or target.dy or 0
 
