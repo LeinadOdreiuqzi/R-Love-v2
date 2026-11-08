@@ -91,6 +91,7 @@ function Projectile.new(world, x, y, angle, speed, config)
     end
     self.owner = self.config.owner
     self.explosion_radius = self.config.explosion_radius or 0
+    self.statusEffect = self.config.statusEffect
     self.penetration = self.config.penetration or false
     self.bouncesRemaining = tonumber(self.config.bounces) or 0
     self.homingStrength = tonumber(self.config.homingStrength) or 0
@@ -98,6 +99,7 @@ function Projectile.new(world, x, y, angle, speed, config)
     self.chainArc = tonumber(self.config.chainArc) or 0
     self.knockbackForce = tonumber(self.config.knockbackForce) or 0
     self.graviticPull = tonumber(self.config.graviticPull) or 0
+    self.graviticRadius = tonumber(self.config.graviticRadius) or 125
     self.hitTargets = {}
     
     -- Referencias de Box2D
@@ -212,7 +214,10 @@ function Projectile:configureFixture()
     
     -- Configurar categorías y máscaras de colisión
     self.fixture:setCategory(PhysicsConfig.COLLISION_CATEGORIES.PROJECTILE)
-    self.fixture:setMask(PhysicsConfig.COLLISION_MASKS.PROJECTILE)
+    -- Projectile pairs have no gameplay collision handler. Exclude them before
+    -- Box2D builds contacts, especially when volleys share a muzzle position.
+    self.fixture:setMask(PhysicsConfig.COLLISION_MASKS.PROJECTILE,
+        PhysicsConfig.COLLISION_CATEGORIES.PROJECTILE)
     
     -- Configurar como sensor si es necesario
     if self.config.sensor then
@@ -240,6 +245,7 @@ function Projectile:update(dt)
     
     -- Actualizar edad
     self.age = self.age + dt
+    if self.body then self.x, self.y = self.body:getPosition() end
 
     -- Comportamientos cinemáticos especiales (Homing, Boomerang, Atracción Gravítica)
     local Naves = package.loaded['src.entities.naves']
@@ -291,7 +297,7 @@ function Projectile:update(dt)
 
     if self.graviticPull and self.graviticPull > 0 and Naves and Naves.getAllShips then
         local ships = Naves.getAllShips()
-        local pullRadiusSq = 125 * 125
+        local pullRadiusSq = self.graviticRadius * self.graviticRadius
         for i = 1, #ships do
             local s = ships[i]
             if s and s ~= self.owner and s.x and s.y then
@@ -318,10 +324,9 @@ function Projectile:update(dt)
         self:updateDistanceTraveled(dt)
     end
     
-    ProjectileVFX.updateProjectile(self, dt)
-
     -- Verificar colisiones espaciales contra naves y asteroides
     self:checkSpatialCollisions()
+    ProjectileVFX.updateProjectile(self, dt)
     if self.state == ProjectileState.DESTROYED then
         return
     end
@@ -428,7 +433,6 @@ function Projectile:checkSpatialCollisions()
                         end
                     end
 
-                    ProjectileVFX.impact(self, hitX, hitY)
                     if ship.addImpactEffect then
                         ship:addImpactEffect(hitX, hitY, self.config and self.config.color)
                     elseif self.owner and self.owner.addImpactEffect then
@@ -436,20 +440,30 @@ function Projectile:checkSpatialCollisions()
                     end
 
                     if self.penetration then
+                        ProjectileVFX.impact(self, hitX, hitY)
                         self.hitTargets = self.hitTargets or {}
                         self.hitTargets[ship] = true
                     elseif self.bouncesRemaining and self.bouncesRemaining > 0 then
+                        ProjectileVFX.impact(self, hitX, hitY)
                         self.bouncesRemaining = self.bouncesRemaining - 1
                         self.hitTargets = self.hitTargets or {}
                         self.hitTargets[ship] = true
+                        self.x, self.y = hitX, hitY
+                        self.prevX, self.prevY = hitX, hitY
                         self.angle = (self.angle or 0) + math.pi + (math.random() - 0.5) * 0.7
                         local spd = self.speed or 320
                         self.vx = math.cos(self.angle) * spd
                         self.vy = math.sin(self.angle) * spd
-                        if self.body then self.body:setLinearVelocity(self.vx, self.vy) end
+                        if self.body then
+                            self.body:setPosition(hitX, hitY)
+                            self.body:setLinearVelocity(self.vx, self.vy)
+                        end
                         return
                     else
                         self.x, self.y = hitX, hitY
+                        if (self.explosion_radius or 0) <= 0 then
+                            ProjectileVFX.impact(self, hitX, hitY)
+                        end
                         self:destroy("ship_hit")
                         return
                     end

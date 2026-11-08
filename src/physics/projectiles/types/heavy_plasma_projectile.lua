@@ -81,7 +81,7 @@ function HeavyPlasmaProjectile.new(world, x, y, angle, speed, custom_config)
     self.max_trail_points = config.trail_length
     
     -- Inicializar efectos específicos del plasma pesado
-    self:initializeHeavyPlasmaEffects()
+    if not self.vfxProfile then self:initializeHeavyPlasmaEffects() end
     
     return self
 end

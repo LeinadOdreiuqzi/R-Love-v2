@@ -74,7 +74,7 @@ function KineticProjectile.new(world, x, y, angle, speed, custom_config)
     self.max_penetrations = 2
     
     -- Inicializar efectos específicos del proyectil cinético
-    self:initializeKineticEffects()
+    if not self.vfxProfile then self:initializeKineticEffects() end
     
     return self
 end

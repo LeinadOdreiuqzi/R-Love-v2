@@ -83,7 +83,7 @@ function EnergyShotgunProjectile.new(world, x, y, angle, speed, custom_config)
     self.max_trail_points = config.trail_length
     
     -- Inicializar efectos específicos del proyectil de escopeta de energía
-    self:initializeEnergyShotgunEffects()
+    if not self.vfxProfile then self:initializeEnergyShotgunEffects() end
     
     return self
 end

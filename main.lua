@@ -20,6 +20,9 @@ World.set('stateManager', stateManager)
 print("[MAIN] Globals purged. Using World and specific modules.")
 
 function love.load(args)
+    if args and args[1] == '--combat-vfx-test' then
+        require('tests.combat_vfx.runner').install(args[2])
+    end
     love.graphics.setDefaultFilter("nearest", "nearest")
     
     if FullscreenManager and FullscreenManager.init then

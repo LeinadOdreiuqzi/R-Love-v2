@@ -558,9 +558,20 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
         local spawnX = hpWorldX + math.cos(emitterAngle) * 5.0
         local spawnY = hpWorldY + math.sin(emitterAngle) * 5.0
 
+        local baseExpRadius = self.currentWeapon.explosionRadius or 0
+        local expBonus = synergyMods.explosionRadiusBonus or 0
+        local effectiveExpRadius = (expBonus > 2.0) and (baseExpRadius + expBonus) or (baseExpRadius * (1.0 + expBonus))
+
         local emitterCustomConfig = {
             owner = self.player,
             weaponId = weaponId,
+            visualMods = {
+                voltaic = not not synergyMods.voltaicTrail,
+                prism = not not triggerPrismSplit,
+                reinforced = not not synergyMods.forcePenetration,
+                thermal = synergyMods.statusEffect == 'burn',
+                homing = (synergyMods.homingBonus or 0) > 0
+            },
             damage = effectiveDamage * (emitter.damageScale or 1.0),
             hardpointOrigin = emitter.name,
             hardpointLevel = hpLevel,
@@ -573,10 +584,10 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
             isBoomerang = self.currentWeapon.isBoomerang or false,
             clusterCount = self.currentWeapon.clusterCount or 0,
             chainArc = chainArcCount,
-            explosion_radius = (self.currentWeapon.explosionRadius or 0) * (1.0 + (synergyMods.explosionRadiusBonus or 0)),
+            explosion_radius = effectiveExpRadius,
             knockbackForce = self.currentWeapon.knockbackForce or 0,
             graviticPull = self.currentWeapon.graviticPull or 0,
-            statusEffect = self.currentWeapon.statusEffect or (synergyMods.addCryoSlow and "cryo_slow") or nil,
+            statusEffect = self.currentWeapon.statusEffect or synergyMods.statusEffect or (synergyMods.addCryoSlow and "cryo_slow") or nil,
             voidDetonator = self.currentWeapon.voidDetonator or false,
             color = self.currentWeapon.color
         }

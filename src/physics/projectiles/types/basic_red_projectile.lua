@@ -70,7 +70,7 @@ function BasicRedProjectile.new(world, x, y, angle, speed, custom_config)
     self.core_brightness = 1.0
     
     -- Inicializar efectos específicos del láser
-    self:initializeLaserEffects()
+    if not self.vfxProfile then self:initializeLaserEffects() end
     
     return self
 end

@@ -71,7 +71,7 @@ function PlasmaProjectile.new(world, x, y, angle, speed, custom_config)
     self.core_temperature = 1.0
     
     -- Inicializar efectos específicos del plasma
-    self:initializePlasmaEffects()
+    if not self.vfxProfile then self:initializePlasmaEffects() end
     
     return self
 end
