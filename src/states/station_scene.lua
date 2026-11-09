@@ -50,6 +50,8 @@ function StationScene:new(placeholder)
 end
 
 function StationScene:enter(params)
+    local ship = World.get('player')
+    if ship and ship.abilitySystem then ship.abilitySystem:cancel() end
     self.map = StationMap.load(self.stationId)
     self.map:bakeAll()
 

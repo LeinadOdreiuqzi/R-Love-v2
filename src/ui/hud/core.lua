@@ -7,9 +7,9 @@ local WeaponHUD = require('src.ui.weapon_hud')
 
 -- Estado del HUD unificado con optimizaciones
 HUD.hudState = {
-  showInfo = true,
+  showInfo = false,
   showSeedInput = false,
-  showBiomeInfo = true,
+  showBiomeInfo = false,
   showDebugMenu = false,
   phaseVisualsEnabled = true,
   seedInputText = "",

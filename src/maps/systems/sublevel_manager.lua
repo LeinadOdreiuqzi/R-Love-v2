@@ -7,6 +7,7 @@ local Map = require 'src.maps.map'
 local MapGenerator = require 'src.maps.systems.map_generator'
 local SeedSystem = require 'src.utils.seed_system'
 local World = require 'src.core.world'
+local ShipMovement = require 'src.physics.ship_movement'
 
 -- Opcional: usar PhaseSystem para límites temporales
 -- No usar PhaseSystem en subniveles: límites propios del subnivel
@@ -57,6 +58,7 @@ end
 
 local function pushPreviousContext()
     local prev = {
+        context = SubLevelManager.state.current,
         seed = Map.seed,
         numericSeed = Map.numericSeed,
         player = nil,
@@ -128,6 +130,10 @@ function SubLevelManager.enter(cfg)
     local camera = World.get('camera')
     
     if player then
+        if player.abilitySystem then player.abilitySystem:cancel() end
+        player.projectiles = {}
+        player.projectileVFX = nil
+        player.combatContext = cfg
         player.x = cfg.entry.x or 0
         player.y = cfg.entry.y or 0
         player.dx = 0; player.dy = 0
@@ -150,6 +156,10 @@ function SubLevelManager.exit()
     local camera = World.get('camera')
     
     if prev and prev.player and player then
+        if player.abilitySystem then player.abilitySystem:cancel() end
+        player.projectiles = {}
+        player.projectileVFX = nil
+        player.combatContext = prev.context
         player.x = prev.player.x; player.y = prev.player.y
         player.dx = prev.player.dx; player.dy = prev.player.dy
         player.rotation = prev.player.rotation
@@ -168,7 +178,25 @@ function SubLevelManager.exit()
     -- Si la pila quedó vacía, desactivar estado
     if #SubLevelManager.state.stack == 0 then
         SubLevelManager.state.active = false
+    else
+        SubLevelManager.state.current = prev and prev.context
     end
+end
+
+-- Same local collision contract for ordinary ship movement and Phase Dash.
+-- These are space sublevels; station interiors use their own platform player.
+function SubLevelManager.constrainShipMovement(ship, x, y, targetX, targetY)
+    local cfg = SubLevelManager.state.current
+    local meta = cfg and cfg.meta or {}
+    local limit = meta.subworldId == 'nebulae_debug' and 3400 or 20000
+    local solids
+    if meta.subworldId == 'stations_debug' then
+        local stations = package.loaded['src.sublevels.stations_debug_world']
+        solids = stations and stations.stations
+    end
+    local radius = (ship.size or 14) * (ship.worldScale or 1) * .85
+    return ShipMovement.constrain(x, y, targetX, targetY, radius,
+        {minX = -limit, minY = -limit, maxX = limit, maxY = limit}, solids)
 end
 
 -- Información de estado (para HUD o debug)

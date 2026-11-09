@@ -6,8 +6,8 @@ local GameState = require('src.core.game_state')
 function HUD.drawUnifiedInfoPanel()
     local panelWidth = 360
     local panelHeight = 500
-    local x = 10
-    local y = 10
+    local x = 14
+    local y = 74
     
     love.graphics.setColor(0, 0, 0, 0.75)
     love.graphics.rectangle("fill", x, y, panelWidth, panelHeight)

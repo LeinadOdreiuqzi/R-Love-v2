@@ -289,10 +289,12 @@ local function drawImpact(effect, t)
     end
 end
 
-local function drawTrail(trail, time, detail)
-    for i = 1, trail.count - 1 do
+local function drawTrail(trail, time, detail, stride)
+    stride = stride or 1
+    for i = 1, trail.count - 1, stride do
         local newer = trail.points[(trail.head - i) % TRAIL_POINTS + 1]
-        local older = trail.points[(trail.head - i - 1) % TRAIL_POINTS + 1]
+        local offset = math.min(trail.count, i + stride)
+        local older = trail.points[(trail.head - offset) % TRAIL_POINTS + 1]
         local alpha = math.max(0, 1 - (time - older.time) / TRAIL_LIFE)
         if alpha > 0 then
             segment(older.x, older.y, newer.x, newer.y, trail.width * (.2 + alpha), trail.color, alpha * .55)
@@ -414,7 +416,9 @@ function VFX.draw(owner)
             local point = trail.points[(trail.head - i) % TRAIL_POINTS + 1]
             onScreen = onScreen or visible(point.x, point.y, 32)
         end
-        if onScreen then drawTrail(trail, state.time, secondaryDetail and scale * trail.width > 2) end
+        -- Under dense fire merge adjacent visual segments, retaining endpoints,
+        -- the complete history and real impact/arc effects. Simulation is unchanged.
+        if onScreen then drawTrail(trail, state.time, secondaryDetail and scale * trail.width > 2, secondaryDetail and 1 or 2) end
     end
     for _, effect in ipairs(state and state.effects or {}) do
         local t = effect.age / effect.duration

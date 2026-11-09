@@ -341,6 +341,7 @@ function InventoryUI:draw(player)
     if not uiState.isOpen or not player or not player.inventory then 
         return 
     end
+    uiState.currentPlayer = player
     
     love.graphics.push()
     
@@ -386,74 +387,8 @@ end
 
 -- Función para dibujar el Tooltip Detallado
 function InventoryUI:drawTooltip(item)
-    local data = item.data
-    local mouseX, mouseY = uiState.mouseX, uiState.mouseY
-    local padding = 12
-    local width = uiState.tooltipWidth
-    local colors = uiState.colors
-    
-    -- Fuentes
-    local font = uiState.font
-    local smallFont = uiState.smallFont
-    
-    -- Preparar textos
-    local name = data.name or "Unknown Item"
-    local category = (data.category or "N/A"):gsub("^%l", string.upper)
-    local rarity = "Común"
-    local rColor = colors.rarity.common
-    
-    if data.rarity then
-        if type(data.rarity) == "table" then
-            rarity = data.rarity.name or "Común"
-            rColor = data.rarity.color or rColor
-        elseif type(data.rarity) == "string" then
-            rarity = data.rarity:gsub("^%l", string.upper)
-            rColor = colors.rarity[data.rarity] or rColor
-        end
-    end
-    
-    local description = data.description or ""
-    
-    -- Calcular altura dinámica
-    local _, wrappedDesc = font:getWrap(description, width - padding * 2)
-    local descHeight = #wrappedDesc * font:getHeight()
-    local height = 80 + descHeight + (data.value and 25 or 0)
-    
-    -- Posicionar tooltip (evitar que se salga de la pantalla)
-    local tx = mouseX + 15
-    local ty = mouseY + 15
-    if tx + width > love.graphics.getWidth() then tx = mouseX - width - 15 end
-    if ty + height > love.graphics.getHeight() then ty = mouseY - height - 15 end
-    
-    -- Fondos
-    love.graphics.setColor(0, 0, 0, 0.9)
-    love.graphics.rectangle("fill", tx, ty, width, height, 4, 4)
-    love.graphics.setColor(rColor[1], rColor[2], rColor[3], 0.3)
-    love.graphics.rectangle("line", tx, ty, width, height, 4, 4)
-    
-    -- Título (Nombre + Rareza)
-    love.graphics.setFont(font)
-    love.graphics.setColor(rColor)
-    love.graphics.print(name, tx + padding, ty + padding)
-    
-    love.graphics.setFont(smallFont)
-    love.graphics.setColor(colors.textSecondary)
-    love.graphics.print(category .. " | " .. rarity, tx + padding, ty + padding + 20)
-    
-    -- Línea divisoria
-    love.graphics.setColor(0.3, 0.3, 0.3, 0.5)
-    love.graphics.line(tx + padding, ty + 45, tx + width - padding, ty + 45)
-    
-    -- Descripción
-    love.graphics.setFont(font)
-    love.graphics.setColor(colors.text)
-    love.graphics.printf(description, tx + padding, ty + 55, width - padding * 2)
-    
-    -- Valor/Peso si existe
-    if data.value then
-        love.graphics.setFont(smallFont)
-        love.graphics.setColor(1, 0.8, 0, 1)
-        love.graphics.print("Valor: " .. data.value .. " créditos", tx + padding, ty + height - 20)
+    if item and item.data then
+        return require('src.ui.combat_theme').tooltip(uiState.currentPlayer or World.get('player'), item.data, uiState.mouseX, uiState.mouseY)
     end
 end
 
@@ -650,11 +585,29 @@ function InventoryUI:drawItem(x, y, size, item)
     if #firstChar == 1 then
         firstChar = firstChar:upper()
     end
-    local badgeText = item.data.isEvolved and ("★" .. firstChar) or firstChar
+    local badgeText = firstChar
     local tw = uiState.font:getWidth(badgeText)
     local th = uiState.font:getHeight()
     love.graphics.print(badgeText, x + (size - tw)/2, y + (size - th)/2)
     
+    if item.data.isEvolved then
+        love.graphics.setColor(.78,.53,1)
+        require('src.ui.combat_theme').star(x+size-7,y+7,5)
+    end
+    local status = require('src.ui.combat_presentation').item(uiState.currentPlayer or World.get('player'), item.data)
+    local label, tint
+    if #status.amplifications > 0 then
+        label, tint = '+' .. #status.amplifications, {.25,.87,1}
+    else
+        for _, recipe in ipairs(status.recipes) do
+            if recipe.available then label, tint = 'REC', {1,.73,.26}; break end
+        end
+    end
+    if label then
+        love.graphics.setFont(uiState.smallFont)
+        love.graphics.setColor(tint)
+        love.graphics.print(label, x + 3, y + 2)
+    end
     -- Cantidad
     if item.quantity and item.quantity > 1 then
         love.graphics.setFont(uiState.smallFont)

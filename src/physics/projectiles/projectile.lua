@@ -12,6 +12,7 @@
     - Cálculo de trayectorias
 --]]
 
+local CollisionQuery = require 'src.physics.projectiles.collision_query'
 local ProjectileVFX = require('src.physics.projectiles.projectile_vfx')
 local Projectile = {}
 Projectile.__index = Projectile
@@ -269,10 +270,11 @@ function Projectile:update(dt)
         end
     elseif self.homingStrength and self.homingStrength > 0 and Naves and Naves.getAllShips then
         local ships = Naves.getAllShips()
+        local ownerCtx = self.owner and self.owner.combatContext
         local bestShip, bestDistSq = nil, 460 * 460
         for i = 1, #ships do
             local s = ships[i]
-            if s and s ~= self.owner and not s.isAbandoned and s.x and s.y then
+            if s and s ~= self.owner and s.combatContext == ownerCtx and not s.isAbandoned and s.x and s.y then
                 local dx = s.x - self.x
                 local dy = s.y - self.y
                 local dSq = dx * dx + dy * dy
@@ -297,10 +299,11 @@ function Projectile:update(dt)
 
     if self.graviticPull and self.graviticPull > 0 and Naves and Naves.getAllShips then
         local ships = Naves.getAllShips()
+        local ownerCtx = self.owner and self.owner.combatContext
         local pullRadiusSq = self.graviticRadius * self.graviticRadius
         for i = 1, #ships do
             local s = ships[i]
-            if s and s ~= self.owner and s.x and s.y then
+            if s and s ~= self.owner and s.combatContext == ownerCtx and s.x and s.y then
                 local dx = self.x - s.x
                 local dy = self.y - s.y
                 local dSq = dx * dx + dy * dy
@@ -392,9 +395,10 @@ function Projectile:checkSpatialCollisions()
     local Naves = package.loaded['src.entities.naves']
     if Naves and Naves.getAllShips then
         local ships = Naves.getAllShips()
+        local ownerCtx = self.owner and self.owner.combatContext
         for i = 1, #ships do
             local ship = ships[i]
-            if ship and ship ~= self.owner and ship.x and ship.y and not (self.hitTargets and self.hitTargets[ship]) then
+            if ship and ship ~= self.owner and ship.combatContext == ownerCtx and ship.x and ship.y and not (self.hitTargets and self.hitTargets[ship]) then
                 local shipRadius = math.max(15, (ship.size or 14) * 1.15)
                 local hitDist = shipRadius + projRadius
                 local distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
@@ -418,7 +422,7 @@ function Projectile:checkSpatialCollisions()
                         local arcsLeft = self.chainArc
                         for j = 1, #ships do
                             local otherShip = ships[j]
-                            if otherShip and otherShip ~= self.owner and otherShip ~= ship and otherShip.x and otherShip.y then
+                            if otherShip and otherShip ~= self.owner and otherShip ~= ship and otherShip.combatContext == ownerCtx and otherShip.x and otherShip.y then
                                 local adx = otherShip.x - ship.x
                                 local ady = otherShip.y - ship.y
                                 if (adx * adx + ady * ady) <= (220 * 220) then
@@ -534,7 +538,12 @@ function Projectile:checkSpatialCollisions()
     -- 2A. Asteroides en la rejilla de tiles del chunk
     for cy = minCY, maxCY do
         for cx = minCX, maxCX do
-            local chunk = Map.getChunkNonBlocking(cx, cy)
+            local chunk
+            if self.collisionQuery and self.collisionQuery.map == Map then
+                chunk = CollisionQuery.get(self.collisionQuery, cx, cy)
+            else
+                chunk = Map.getChunkNonBlocking(cx, cy)
+            end
             if chunk and chunk.tiles then
                 local chunkBaseX = cx * strideScaled
                 local chunkBaseY = cy * strideScaled
@@ -603,41 +612,19 @@ function Projectile:checkSpatialCollisions()
         end
     end
 
-    -- 2B y 2C. Objetos especiales y grandes estructuras (pueden solaparse desde chunks adyacentes)
-    for cy = minCY - 2, maxCY + 2 do
-        for cx = minCX - 2, maxCX + 2 do
-            local chunk = Map.getChunkNonBlocking(cx, cy)
-            if chunk then
-                local chunkBaseX = cx * strideScaled
-                local chunkBaseY = cy * strideScaled
-
-                -- Objetos sólidos físicos del chunk (mega_asteroid, dead_star).
-                -- Nota: Las estaciones y ruinas (ancient_station / ancientRuinsPlaceholders) están en el plano de atraque inferior
-                -- y NO deben absorber proyectiles para permitir combate limpio en sus inmediaciones.
-                if chunk.specialObjects then
-                    for i = 1, #chunk.specialObjects do
-                        local obj = chunk.specialObjects[i]
-                        if obj and (obj.type == "mega_asteroid" or obj.type == "dead_star") then
-                            local objX = chunkBaseX + (obj.x or 0) * ws
-                            local objY = chunkBaseY + (obj.y or 0) * ws
-                            local objRadius = (obj.size or 30) * 0.90
-                            local hitDist = objRadius + projRadius
-                            local distSq, hitX, hitY = distSqPointToSegment(objX, objY, x1, y1, px, py)
-                            if distSq <= (hitDist * hitDist) then
-                                if audio and audio.play then
-                                    audio.play("hit", { volume = 0.5, pitchVariation = 0.1 })
-                                end
-                                if self.owner and self.owner.addImpactEffect then
-                                    self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
-                                end
-                                self.x, self.y = hitX, hitY
-                                self:destroy("special_object_hit")
-                                return
-                            end
-                        end
-                    end
-                end
+    -- Reuse immutable solid candidates for the synchronous projectile batch.
+    local query = self.collisionQuery or CollisionQuery.begin(Map)
+    for _, obj in ipairs(CollisionQuery.solids(query, minCX, maxCX, minCY, maxCY, strideScaled, ws)) do
+        local hitDist = obj.radius + projRadius
+        local distSq, hitX, hitY = distSqPointToSegment(obj.x, obj.y, x1, y1, px, py)
+        if distSq <= hitDist * hitDist then
+            if audio and audio.play then audio.play("hit", {volume = .5, pitchVariation = .1}) end
+            if self.owner and self.owner.addImpactEffect then
+                self.owner:addImpactEffect(hitX, hitY, self.config and self.config.color)
             end
+            self.x, self.y = hitX, hitY
+            self:destroy("special_object_hit")
+            return
         end
     end
 end
@@ -949,10 +936,11 @@ function Projectile:createExplosion()
     local Naves = package.loaded['src.entities.naves']
     if Naves and Naves.getAllShips then
         local ships = Naves.getAllShips()
+        local ownerCtx = self.owner and self.owner.combatContext
         local rSq = radius * radius
         for i = 1, #ships do
             local s = ships[i]
-            if s and s ~= self.owner and s.x and s.y then
+            if s and s ~= self.owner and s.combatContext == ownerCtx and s.x and s.y then
                 local dx = s.x - x
                 local dy = s.y - y
                 local dSq = dx * dx + dy * dy

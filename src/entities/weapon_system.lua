@@ -782,6 +782,8 @@ function WeaponSystem:reload()
     -- Iniciar recarga
     self.isReloading = true
     self.reloadStartTime = love.timer.getTime()
+    self.reloadElapsed = 0
+    self.reloadDuration = self:getEffectiveReloadTime(self.currentWeapon)
     
     local audio = (World.getAudio and World.getAudio()) or World.get('audio')
     if audio and audio.play then
@@ -828,10 +830,9 @@ function WeaponSystem:update(dt)
     
     -- Actualizar recarga
     if self.isReloading and self.currentWeapon then
-        local reloadTime = self:getEffectiveReloadTime(self.currentWeapon)
-        local currentTime = love.timer.getTime()
-        
-        if currentTime - self.reloadStartTime >= reloadTime then
+        self.reloadElapsed = (self.reloadElapsed or 0) + dt
+        local reloadTime = self.reloadDuration or self:getEffectiveReloadTime(self.currentWeapon)
+        if self.reloadElapsed >= reloadTime then
             -- Completar recarga
             self.ammunition[self.currentWeapon.id] = self.currentWeapon.maxAmmo
             self.isReloading = false
@@ -913,6 +914,12 @@ function WeaponSystem:wheelmoved(x, y)
 end
 
 -- Obtener información del arma actual
+function WeaponSystem:getReloadProgress()
+    if not self.isReloading then return 0 end
+    local duration = self.reloadDuration or self:getEffectiveReloadTime(self.currentWeapon)
+    return math.min(1, math.max(0, (self.reloadElapsed or 0) / math.max(.001, duration)))
+end
+
 function WeaponSystem:getCurrentWeaponInfo()
     if not self.currentWeapon then
         return nil
@@ -939,9 +946,7 @@ function WeaponSystem:getCurrentWeaponInfo()
     
     -- Calcular progreso de recarga
     if self.isReloading then
-        local reloadTime = self.currentWeapon.reloadTime or 2.0
-        local elapsed = love.timer.getTime() - self.reloadStartTime
-        info.reloadProgress = math.min(elapsed / reloadTime, 1.0)
+        info.reloadProgress = self:getReloadProgress()
     end
     
     return info

@@ -65,13 +65,13 @@ function HUD.drawSeedInput()
 end
 
 function HUD.drawCurrentSeedInfo()
-    if not HUD.gameState then return end
+    if not HUD.gameState or not HUD.hudState.showInfo then return end
     
     local currentSeed = HUD.gameState.currentSeed or "UNKNOWN00"
     local text = "Seed: " .. currentSeed
     local textWidth = HUD.hudState.smallFont:getWidth(text)
-    local x = love.graphics.getWidth() - textWidth - 15
-    local y = love.graphics.getHeight() - 45
+    local x = math.floor((love.graphics.getWidth() - textWidth) * 0.5)
+    local y = 14
     
     love.graphics.setColor(0, 0, 0, 0.6)
     love.graphics.rectangle("fill", x - 8, y - 3, textWidth + 16, 42)

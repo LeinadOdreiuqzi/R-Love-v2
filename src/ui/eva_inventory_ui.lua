@@ -69,8 +69,8 @@ end
 -- Dibujar item EVA
 function EVAInventoryUI:drawEVAItem(x, y, size, item)
     -- Delegar al método compartido del InventoryUI para unificar estilo y lógica
-    if InventoryUI and InventoryUI.drawEVAItem then
-        InventoryUI:drawEVAItem(x, y, size, item)
+    if InventoryUI and InventoryUI.drawItem then
+        InventoryUI:drawItem(x + 4, y + 4, size - 8, item)
         return
     end
     
@@ -167,8 +167,19 @@ function EVAInventoryUI:draw(evaPlayer)
     
     -- Dibujar panel de inventario EVA
     self:drawEVAInventoryPanel(inventoryToDraw)
-    
     love.graphics.pop()
+    if not evaUIState.modal.isOpen then
+        local mx,my=love.mouse.getPosition()
+        local layout=evaUIState.layout
+        for i=1,inventoryToDraw.maxSlots do
+            local x=layout.panelX+evaUIState.panelPadding+(i-1)*(evaUIState.slotSize+evaUIState.slotPadding)
+            local y=layout.panelY+25
+            local entry=inventoryToDraw.items[i]
+            if entry and entry.data and mx>=x and mx<=x+evaUIState.slotSize and my>=y and my<=y+evaUIState.slotSize then
+                require('src.ui.combat_theme').tooltip(evaPlayer.ship or require('src.core.world').get('player'),entry.data,mx,my)
+            end
+        end
+    end
 end
 
 -- Dibujar panel de inventario EVA

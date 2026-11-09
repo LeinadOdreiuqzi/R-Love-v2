@@ -11,12 +11,16 @@ function Ability.new(owner)
 end
 
 function Ability:cancel()
-    self.field, self.decoy = nil, nil
+    self.field, self.decoy, self.dashFlash = nil, nil, 0
     self.echoes, self.overclock, self.doubleCast = {}, 0, 0
 end
 
 function Ability:available()
     local p = self.owner
+    local world = package.loaded['src.core.world']
+    local manager = world and world.get('stateManager')
+    local scene = manager and manager:top()
+    if scene and scene.suspendUnderlying and scene.name ~= 'SubLevelScene' then return false end
     return not p.isInEVA and not p.isDestroyed and p.stats and p.stats.health.currentHealth > 0
 end
 
@@ -32,8 +36,8 @@ function Ability:triggerTactical()
     if self.q > 0 or not self:available() then return false end
     local sub = package.loaded['src.maps.systems.sublevel_manager']
     local status = sub and sub.getStatus and sub.getStatus()
-    if status and status.active then return false end
     self.echoes = {}
+    self.dashFlash = .35
     local p, mods = self.owner, self.owner.abilities or {}
     self.q = 6 * (1 - math.min(90, math.max(0, percent(p, 'cooldown_reduction_q'))) / 100)
     if mods.q_spawns_decoy then
@@ -45,18 +49,17 @@ function Ability:triggerTactical()
     local vx, vy = math.sin(angle) * 6, -math.cos(angle) * 6
     -- Keep the existing movement solver responsible for asteroid contacts.
     local phase = package.loaded['src.gameplay.phase_system']
-    -- Interior geometry has a separate movement solver; do not bypass it.
-    if not (status and status.active) then
-        for i = 1, 30 do
-            local x, y = p.x, p.y
-            p.x, p.y = x + vx, y + vy
-            if phase and phase.config.restrictMovement and phase.clampPlayerToCurrentPhase then
-                p.x, p.y = phase.clampPlayerToCurrentPhase(p.x, p.y)
-            end
-            if p.resolveAsteroidCollisions then p:resolveAsteroidCollisions(1 / 60) end
-            if i % 5 == 0 then self.echoes[#self.echoes + 1] = {x = p.x, y = p.y, angle = angle, life = .35} end
-            if math.abs(p.x - x - vx) + math.abs(p.y - y - vy) > 1 then break end
+    for i = 1, 30 do
+        local x, y = p.x, p.y
+        p.x, p.y = x + vx, y + vy
+        if status and status.active then
+            p.x, p.y = sub.constrainShipMovement(p, x, y, p.x, p.y)
+        elseif phase and phase.config.restrictMovement and phase.clampPlayerToCurrentPhase then
+            p.x, p.y = phase.clampPlayerToCurrentPhase(p.x, p.y)
         end
+        if not (status and status.active) and p.resolveAsteroidCollisions then p:resolveAsteroidCollisions(1 / 60) end
+        if i % 5 == 0 then self.echoes[#self.echoes + 1] = {x = p.x, y = p.y, angle = angle, life = .35} end
+        if math.abs(p.x - x - vx) + math.abs(p.y - y - vy) > 1 then break end
     end
     self:restoreShield(.15)
     return true
@@ -66,7 +69,7 @@ function Ability:triggerUltimate()
     if self.r > 0 or not self:available() then return false end
     local scale = 1 + math.max(0, percent(self.owner, 'ultimate_power_r')) / 100
     self.r = 25
-    self.field = {life = 5 * scale, radius = 180 * scale}
+    self.field = {life = 5 * scale, radius = 180 * scale, age = 0}
     self:restoreShield(1)
     return true
 end
@@ -78,6 +81,7 @@ function Ability:onKill(target)
 end
 
 function Ability:isHostile(ship)
+    if ship.combatContext ~= self.owner.combatContext then return false end
     local ai = ship.aiController
     if ship.wingmanOf == self.owner or (ai and ai.wingmanOf == self.owner) then return false end
     if ship.aiFaction and self.owner.aiFaction and ship.aiFaction == self.owner.aiFaction then return false end
@@ -87,6 +91,7 @@ end
 
 function Ability:update(dt, ships)
     self.clock = self.clock + dt
+    self.dashFlash = math.max(0, (self.dashFlash or 0) - dt)
     self.q, self.r = math.max(0, self.q - dt), math.max(0, self.r - dt)
     if not self:available() then self:cancel(); return end
     self.overclock, self.doubleCast = math.max(0, self.overclock - dt), math.max(0, self.doubleCast - dt)
@@ -101,6 +106,7 @@ function Ability:update(dt, ships)
     if self.field then
         local field, p = self.field, self.owner
         local elapsed = math.min(dt, field.life)
+        field.age = field.age + elapsed
         field.life = field.life - dt
         for _, ship in pairs(ships or {}) do
             if self:isHostile(ship) and (ship.x - p.x)^2 + (ship.y - p.y)^2 <= field.radius^2 then
@@ -129,11 +135,23 @@ function Ability:draw()
     if self.decoy then silhouette(self.decoy.x, self.decoy.y, p.rotation or 0, .5 + .2 * math.sin(self.clock * 20)) end
     if self.field then
         local radius = self.field.radius
+        local fade = math.min(1, self.field.age * 8, self.field.life)
+        -- A dark contour keeps the actual boundary readable over bright stars.
+        g.setBlendMode('alpha')
+        g.setLineWidth(4)
+        g.setColor(.015, .035, .08, fade * .7)
+        g.circle('line', p.x, p.y, radius, 64)
+        g.setBlendMode('add')
         g.setColor(.15, .4, 1, .05)
         g.circle('fill', p.x, p.y, radius, 64)
         g.setLineWidth(2)
         g.setColor(.3, .7, 1, math.min(1, self.field.life) * .65)
         g.circle('line', p.x, p.y, radius, 64)
+        for i = 1, 6 do
+            local angle = self.field.age * .35 + i * math.pi / 3
+            g.setColor(.4, .9, 1, fade * .7)
+            g.arc('line', 'open', p.x, p.y, radius * .94, angle, angle + .18, 5)
+        end
         for i = 1, 3 do
             local t = (self.clock * .7 + i / 3) % 1
             g.setColor(.2, .7, 1, (1 - t) * .3)
@@ -144,18 +162,7 @@ function Ability:draw()
 end
 
 function Ability:drawHUD()
-    if not self:available() then return end
-    local g = love.graphics
-    g.push('all'); g.origin()
-    local y = g.getHeight() - 60
-    for i, key in ipairs({'q', 'r'}) do
-        local x, remaining = math.max(20, (g.getWidth() - 308) / 2) + (i - 1) * 158, self[key]
-        g.setColor(.02, .04, .09, .9); g.rectangle('fill', x, y, 150, 42, 5)
-        g.setColor(.3, .8, 1, 1)
-        g.print(key:upper() .. ' ' .. (key == 'q' and 'Phase Dash' or 'Matrix Overload'), x + 7, y + 4)
-        g.print(remaining > 0 and string.format('%.1f s', remaining) or 'LISTA', x + 7, y + 23)
-    end
-    g.pop()
+    -- Drawn with the weapon strip so there is one layout owner for combat UI.
 end
 
 return Ability

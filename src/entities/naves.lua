@@ -1,3 +1,4 @@
+local CollisionQuery = require 'src.physics.projectiles.collision_query'
 local ProjectileVFX = require('src.physics.projectiles.projectile_vfx')
 -- src/entities/naves.lua
 -- Sistema de gestión de naves con persistencia de estado individual
@@ -353,6 +354,8 @@ function Naves:new(x, y, shipType)
     -- Sistema de armas con cambio rápido
     player.weaponSystem = WeaponSystem:new(player)
     player.abilitySystem = require('src.entities.ability_system').new(player)
+    local sublevel = package.loaded['src.maps.systems.sublevel_manager']
+    player.combatContext = sublevel and sublevel.state.active and sublevel.state.current or nil
 
     -- Configuraciones específicas de la nave
     player.shipSettings = {
@@ -894,7 +897,10 @@ function Naves:update(dt)
     
     -- Check phase system restrictions
     local PhaseSystem = require 'src.gameplay.phase_system'
-    if PhaseSystem and PhaseSystem.config.restrictMovement then
+    local sublevel = package.loaded['src.maps.systems.sublevel_manager']
+    if sublevel and sublevel.state.active then
+        self.x, self.y = sublevel.constrainShipMovement(self, self.x, self.y, newX, newY)
+    elseif PhaseSystem and PhaseSystem.config.restrictMovement then
         local success, result = pcall(function()
             return PhaseSystem.update(dt, newX, newY)
         end)
@@ -1162,7 +1168,8 @@ end
 
 -- Functions for testing damage and fuel
 function Naves:takeDamage(damage, attacker)
-    self.lastAttacker = attacker or self.lastAttacker
+    local source = attacker and (attacker.owner or attacker)
+    self.lastAttacker = source or self.lastAttacker
     self.lastDamageTime = love.timer.getTime()
 
     local w = getWorld()
@@ -1718,6 +1725,8 @@ function Naves:updateProjectiles(dt)
         return
     end
     
+    local map = package.loaded['src.maps.map']
+    local query = map and CollisionQuery.begin(map)
     -- Actualizar proyectiles y remover los destruidos en el mismo frame
     for i = #self.projectiles, 1, -1 do
         local projectile = self.projectiles[i]
@@ -1725,7 +1734,9 @@ function Naves:updateProjectiles(dt)
         if projectile:isDestroyed() then
             table.remove(self.projectiles, i)
         else
+            projectile.collisionQuery = query
             projectile:update(dt)
+            projectile.collisionQuery = nil
             if projectile:isDestroyed() then
                 table.remove(self.projectiles, i)
             end

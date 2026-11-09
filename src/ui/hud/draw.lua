@@ -126,15 +126,9 @@ function HUD.draw(inventoryOpen)
         end
     end
     
-    if HUD.player and HUD.player.weaponSystem then
-        if inventoryOpen then
-            love.graphics.setColor(1, 1, 1, 0.7)
-        end
+    if not inventoryOpen and HUD.player and HUD.player.weaponSystem then
         local WeaponHUD = require 'src.ui.weapon_hud'
-        WeaponHUD:draw(HUD.player)
-        if inventoryOpen then
-            love.graphics.setColor(1, 1, 1, 1)
-        end
+        WeaponHUD:draw(HUD.player, inventoryOpen)
     end
 
     if HUD.hudState.stationHint and HUD.hudState.stationHint.enabled then
