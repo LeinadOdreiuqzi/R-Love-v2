@@ -587,6 +587,49 @@ function Naves:updatePassivePhysics(dt)
     end
 end
 
+function Naves:emitPassivePulse(radius, force, color)
+    ProjectileVFX.pulse(self, radius, color)
+    for _, ship in ipairs(allShips) do
+        if self.abilitySystem and self.abilitySystem:isHostile(ship) then
+            local dx, dy = ship.x - self.x, ship.y - self.y
+            local distance = math.sqrt(dx * dx + dy * dy)
+            if distance > 0 and distance < radius then
+                local impulse = force * (1 - distance / radius) / distance
+                ship.dx = (ship.dx or 0) + dx * impulse
+                ship.dy = (ship.dy or 0) + dy * impulse
+            end
+        end
+    end
+end
+
+function Naves:applyBurn(source)
+    if self.isDestroyed or self.isAbandoned or self.stats.health.currentHealth <= 0
+        or self.stats.debug.invulnerable then return end
+    -- Repeated hits refresh duration without multiplying damage or delaying the next tick.
+    local burn = self.burn or {untilTick = 1}
+    burn.remaining, burn.source = 3, source
+    self.burn = burn
+end
+
+function Naves:updateBurn(dt)
+    local burn = self.burn
+    if not burn then return end
+    if self.isDestroyed or self.isAbandoned or self.stats.health.currentHealth <= 0
+        or (burn.source and burn.source.combatContext ~= self.combatContext) then
+        self.burn = nil
+        return
+    end
+    local elapsed = math.min(dt, burn.remaining)
+    burn.remaining = burn.remaining - elapsed
+    burn.untilTick = burn.untilTick - elapsed
+    while burn.untilTick <= 1e-8 do
+        burn.untilTick = burn.untilTick + 1
+        self:addImpactEffect(self.x, self.y, {1, .35, .08})
+        if self:takeDamage(2, burn.source) then self.burn = nil; return end
+    end
+    if burn.remaining <= 1e-8 then self.burn = nil end
+end
+
 function Naves:update(dt)
     -- Actualizar registro de nave
     self:updateShipRegistry()
@@ -595,6 +638,8 @@ function Naves:update(dt)
     
     local World = getWorld()
     local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
+
+    self:updateBurn(dt)
 
     -- Si esta nave no está siendo controlada por el jugador:
     if not isPlayer then
@@ -692,7 +737,7 @@ function Naves:update(dt)
     end
     local effectiveMaxBoostDuration = self.maxBoostDuration * boostDurMult
 
-    if self.input.boost and self.boostDuration < effectiveMaxBoostDuration then
+    if self.input.boost and self.stats:canMove() and self.boostDuration < effectiveMaxBoostDuration then
         local wasBoostActive = self.isBoostActive
         self.boostDuration = math.min(effectiveMaxBoostDuration, self.boostDuration + dt)
         self.isBoostActive = true
@@ -807,13 +852,10 @@ function Naves:update(dt)
          -- Activar drift intenso basado en velocidad
          if currentSpeed > self.driftActivation then
              -- DRIFT ACTIVO INTENSO - Preservar más inercia lateral
-             local currentDirX = self.dx / currentSpeed
-             local currentDirY = self.dy / currentSpeed
-             
              -- Calcular componente hacia adelante (en dirección de la nave: cos(theta - pi/2), sin(theta - pi/2))
              local forwardX = math.sin(self.rotation)
              local forwardY = -math.cos(self.rotation)
-             local forwardComponent = currentDirX * forwardX + currentDirY * forwardY
+             local forwardComponent = self.dx * forwardX + self.dy * forwardY
              
              -- Separar velocidad en componentes forward y lateral
              local forwardVelX = forwardComponent * forwardX
@@ -827,7 +869,10 @@ function Naves:update(dt)
              forwardVelY = forwardVelY * gradualBrakeFactor
              
              -- Preservar inercia lateral controlada para drift balanceado (88% preservado)
-             local driftPreservation = math.pow(self.driftFactor, dt * 60)
+             local abilities = self.abilities or {}
+             local factor = (abilities.inertial_gyro or abilities.phantom_drift_wave)
+                 and math.max(self.driftFactor, .96) or self.driftFactor
+             local driftPreservation = math.pow(factor, dt * 60)
              lateralVelX = lateralVelX * driftPreservation
              lateralVelY = lateralVelY * driftPreservation
              
@@ -931,7 +976,14 @@ function Naves:update(dt)
     -- Thruster particles have been removed
     
     -- Update stats system
-    self.stats:update(dt, isMoving)
+    local abilities = self.abilities or {}
+    self.phantomPulseCooldown = math.max(0, (self.phantomPulseCooldown or 0) - dt)
+    if self.isDrifting and self.isBoostActive and abilities.phantom_drift_wave and self.phantomPulseCooldown == 0 then
+        self.phantomPulseCooldown = .65
+        self:emitPassivePulse(110, 9, {.65, .46, 1})
+    end
+    local fuelMultiplier = self.isBoostActive and abilities.afterburner_efficiency or 1
+    self.stats:update(dt, isMoving, fuelMultiplier)
     
     -- Actualizar proyectiles
     self:updateProjectiles(dt)
@@ -1019,7 +1071,7 @@ function Naves:resolveAsteroidCollisions(dt)
                                         if impactSpeed > 18 and (now - (self._lastImpactDamageTime or 0)) > 0.35 then
                                             self._lastImpactDamageTime = now
                                             local dmg = math.max(1, (impactSpeed - 18) * 0.35)
-                                            self:takeDamage(dmg)
+                                            self:takeDamage(dmg, nil, "collision")
                                             if self.addImpactEffect then
                                                 self:addImpactEffect(self.x - nx * shipRadius, self.y - ny * shipRadius, {1.0, 0.75, 0.3, 1.0})
                                             end
@@ -1072,7 +1124,7 @@ function Naves:resolveAsteroidCollisions(dt)
                                 if impactSpeed > 18 and (now - (self._lastImpactDamageTime or 0)) > 0.35 then
                                     self._lastImpactDamageTime = now
                                     local dmg = math.max(1, (impactSpeed - 18) * 0.35)
-                                    self:takeDamage(dmg)
+                                    self:takeDamage(dmg, nil, "collision")
                                     if self.addImpactEffect then
                                         self:addImpactEffect(self.x - nx * shipRadius, self.y - ny * shipRadius, {1.0, 0.75, 0.3, 1.0})
                                     end
@@ -1094,7 +1146,7 @@ function Naves:handleInput()
         backward = love.keyboard.isDown("s"),
         left = love.keyboard.isDown("a"),
         right = love.keyboard.isDown("d"),
-        brake = love.keyboard.isDown("lshift"),
+        brake = love.keyboard.isDown("lshift", "rshift"),
         boost = love.keyboard.isDown("space"),  -- Boost temporal
     }
     self.input.isMoving = self.input.forward or self.input.backward or self.input.left or self.input.right
@@ -1167,7 +1219,11 @@ function Naves:updateThrusterParticles(dt)
 end
 
 -- Functions for testing damage and fuel
-function Naves:takeDamage(damage, attacker)
+function Naves:takeDamage(damage, attacker, damageType)
+    if damageType == "collision" then
+        local resistance = (self.resistances or {}).collision or 0
+        damage = damage * (1 - math.min(100, math.max(0, resistance)) / 100)
+    end
     local source = attacker and (attacker.owner or attacker)
     self.lastAttacker = source or self.lastAttacker
     self.lastDamageTime = love.timer.getTime()
@@ -1198,7 +1254,12 @@ function Naves:takeDamage(damage, attacker)
     end
 
     local wasAlive = self.stats.health.currentHealth > 0
+    local shieldBefore = self.stats.shield.currentShield
     local died = self.stats:takeDamage(damage)
+    if wasAlive and shieldBefore > 0 and self.stats.shield.currentShield <= 0
+        and (self.abilities or {}).shield_break_shockwave then
+        self:emitPassivePulse(145, 14, {.3, .85, 1})
+    end
     if died and wasAlive then
         if self.abilitySystem then self.abilitySystem:cancel() end
         local source = attacker and (attacker.owner or attacker)
@@ -1220,7 +1281,7 @@ function Naves:takeDamage(damage, attacker)
         end
     end
 
-    if audio and audio.play and volMult > 0.05 then
+    if audio and audio.play and volMult > 0.05 and (damageType ~= "heat" or died) then
         if died then
             audio.play("explosion", { volume = 0.9 * volMult })
         else

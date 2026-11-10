@@ -45,13 +45,13 @@ function PlayerStats:new()
     return stats
 end
 
-function PlayerStats:update(dt, isMoving)
+function PlayerStats:update(dt, isMoving, fuelMultiplier)
     -- Actualizar escudo
     self:updateShield(dt)
     
     -- Consumir combustible si se está moviendo
     if isMoving and not self.debug.infiniteFuel then
-        self:consumeFuel(dt)
+        self:consumeFuel(dt, fuelMultiplier)
     end
     
     -- Actualizar corazones basado en vida actual
@@ -89,9 +89,9 @@ function PlayerStats:updateShield(dt)
     end
 end
 
-function PlayerStats:consumeFuel(dt)
+function PlayerStats:consumeFuel(dt, fuelMultiplier)
     if self.fuel.currentFuel > 0 then
-        local consumption = self.fuel.consumeRate * self.fuel.efficiency * dt
+        local consumption = self.fuel.consumeRate * self.fuel.efficiency * dt * (fuelMultiplier or 1)
         self.fuel.currentFuel = math.max(0, self.fuel.currentFuel - consumption)
     end
 end

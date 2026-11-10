@@ -133,7 +133,7 @@ function Passives.registerAll()
     registerPassive({
         id = "salvage_magnet_array",
         name = "Matriz Magnética de Botín",
-        description = "Duplica el radio de atracción de botín y recoger chatarra restaura +4 de escudo.",
+        description = "Duplica el radio de atracción de botín y recoger botín a bordo restaura +4 de escudo.",
         value = 600, weight = 0.5,
         tags = {"utility", "salvage", "shield"},
         passiveEffects = {

@@ -239,9 +239,26 @@ function WorldItems.draw(camera, playerX, playerY)
     return itemsRendered
 end
 
+local function pickupRange(base, ship, isEVA)
+    if isEVA or not ship then return base end
+    local modifier = (ship.passiveModifiers or {}).pickup_radius
+    local percent = type(modifier) == 'table' and (modifier.percent or 0) or tonumber(modifier) or 0
+    return base * math.max(0, 1 + percent / 100)
+end
+
+local function restoreSalvageShield(ship, isEVA)
+    if isEVA or not ship then return end
+    local amount = (ship.abilities or {}).scrap_shield_siphon
+    local shield = ship.stats and ship.stats.shield
+    if amount and shield then
+        shield.currentShield = math.min(shield.maxShield, shield.currentShield + amount)
+    end
+end
+
 -- Intentar recoger items cerca de una posición
 function WorldItems.tryPickup(x, y, inventory, isEVA)
-    local pickupDistance = isEVA and CONFIG.EVA_PICKUP_DISTANCE or CONFIG.PICKUP_DISTANCE
+    local ship = inventory and inventory.player
+    local pickupDistance = pickupRange(isEVA and CONFIG.EVA_PICKUP_DISTANCE or CONFIG.PICKUP_DISTANCE, ship, isEVA)
     local pickedItems = {}
     
     for i = #worldItems, 1, -1 do
@@ -272,6 +289,7 @@ function WorldItems.tryPickup(x, y, inventory, isEVA)
                 end
             end
             
+            if success then restoreSalvageShield(ship, isEVA) end
             if success or (inventory and inventory.isAI) then
                 table.insert(pickedItems, {
                     name = item.itemData and item.itemData.name or "Objeto",
@@ -336,7 +354,7 @@ function WorldItems.checkCollection(item)
         if ship.isInEVA and ship.evaPlayer then
             collectionRange = CONFIG.COLLECTION.EVA_RANGE
         else
-            collectionRange = CONFIG.COLLECTION.SHIP_RANGE
+            collectionRange = pickupRange(CONFIG.COLLECTION.SHIP_RANGE, ship, false)
         end
         
         if distance <= collectionRange then
@@ -367,7 +385,7 @@ function WorldItems.tryManualCollection()
         if ship.isInEVA and ship.evaPlayer then
             collectionRange = CONFIG.COLLECTION.EVA_RANGE
         else
-            collectionRange = CONFIG.COLLECTION.SHIP_RANGE
+            collectionRange = pickupRange(CONFIG.COLLECTION.SHIP_RANGE, ship, false)
         end
         
         -- Buscar el item más cercano dentro del rango
@@ -482,6 +500,12 @@ function WorldItems.collectItem(item, ship)
     
     print("[MANUAL COLLECTION] Recolectando en inventario:", inventoryType)
     
+    local function finishPickup()
+        restoreSalvageShield(ship, ship.isInEVA)
+        if ship.inventory.evaluateSynergies then ship.inventory:evaluateSynergies() end
+        return true
+    end
+
     -- 1. Si el item es stackeable, intentar apilar primero con items existentes
     if item.itemData.stackable then
         for slot = 1, maxSlots do
@@ -502,7 +526,7 @@ function WorldItems.collectItem(item, ship)
                         if itemInstance.data then itemInstance.data.quantity = item.quantity end
                         itemInstance.quantity = item.quantity
                     else
-                        return true
+                        return finishPickup()
                     end
                 end
             end
@@ -517,7 +541,7 @@ function WorldItems.collectItem(item, ship)
                 itemInstance.data.quantity = item.quantity
             end
             targetInventory[slot] = itemInstance
-            return true
+            return finishPickup()
         end
     end
     

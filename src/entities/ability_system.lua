@@ -40,11 +40,13 @@ function Ability:triggerTactical()
     self.dashFlash = .35
     local p, mods = self.owner, self.owner.abilities or {}
     self.q = 6 * (1 - math.min(90, math.max(0, percent(p, 'cooldown_reduction_q'))) / 100)
+    self.qDuration = self.q
     if mods.q_spawns_decoy then
         self.decoy = {x = p.x, y = p.y, dx = 0, dy = 0, life = mods.q_spawns_decoy}
     end
     self.overclock = tonumber(mods.q_overclock_weapons) or 0
     self.doubleCast = tonumber(mods.q_double_cast_weapons) or 0
+    self.qActiveDuration = math.max(self.dashFlash, self.overclock, self.doubleCast, self.decoy and self.decoy.life or 0)
     local angle = p.rotation or 0
     local vx, vy = math.sin(angle) * 6, -math.cos(angle) * 6
     -- Keep the existing movement solver responsible for asteroid contacts.
@@ -69,7 +71,8 @@ function Ability:triggerUltimate()
     if self.r > 0 or not self:available() then return false end
     local scale = 1 + math.max(0, percent(self.owner, 'ultimate_power_r')) / 100
     self.r = 25
-    self.field = {life = 5 * scale, radius = 180 * scale, age = 0}
+    self.rDuration = self.r
+    self.field = {life = 5 * scale, duration = 5 * scale, radius = 180 * scale, age = 0}
     self:restoreShield(1)
     return true
 end

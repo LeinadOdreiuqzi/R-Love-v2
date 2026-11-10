@@ -125,6 +125,10 @@ local function emit(owner, kind, x, y, color, size, duration, vx, vy, x2, y2, fa
     state.effects[#state.effects + 1] = effect
 end
 
+function VFX.pulse(owner, radius, color)
+    emit(owner, 'ring', owner.x, owner.y, color, radius, .42)
+end
+
 local function addPoint(trail, x, y, time)
     trail.head = trail.head % TRAIL_POINTS + 1
     local point = trail.points[trail.head]

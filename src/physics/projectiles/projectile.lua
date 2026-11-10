@@ -379,6 +379,14 @@ end
 --[[
     Comprueba colisiones espaciales continuas (raycast por segmento) contra naves, asteroides y estaciones
 --]]
+function Projectile:damageTarget(target, amount)
+    if not target.takeDamage then return end
+    local killed = target:takeDamage(amount, self.owner or self)
+    if not killed and self.statusEffect == "burn" and target.applyBurn then
+        target:applyBurn(self.owner)
+    end
+end
+
 function Projectile:checkSpatialCollisions()
     if self.state == ProjectileState.DESTROYED then return end
 
@@ -403,9 +411,7 @@ function Projectile:checkSpatialCollisions()
                 local hitDist = shipRadius + projRadius
                 local distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
                 if distSq <= (hitDist * hitDist) then
-                    if ship.takeDamage then
-                        ship:takeDamage(self.damage, self.owner)
-                    end
+                    self:damageTarget(ship, self.damage)
                     local angle = self.angle or self:getAngle()
                     local kb = 2.0 + (self.knockbackForce or 0) * 0.08
                     ship.dx = (ship.dx or 0) + math.cos(angle) * kb
@@ -810,10 +816,9 @@ end
 function Projectile:handleTargetHit(target, contact)
     -- TODO: Implementar manejo de impacto contra objetivo
     
-    -- Aplicar daño
-    if target.takeDamage then
-        target:takeDamage(self.damage, self)
-    end
+    if target == self.owner or self.hitTargets[target] then return end
+    self.hitTargets[target] = true
+    self:damageTarget(target, self.damage)
     
     -- Crear efectos de impacto
     self:createImpactEffects(contact)
@@ -946,9 +951,7 @@ function Projectile:createExplosion()
                 local dSq = dx * dx + dy * dy
                 if dSq <= rSq then
                     local falloff = math.max(0.35, 1.0 - math.sqrt(dSq) / math.max(1, radius))
-                    if s.takeDamage then
-                        s:takeDamage((self.damage or 15) * 0.65 * falloff, self.owner)
-                    end
+                    self:damageTarget(s, (self.damage or 15) * 0.65 * falloff)
                     if s.addImpactEffect then
                         s:addImpactEffect(s.x, s.y, self.config and self.config.color)
                     end

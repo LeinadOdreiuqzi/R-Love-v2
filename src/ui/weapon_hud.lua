@@ -6,8 +6,7 @@ local WeaponHUD = {
     visible = true,
     carouselTimer = 0,
     carouselOpen = 0,
-    lastSlot = nil,
-    lastUpdateFrame = -1
+    lastSlot = nil
 }
 
 -- Extrae los primeros `n` caracteres UTF-8 completos sin cortar secuencias multibyte (ñ, á, ★, etc.)
@@ -38,7 +37,7 @@ function WeaponHUD:update(dt)
     if self.carouselTimer > 0 then
         self.carouselTimer = math.max(0, self.carouselTimer - dt)
     end
-    local holdExpand = love.keyboard and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl') or love.keyboard.isDown('tab'))
+    local holdExpand = love.keyboard and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl'))
     local target = (self.carouselTimer > 0 or holdExpand or self.isHoveringCarousel) and 1 or 0
     local speed = target > self.carouselOpen and 14 or 9
     self.carouselOpen = self.carouselOpen + (target - self.carouselOpen) * math.min(1, dt * speed)
@@ -163,12 +162,6 @@ function WeaponHUD:draw(player, suppressTooltip)
     end
 
     local mx, my = love.mouse.getPosition()
-    self.isHoveringCarousel = (mx >= layout.gunX - 8 and mx <= layout.gunX + layout.cardW + layout.stripW + 8
-        and my >= layout.gunY - (self.carouselOpen > 0.05 and 220 or 12) and my <= layout.gunY + layout.cardH + 8)
-
-    local dt = (love.timer and love.timer.getDelta and love.timer.getDelta()) or (1 / 60)
-    self:update(math.min(0.05, dt))
-
     -- Construir lista circular de armas equipadas (para el carrusel tipo Enter the Gungeon)
     local otherEquipped = {}
     for offset = 1, 8 do
@@ -178,6 +171,12 @@ function WeaponHUD:draw(player, suppressTooltip)
             otherEquipped[#otherEquipped + 1] = s
         end
     end
+
+    local stepH = math.min(32, math.max(18, math.floor((layout.gunY - 40) / math.max(1, #otherEquipped))))
+    local deckHeight = math.max(12, (#otherEquipped * stepH + 4) * self.carouselOpen)
+    self.isHoveringCarousel = not suppressTooltip and mx >= layout.gunX - 8
+        and mx <= layout.gunX + layout.cardW + layout.stripW + 8
+        and my >= layout.gunY - deckHeight and my <= layout.gunY + layout.cardH + 8
 
     local hovered = nil
     g.push('all')
@@ -218,11 +217,13 @@ function WeaponHUD:draw(player, suppressTooltip)
             elseif info.remaining > 0 then
                 statusText = string.format('CD %.1fs', info.remaining)
             end
-            g.print(statusText, x + 6, y + 23)
+            g.print(statusText, x + 6, y + (layout.compact and 20 or 23))
 
             -- Barra inferior de progreso/estado de la habilidad
-            local maxCD = key == 'q' and 6.0 or 25.0
-            local ratio = info.active > 0 and math.min(1, info.active / (key == 'q' and 3.5 or 5.0))
+            local maxCD = player.abilitySystem[key .. 'Duration'] or (key == 'q' and 6 or 25)
+            local system = player.abilitySystem
+            local activeDuration = key == 'q' and system.qActiveDuration or (system.field and system.field.duration)
+            local ratio = info.active > 0 and math.min(1, info.active / (activeDuration or info.active))
                 or info.remaining > 0 and math.max(0, 1 - info.remaining / maxCD)
                 or 1
             g.setColor(0.08, 0.14, 0.20, 0.95)
@@ -253,18 +254,17 @@ function WeaponHUD:draw(player, suppressTooltip)
 
     -- B) Estado expandido (Carrusel al cambiar de arma o mantener Ctrl/hover):
     --    Despliega las demás armas equipadas en abanico vertical sobre el arma activa
-    local maxVisibleDeck = math.min(#otherEquipped, 5)
+    local maxVisibleDeck = #otherEquipped
     if self.carouselOpen > 0.02 and maxVisibleDeck > 0 then
-        local stepH = 34
         for i = maxVisibleDeck, 1, -1 do
             local slot = otherEquipped[i]
             local t = self.carouselOpen
-            local scale = 1 - i * 0.045
+            local scale = 1 - math.min(i, 4) * 0.025
             local w = math.floor(cardW * scale)
-            local h = 30
+            local h = stepH - 3
             local cx = gunX + (cardW - w)
             local cy = gunY - math.floor((i * stepH + 4) * t)
-            local alpha = math.max(0.18, (1 - (i - 1) * 0.16) * t)
+            local alpha = (1 - (i - 1) * .045) * t
             local c = slot.data and slot.data.isEvolved and colors.evolved or colors.muted
 
             g.setColor(0.015, 0.035, 0.065, 0.86 * alpha)
@@ -279,9 +279,17 @@ function WeaponHUD:draw(player, suppressTooltip)
 
             -- Glifo compacto + nombre corto UTF-8
             drawWeaponGlyph(g, slot.data, cx + 36, cy + 12, 0.62, {c[1], c[2], c[3], 0.9 * alpha})
-            local shortName = self:getShortWeaponName(slot.data.name)
+            local shortName = self:getShortWeaponName(slot.data.name):gsub('^★%s*', '')
+            while Theme.small:getWidth(shortName) > w - 80 and utf8Len(shortName) > 1 do
+                shortName = utf8Sub(shortName, utf8Len(shortName) - 1)
+            end
             g.setColor(colors.text[1], colors.text[2], colors.text[3], 0.92 * alpha)
-            g.print(shortName:gsub('^★%s*', ''), cx + 54, cy + 4)
+            g.print(shortName, cx + 49, cy + 3)
+            if slot.ammo then
+                local ammoColor = slot.ammo == 0 and colors.danger or colors.text
+                g.setColor(ammoColor[1], ammoColor[2], ammoColor[3], alpha)
+                g.printf(tostring(slot.ammo), cx + w - 30, cy + 3, 18, 'right')
+            end
 
             if slot.data.isEvolved then
                 g.setColor(colors.evolved[1], colors.evolved[2], colors.evolved[3], alpha)
@@ -351,11 +359,13 @@ function WeaponHUD:draw(player, suppressTooltip)
         end
 
         -- Nombre del arma seleccionada justo encima de la caja activa (o sobre el carrusel si está cerrado)
-        local nameY = gunY - (self.carouselOpen > 0.05 and (maxVisibleDeck * 34 + 24) * self.carouselOpen or 18)
         g.setFont(Theme.font)
         g.setColor(current.data.isEvolved and colors.evolved or colors.text)
         local cleanName = (current.data.name or ''):gsub('★%s*', '')
-        g.printf(cleanName, gunX - 36, nameY, cardW + layout.stripW + 40, 'right')
+        local nameWidth = cardW + layout.stripW + 40
+        local _, wrapped = Theme.font:getWrap(cleanName, nameWidth)
+        local nameY = gunY - deckHeight - #wrapped * Theme.font:getHeight() - 3
+        g.printf(cleanName, gunX - 36, nameY, nameWidth, 'right')
 
         if mx >= gunX and mx <= gunX + cardW + layout.stripW + 4 and my >= gunY and my <= gunY + cardH then
             hovered = current.data

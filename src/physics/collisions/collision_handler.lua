@@ -420,10 +420,7 @@ function CollisionHandler.handleProjectileTargetCollision(collision_data)
         -- Delegar al proyectil el manejo de la colisión
         if projectile.onCollision then
             projectile:onCollision(target, collision_data.contact)
-        end
-        
-        -- Notificar al objetivo si tiene método de daño
-        if target.takeDamage and projectile.damage then
+        elseif target.takeDamage and projectile.damage then
             target:takeDamage(projectile.damage, projectile)
         end
     end

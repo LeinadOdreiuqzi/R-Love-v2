@@ -232,12 +232,10 @@ function SubLevelScene:update(dt)
             if dist < sunDef.heatDamageDistance then
                 local danger = math.max(0.0, math.min(1.0, 1.0 - (dist - sunDef.radius) / (sunDef.heatDamageDistance - sunDef.radius)))
                 local dmg = (sunDef.heatDamageRate or 18) * danger * dt
-                -- Aplicar daño ambiental térmico directamente a los stats (escudos y casco)
-                -- para evitar disparar el sonido cinético de impacto de balas 60 veces por segundo
-                if player.stats and player.stats.takeDamage then
+                if player.takeDamage then
+                    player:takeDamage(dmg, nil, "heat")
+                elseif player.stats and player.stats.takeDamage then
                     player.stats:takeDamage(dmg)
-                elseif player.takeDamage then
-                    player:takeDamage(dmg)
                 end
             end
         end
