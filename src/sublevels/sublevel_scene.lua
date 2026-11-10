@@ -59,8 +59,6 @@ function SubLevelScene:enter(params)
     local targetZoom = 0.55
     local tier = (cfg.meta and cfg.meta.tier) or 1
     if cfg.meta and cfg.meta.subworldId == "ships_debug" then
-        local ShipsDebugWorld = require 'src.sublevels.ships_debug_world'
-        ShipsDebugWorld.init(cfg)
         entryX = 0
         entryY = 340
         camX = 0
@@ -107,6 +105,9 @@ function SubLevelScene:enter(params)
 
     -- Entrar al subnivel: solo manejo de contexto (sin tocar el mapa principal)
     SubLevelManager.enter(cfg)
+    if cfg.meta and cfg.meta.subworldId == "ships_debug" then
+        require('src.sublevels.ships_debug_world').init(cfg)
+    end
 
     -- Posicionar jugador y cámara exactamente en el punto de entrada
     local player = World.get('player')

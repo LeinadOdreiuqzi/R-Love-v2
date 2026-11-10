@@ -1546,6 +1546,7 @@ end
 
 -- EVA System Methods
 function Naves:enterEVA()
+    if self.weaponAuditActive then return false end
     if self.abilitySystem then self.abilitySystem:cancel() end
     if self.isInEVA then return false end
     

@@ -6,6 +6,7 @@
 local Naves = require 'src.entities.naves'
 local AIController = require 'src.entities.ai_controller'
 local World = require 'src.core.world'
+local WeaponTrial = require 'src.sublevels.weapon_trial'
 
 local ShipsDebugWorld = {
     pads = {},
@@ -138,11 +139,25 @@ local HANGAR_LAYOUT = {
     }
 }
 
+local function clearShots(ship)
+    for _, shot in ipairs(ship.projectiles or {}) do
+        shot.explosion_radius = 0
+        shot:destroy('hangar_reset')
+    end
+    ship.projectiles, ship.projectileVFX = {}, nil
+end
+
 function ShipsDebugWorld.cleanup()
     local player = World.get('player')
+    if ShipsDebugWorld.weaponTrial then
+        clearShots(ShipsDebugWorld.weaponTrial.player)
+        WeaponTrial.finish(ShipsDebugWorld.weaponTrial)
+        ShipsDebugWorld.weaponTrial = nil
+    end
     for _, ship in ipairs(ShipsDebugWorld.spawnedShips) do
         if ship and ship ~= player and not ship.isPiloted then
             ship.isDestroyed = true
+            clearShots(ship)
             if Naves and Naves.removeShip then
                 Naves.removeShip(ship.shipId)
             end
@@ -154,6 +169,7 @@ function ShipsDebugWorld.cleanup()
     ShipsDebugWorld.spawnedShips = {}
     ShipsDebugWorld.pads = {}
     ShipsDebugWorld.closestPad = nil
+    ShipsDebugWorld.trial = nil
 end
 
 local function spawnHangarShip(x, y, shipType, role, extraOpts)
@@ -168,6 +184,8 @@ local function spawnHangarShip(x, y, shipType, role, extraOpts)
 
     local ai = AIController:new(ship, {
         role = role,
+        rng = extraOpts and extraOpts.rng,
+        trace = extraOpts and extraOpts.trace,
         homeX = x,
         homeY = y,
         wingmanOf = extraOpts and extraOpts.wingmanOf,
@@ -290,7 +308,119 @@ function ShipsDebugWorld.setLiveAIMode(enabled)
     end
 end
 
+local TRIALS = {
+    {title = "Duelo · Interceptor", ships = {"INTERCEPTOR"}},
+    {title = "Duelo · Artillería", ships = {"GUNSHIP"}},
+    {title = "Escuadrón · 1 contra 3", ships = {"GUNSHIP", "INTERCEPTOR", "FIGHTER"}}
+}
+local TRIAL_WEAPONS = {
+    INTERCEPTOR = "kinetic_assault_rifle",
+    GUNSHIP = "gauss_railgun",
+    FIGHTER = "plasma_rifle"
+}
+
+function ShipsDebugWorld.startTrial(index, player, camera)
+    if not player or player.isInEVA or player.isDestroyed then return false end
+    local spec = TRIALS[index]
+    if not spec then return false end
+    ShipsDebugWorld.cleanup()
+    ShipsDebugWorld.liveAIMode = true
+    local originX = 2800
+    local trial = {index = index, title = spec.title, events = {}, time = 0,
+        damage = 0, health = player.stats.health.currentHealth, shield = player.stats.shield.currentShield}
+    ShipsDebugWorld.trial = trial
+    local function trace(_, event)
+        trial.events[event] = (trial.events[event] or 0) + 1
+    end
+    clearShots(player)
+    player.x, player.y, player.prevX, player.prevY = originX, 340, originX, 340
+    player.dx, player.dy = 0, 0
+    if player.abilitySystem then player.abilitySystem:cancel() end
+    if camera then camera:setPosition(player.x, player.y) end
+    local Items = require 'src.item_systems.item_system'
+    local leader
+    for slot, kind in ipairs(spec.ships) do
+        local x = originX + (slot == 1 and 0 or (slot == 2 and -220 or 220))
+        local y = slot == 1 and -140 or -50
+        local ship = spawnHangarShip(x, y, kind, AIController.ROLES.RAIDER, {
+            rng = love.math.newRandomGenerator(801 + slot),
+            trace = trace,
+            wingmanOf = leader,
+            formationSlotIndex = slot
+        })
+        leader = leader or ship
+        ship.rotation = math.atan2(player.y - y, player.x - x) + math.pi * .5
+        ship.prevRotation = ship.rotation
+        ship.isAI, ship.isAbandoned, ship.isImmobilized = true, false, false
+        local weapon = Items:getItem(TRIAL_WEAPONS[kind])
+        if weapon and ship:equipWeapon(weapon, 2) then ship.weaponSystem:switchToSlot(2) end
+        local ai = ship.aiController
+        ai.active, ai.state, ai.combatTarget = true, AIController.STATES.COMBAT, player
+        ai.combatMemoryTimer = 10
+        ShipsDebugWorld.pads[slot] = {x = x, y = y, index = slot, padRadius = 50,
+            mainShip = ship, title = kind, escortShips = {}}
+    end
+    return true
+end
+
+function ShipsDebugWorld.startWeaponTrial(settings, player, camera)
+    if not player or player.isInEVA or player.isDestroyed then return false end
+    local targets = {}
+    if settings.lane == 3 then
+        if not ShipsDebugWorld.startTrial(3, player, camera) then return false end
+        targets = ShipsDebugWorld.spawnedShips
+    else
+        ShipsDebugWorld.cleanup()
+        clearShots(player)
+        local x, y = 2800, 340
+        player.x, player.y, player.prevX, player.prevY = x, y, x, y
+        player.dx, player.dy = 0, 0
+        if camera then camera:setPosition(x, y) end
+        local target = spawnHangarShip(x + WeaponTrial.distances[settings.distance], y,
+            settings.lane == 2 and 'INTERCEPTOR' or 'EXPLORER', AIController.ROLES.RAIDER)
+        target.isAbandoned = false
+        target.stats.shield.regenRate = 0
+        targets[1] = target
+    end
+    ShipsDebugWorld.weaponTrial = WeaponTrial.start(player, settings, targets)
+    return true
+end
+
 function ShipsDebugWorld.update(dt, player)
+    local weaponTrial = ShipsDebugWorld.weaponTrial
+    if weaponTrial then
+        WeaponTrial.update(weaponTrial, dt)
+        for _, target in ipairs(weaponTrial.targets) do
+            if target.weaponAuditDefeated and not target.isDestroyed then
+                target.isDestroyed = true
+                clearShots(target)
+                Naves.removeShip(target.shipId)
+            end
+        end
+        if weaponTrial.finished then return end
+        if weaponTrial.settings.lane ~= 3 then
+            local target = weaponTrial.targets[1]
+            target.prevX, target.prevY = target.x, target.y
+            if weaponTrial.settings.lane == 2 then
+                local travel = weaponTrial.time % 4 / 2
+                target.y = 340 - 144 + 288 * (1 - math.abs(travel - 1))
+                target.dy = travel < 1 and 2.4 or -2.4
+                target.rotation = travel < 1 and math.pi or 0
+                target.prevRotation = target.rotation
+            end
+            target:updateBurn(dt)
+            return
+        end
+    end
+    local trial = ShipsDebugWorld.trial
+    if trial then
+        trial.time = trial.time + dt
+        if player then
+            local health, shield = player.stats.health.currentHealth, player.stats.shield.currentShield
+            trial.damage = trial.damage + math.max(0, trial.health - health) + math.max(0, trial.shield - shield)
+            trial.health, trial.shield = health, shield
+        end
+    end
     local activeEntity = (player and player.getActiveEntity and player:getActiveEntity()) or player
     local px = (activeEntity and activeEntity.x) or (player and player.x) or 0
     local py = (activeEntity and activeEntity.y) or (player and player.y) or 0
@@ -345,6 +475,12 @@ function ShipsDebugWorld.update(dt, player)
 end
 
 function ShipsDebugWorld.draw(camera, player)
+    if ShipsDebugWorld.trial or ShipsDebugWorld.weaponTrial then
+        for _, ship in ipairs(ShipsDebugWorld.spawnedShips) do
+            if not ship.isPiloted and not ship.isDestroyed then ship:draw() end
+        end
+        return
+    end
     if #ShipsDebugWorld.pads == 0 then return end
     local t = love.timer.getTime()
     local r, g, b, a = love.graphics.getColor()
@@ -453,16 +589,51 @@ function ShipsDebugWorld.drawHUD()
     local sh = love.graphics.getHeight()
     local r, g, b, a = love.graphics.getColor()
 
-    local panelW = 760
+    local panelW = math.min(820, sw - 24)
     local panelH = 82
     local px = (sw - panelW) * 0.5
-    local py = sh - panelH - 18
+    local py = (ShipsDebugWorld.trial or ShipsDebugWorld.weaponTrial) and 66 or sh - panelH - 18
 
     love.graphics.setColor(0.03, 0.06, 0.11, 0.88)
     love.graphics.rectangle("fill", px, py, panelW, panelH, 8, 8)
     love.graphics.setColor(0.30, 0.75, 1.0, 0.70)
     love.graphics.setLineWidth(1.5)
     love.graphics.rectangle("line", px, py, panelW, panelH, 8, 8)
+
+    local weaponTrial = ShipsDebugWorld.weaponTrial
+    if weaponTrial then
+        local s = weaponTrial.settings
+        local distance = s.lane ~= 3 and (' · ' .. WeaponTrial.distances[s.distance] .. ' u') or ''
+        love.graphics.setColor(.75, .94, 1, 1)
+        love.graphics.printf(string.format("%s · %s%s · N%d · %.1f s%s", weaponTrial.name,
+            WeaponTrial.lanes[s.lane], distance, s.level, weaponTrial.time, weaponTrial.finished and ' · FIN' or ''),
+            px + 8, py + 5, panelW - 16, 'center')
+        love.graphics.printf(string.format("Gatillos %d · Munición %d · Proyectiles %d · Salva máx. %d · Pico vivo %d",
+            weaponTrial.triggers, weaponTrial.ammo, weaponTrial.spawned, weaponTrial.maxVolley, weaponTrial.peak),
+            px + 8, py + 23, panelW - 16, 'center')
+        love.graphics.printf(string.format("Escudo %.0f · Casco %.0f · Derribos %d/%d · 1.ª baja %s · Recarga %.1fs",
+            weaponTrial.shield, weaponTrial.hull, weaponTrial.defeated, #weaponTrial.targets,
+            weaponTrial.firstKill and string.format('%.2fs', weaponTrial.firstKill) or '-',
+            weaponTrial.reload), px + 8, py + 41, panelW - 16, 'center')
+        love.graphics.printf("[1–4] Arma  [J] Pista  [U] Distancia  [H] Nivel  [K] Repetir  [F] Salir",
+            px + 8, py + 59, panelW - 16, 'center')
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(r, g, b, a)
+        return
+    end
+    local trial = ShipsDebugWorld.trial
+    if trial then
+        local events = trial.events
+        love.graphics.setColor(.75, .94, 1, 1)
+        love.graphics.printf(string.format("%s  ·  %.1fs  ·  Daño recibido %.1f", trial.title, trial.time, trial.damage), px + 12, py + 10, panelW - 24, "center")
+        love.graphics.printf(string.format("Avisos %d | Intentos %d | Disparos %d | Cobertura %d | Esperas %d",
+            events.telegraph or 0, events.attempt or 0, events.shot or 0, events.cover or 0, events.squad_wait or 0),
+            px + 12, py + 33, panelW - 24, "center")
+        love.graphics.printf("[J] Siguiente  |  [K] Repetir  |  [F] Volver al hangar", px + 12, py + 55, panelW - 24, "center")
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(r, g, b, a)
+        return
+    end
 
     local closestName = ShipsDebugWorld.closestPad and ShipsDebugWorld.closestPad.title or "HANGAR CENTRAL"
     local rotLabel = ShipsDebugWorld.autoRotate and "ACTIVA" or "PAUSADA"
@@ -483,7 +654,7 @@ function ShipsDebugWorld.drawHUD()
 
     love.graphics.setColor(0.68, 0.82, 0.95, 0.90)
     love.graphics.printf(
-        string.format("[R] Rotación (%s) | [T] Enlaces (%s) | [F] Vuelo IA (%s) | [C] Choque de Facciones | [S+E->E] Abordar",
+        string.format("[R] Rotación (%s) | [T] Enlaces (%s) | [F] Vuelo IA (%s) | [C] Facciones | [J] IA | [L] Armas",
             rotLabel, fxLabel, aiLabel),
         px + 14, py + 55, panelW - 28, "center"
     )
@@ -554,7 +725,43 @@ function ShipsDebugWorld.triggerFleetClashDemo()
 end
 
 function ShipsDebugWorld.keypressed(key, player, camera)
-    if key == "r" then
+    local weaponTrial = ShipsDebugWorld.weaponTrial
+    if weaponTrial then
+        local s = weaponTrial.settings
+        local nextSettings = {weapon = s.weapon, lane = s.lane, distance = s.distance, level = s.level}
+        local slot = tonumber(key)
+        if slot and slot >= 1 and slot <= #WeaponTrial.weapons then
+            nextSettings.weapon = slot
+        elseif key == 'j' then nextSettings.lane = s.lane % #WeaponTrial.lanes + 1
+        elseif key == 'u' and s.lane ~= 3 then nextSettings.distance = s.distance % #WeaponTrial.distances + 1
+        elseif key == 'h' then nextSettings.level = s.level == 1 and 4 or 1
+        elseif key == 'f' or key == 'l' then
+            ShipsDebugWorld.init({})
+            player.x, player.y, player.prevX, player.prevY = 0, 340, 0, 340
+            player.dx, player.dy = 0, 0
+            if camera then camera:setPosition(0, 340) end
+            return true
+        elseif key == 'c' then
+            player.weaponSystem:reload()
+            return true
+        elseif key ~= 'k' then
+            return key == 'b' or key == 'tab' or key == 'e' or key == 'f9' or key == 'f10'
+        end
+        return ShipsDebugWorld.startWeaponTrial(nextSettings, player, camera)
+    elseif key == 'l' then
+        return ShipsDebugWorld.startWeaponTrial({weapon = 1, lane = 1, distance = 2, level = 1}, player, camera)
+    end
+    local trial = ShipsDebugWorld.trial
+    if key == "j" then
+        return ShipsDebugWorld.startTrial(trial and trial.index % #TRIALS + 1 or 1, player, camera)
+    elseif trial and key == "k" then
+        return ShipsDebugWorld.startTrial(trial.index, player, camera)
+    elseif trial and key == "f" then
+        ShipsDebugWorld.init({})
+        return true
+    elseif trial then
+        return false
+    elseif key == "r" then
         ShipsDebugWorld.autoRotate = not ShipsDebugWorld.autoRotate
         return true
     elseif key == "t" then

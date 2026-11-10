@@ -1,3 +1,4 @@
+local CombatSight = require 'src.entities.combat_sight'
 -- src/entities/ai_controller.lua
 -- Controlador de IA Táctica y Ecológica v3 (Pilotaje Inercial Orgánico, Esquiva Reactiva y Estados de Tensión).
 -- Incluye:
@@ -124,6 +125,7 @@ function AIController:new(ship, opts)
 
         -- RNG determinista local del agente
         rng = opts.rng,
+        trace = opts.trace,
         homeX = opts.homeX or (ship and ship.x) or 0,
         homeY = opts.homeY or (ship and ship.y) or 0,
 
@@ -225,7 +227,8 @@ function AIController:new(ship, opts)
     ai.pilotPersonality.aimWanderSpeed = ai:random(1.7, 3.4)
     ai.pilotPersonality.aimWanderPhase = ai:random(0, math.pi * 2)
     ai.pilotPersonality.reactionSpeed = ai:random(4.2, 7.5)
-    ai.strafeDir = ai.pilotPersonality.preferredOrbitSide
+    ai.strafeDir = opts.wingmanOf and (ai.formationSlotIndex % 2 == 0 and -1 or 1)
+        or ai.pilotPersonality.preferredOrbitSide
     ai.burstShotsLeft = math.floor(ai:random(cfg.burstMin or 3, (cfg.burstMax or 5) + 0.9))
 
     if ship then
@@ -254,44 +257,97 @@ end
 
 -- Comprueba si hay línea de visión despejada entre la nave IA y (tx, ty)
 function AIController:hasLineOfSight(tx, ty)
-    local Map = package.loaded['src.maps.map']
-    local MapConfig = package.loaded['src.maps.config.map_config']
-    if not Map or not Map.getChunkNonBlocking or not MapConfig then
-        return true
-    end
+    return CombatSight.clear(self.ship, tx, ty)
+end
 
-    local ws = (MapConfig.chunk and MapConfig.chunk.worldScale) or 2.0
-    local tileSizeScaled = (MapConfig.chunk.tileSize or 32) * ws
-    local chunkSize = MapConfig.chunk.size or 64
-    local strideScaled = ((chunkSize * (MapConfig.chunk.tileSize or 32)) + (MapConfig.chunk.spacing or 0)) * ws
+function AIController:recordCombat(event, target)
+    if self.trace then self.trace(self, event, target) end
+end
 
-    local sx, sy = self.ship.x, self.ship.y
-    for step = 1, 4 do
-        local t = step / 5
-        local px = sx + (tx - sx) * t
-        local py = sy + (ty - sy) * t
-        local cx = math.floor(px / strideScaled)
-        local cy = math.floor(py / strideScaled)
-        local chunk = Map.getChunkNonBlocking(cx, cy)
-        if chunk and chunk.tiles then
-            local localX = px - cx * strideScaled
-            local localY = py - cy * strideScaled
-            local tileX = math.floor(localX / tileSizeScaled)
-            local tileY = math.floor(localY / tileSizeScaled)
-            local row = chunk.tiles[tileY]
-            local cell = row and row[tileX]
-            if cell and cell >= MapConfig.ObjectType.ASTEROID_MEDIUM and cell <= MapConfig.ObjectType.ASTEROID_LARGE then
-                return false
-            end
+function AIController:reserveAttack(target)
+    if (self.attackRest or 0) > 0 then return false end
+    if self.attackTarget == target and (self.attackLease or 0) > 0 then return true end
+    local Naves = package.loaded['src.entities.naves']
+    local faction = self.ship.aiFaction
+    for _, ally in ipairs(Naves and Naves.getAllShips() or {}) do
+        local ai = ally.aiController
+        if ally ~= self.ship and faction and ally.aiFaction == faction
+            and ally.combatContext == self.ship.combatContext and not ally.isAbandoned and not ally.isDestroyed
+            and ai and ai.active and ai.state == AIController.STATES.COMBAT
+            and ai.combatTarget == target and ai.attackTarget == target and (ai.attackLease or 0) > 0 then
+            self:recordCombat('squad_wait', target)
+            return false
         end
     end
+    self.attackLease, self.attackTarget = 1.25, target
     return true
+end
+
+function AIController:finishAttack(gap)
+    self.attackLease = gap or 0
+    self.attackRest = (gap or 0) + .5
+end
+
+function AIController:fireCombatShot(target, cue, x, y)
+    local ship = self.ship
+    local ws = ship.weaponSystem
+    if not ship.shootAtWorld or (ws and ws.canShoot and not ws:canShoot()) then return false end
+    self:recordCombat('attempt', target)
+    if not self:hasLineOfSight(cue.x, cue.y)
+        or ((x ~= cue.x or y ~= cue.y) and not self:hasLineOfSight(x, y)) then
+        self:recordCombat('cover', target)
+        return false
+    end
+    local Naves = package.loaded['src.entities.naves']
+    for _, ally in ipairs(Naves and Naves.getAllShips() or {}) do
+        if ally ~= ship and ally ~= target and ship.aiFaction and ally.aiFaction == ship.aiFaction
+            and ally.combatContext == ship.combatContext and not ally.isAbandoned and not ally.isDestroyed
+            and CombatSight.intersects(ship.x, ship.y, x, y, ally.x, ally.y, math.max(15, (ally.size or 14) * 1.15)) then
+            self:recordCombat('friendly_lane', target)
+            return false
+        end
+    end
+    if not self:reserveAttack(target) then return false end
+    if ship:shootAtWorld(x, y) then
+        self:recordCombat('shot', target)
+        return true
+    end
+    return false
+end
+
+function AIController:updateTelegraph(dt, target, cue, aimX, aimY, dist, range, duration, cooldown, cone)
+    self.heavyBurstCooldown = math.max(0, (self.heavyBurstCooldown or 0) - dt)
+    if self.telegraphTimer > 0 then
+        self.telegraphTimer = self.telegraphTimer - dt
+        -- Freeze the firing line during the last 0.18 s so the warning can be dodged.
+        if self.telegraphTimer > .18 then
+            self.telegraphAimX = MathUtil.lerp(self.telegraphAimX, aimX, math.min(1, dt * 3))
+            self.telegraphAimY = MathUtil.lerp(self.telegraphAimY, aimY, math.min(1, dt * 3))
+        end
+        if self.telegraphTimer <= 0 then
+            local fired = dist <= range and self:fireCombatShot(target, cue, self.telegraphAimX, self.telegraphAimY)
+            self.heavyBurstCooldown = fired and cooldown or .25
+            self:finishAttack(fired and .24 or 0)
+        end
+        return
+    end
+    if dist > range or self.heavyBurstCooldown > 0 then return end
+    local ship = self.ship
+    local angle = math.atan2(aimY - ship.y, aimX - ship.x) + math.pi * .5
+    local delta = math.abs((angle - ship.rotation + math.pi) % (2 * math.pi) - math.pi)
+    local ws = ship.weaponSystem
+    if delta < cone and (not ws or not ws.canShoot or ws:canShoot())
+        and self:hasLineOfSight(aimX, aimY) and self:reserveAttack(target) then
+        self.telegraphDuration, self.telegraphTimer = duration, duration
+        self.telegraphAimX, self.telegraphAimY = aimX, aimY
+        self:recordCombat('telegraph', target)
+    end
 end
 
 -- Percepción Física y Contextual
 function AIController:canDetectEntity(otherShip)
     if not otherShip or otherShip == self.ship then return false, math.huge end
-    if otherShip.isDestroyed then return false, math.huge end
+    if otherShip.isDestroyed or otherShip.combatContext ~= self.ship.combatContext then return false, math.huge end
 
     local targetX, targetY = otherShip.x, otherShip.y
     local isEVATarget = false
@@ -365,67 +421,65 @@ function AIController:computeObstacleAvoidance()
     local avoidX, avoidY = 0, 0
     local Map = package.loaded['src.maps.map']
     local MapConfig = package.loaded['src.maps.config.map_config']
-    if not Map or not Map.getChunkNonBlocking or not MapConfig then
-        return 0, 0
-    end
+    if not ship.combatContext and Map and Map.getChunkNonBlocking and MapConfig then
+        local ws = (MapConfig.chunk and MapConfig.chunk.worldScale) or 2.0
+        local tileSizeScaled = (MapConfig.chunk.tileSize or 32) * ws
+        local chunkSize = MapConfig.chunk.size or 64
+        local strideScaled = ((chunkSize * (MapConfig.chunk.tileSize or 32)) + (MapConfig.chunk.spacing or 0)) * ws
 
-    local ws = (MapConfig.chunk and MapConfig.chunk.worldScale) or 2.0
-    local tileSizeScaled = (MapConfig.chunk.tileSize or 32) * ws
-    local chunkSize = MapConfig.chunk.size or 64
-    local strideScaled = ((chunkSize * (MapConfig.chunk.tileSize or 32)) + (MapConfig.chunk.spacing or 0)) * ws
+        local lookAheadX = ship.x + (ship.dx or 0) * 16
+        local lookAheadY = ship.y + (ship.dy or 0) * 16
 
-    local lookAheadX = ship.x + (ship.dx or 0) * 16
-    local lookAheadY = ship.y + (ship.dy or 0) * 16
+        local cx = math.floor(lookAheadX / strideScaled)
+        local cy = math.floor(lookAheadY / strideScaled)
+        local chunk = Map.getChunkNonBlocking(cx, cy)
+        if chunk then
+            local chunkBaseX = cx * strideScaled
+            local chunkBaseY = cy * strideScaled
 
-    local cx = math.floor(lookAheadX / strideScaled)
-    local cy = math.floor(lookAheadY / strideScaled)
-    local chunk = Map.getChunkNonBlocking(cx, cy)
-    if not chunk then return 0, 0 end
+            if chunk.tiles then
+                local centerTileX = math.floor((lookAheadX - chunkBaseX) / tileSizeScaled)
+                local centerTileY = math.floor((lookAheadY - chunkBaseY) / tileSizeScaled)
+                local clearance = (ship.size or 16) * ws + tileSizeScaled * 1.05
 
-    local chunkBaseX = cx * strideScaled
-    local chunkBaseY = cy * strideScaled
-
-    if chunk.tiles then
-        local centerTileX = math.floor((lookAheadX - chunkBaseX) / tileSizeScaled)
-        local centerTileY = math.floor((lookAheadY - chunkBaseY) / tileSizeScaled)
-        local clearance = (ship.size or 16) * ws + tileSizeScaled * 1.05
-
-        for ty = centerTileY - 2, centerTileY + 2 do
-            local row = chunk.tiles[ty]
-            if row then
-                for tx = centerTileX - 2, centerTileX + 2 do
-                    local cell = row[tx]
-                    if cell and cell >= MapConfig.ObjectType.ASTEROID_SMALL and cell <= MapConfig.ObjectType.ASTEROID_LARGE then
-                        local astX = chunkBaseX + (tx + 0.5) * tileSizeScaled
-                        local astY = chunkBaseY + (ty + 0.5) * tileSizeScaled
-                        local rx = lookAheadX - astX
-                        local ry = lookAheadY - astY
-                        local d = math.sqrt(rx * rx + ry * ry)
-                        if d < clearance and d > 0.01 then
-                            local weight = (clearance - d) / clearance
-                            avoidX = avoidX + (rx / d) * weight * 2.1
-                            avoidY = avoidY + (ry / d) * weight * 2.1
+                for ty = centerTileY - 2, centerTileY + 2 do
+                    local row = chunk.tiles[ty]
+                    if row then
+                        for tx = centerTileX - 2, centerTileX + 2 do
+                            local cell = row[tx]
+                            if cell and cell >= MapConfig.ObjectType.ASTEROID_SMALL and cell <= MapConfig.ObjectType.ASTEROID_LARGE then
+                                local astX = chunkBaseX + tx * tileSizeScaled
+                                local astY = chunkBaseY + ty * tileSizeScaled
+                                local rx = lookAheadX - astX
+                                local ry = lookAheadY - astY
+                                local d = math.sqrt(rx * rx + ry * ry)
+                                if d < clearance and d > 0.01 then
+                                    local weight = (clearance - d) / clearance
+                                    avoidX = avoidX + (rx / d) * weight * 2.1
+                                    avoidY = avoidY + (ry / d) * weight * 2.1
+                                end
+                            end
                         end
                     end
                 end
             end
-        end
-    end
 
-    if chunk.specialObjects then
-        for i = 1, #chunk.specialObjects do
-            local obj = chunk.specialObjects[i]
-            if obj and obj.x and obj.y then
-                local ox = chunkBaseX + obj.x * ws
-                local oy = chunkBaseY + obj.y * ws
-                local objRadius = ((obj.radius or obj.size or 75) * ws) + (ship.size or 16) * 2.5
-                local rx = lookAheadX - ox
-                local ry = lookAheadY - oy
-                local d = math.sqrt(rx * rx + ry * ry)
-                if d < objRadius and d > 0.01 then
-                    local weight = (objRadius - d) / objRadius
-                    avoidX = avoidX + (rx / d) * weight * 2.8
-                    avoidY = avoidY + (ry / d) * weight * 2.8
+            if chunk.specialObjects then
+                for i = 1, #chunk.specialObjects do
+                    local obj = chunk.specialObjects[i]
+                    if obj and obj.x and obj.y then
+                        local ox = chunkBaseX + obj.x * ws
+                        local oy = chunkBaseY + obj.y * ws
+                        local objRadius = ((obj.radius or obj.size or 75) * ws) + (ship.size or 16) * 2.5
+                        local rx = lookAheadX - ox
+                        local ry = lookAheadY - oy
+                        local d = math.sqrt(rx * rx + ry * ry)
+                        if d < objRadius and d > 0.01 then
+                            local weight = (objRadius - d) / objRadius
+                            avoidX = avoidX + (rx / d) * weight * 2.8
+                            avoidY = avoidY + (ry / d) * weight * 2.8
+                        end
+                    end
                 end
             end
         end
@@ -438,7 +492,7 @@ function AIController:computeObstacleAvoidance()
         local minSep = ((ship.size or 16) + 155)
         for i = 1, #all do
             local other = all[i]
-            if other and other ~= ship and not other.isDestroyed and not other.isAbandoned then
+            if other and other ~= ship and other.combatContext == ship.combatContext and not other.isDestroyed and not other.isAbandoned then
                 local sx = ship.x - (other.x or 0)
                 local sy = ship.y - (other.y or 0)
                 local sdSq = sx * sx + sy * sy
@@ -457,7 +511,7 @@ function AIController:computeObstacleAvoidance()
 end
 
 -- Detecta proyectiles entrantes o si el enemigo nos tiene directamente en su línea de mira para ejecutar una esquiva reactiva (Juke)
-function AIController:evaluateIncomingThreats(dt, enemyShip)
+function AIController:evaluateIncomingThreats(dt, enemyShip, canReadAim)
     if self.dodgeCooldown > 0 then
         self.dodgeCooldown = math.max(0, self.dodgeCooldown - dt)
     end
@@ -510,7 +564,7 @@ function AIController:evaluateIncomingThreats(dt, enemyShip)
     end
 
     -- 2. Conciencia de línea de mira ("Crosshair Awareness"): si el enemigo nos apunta fijamente durante > 0.7s, romper el ritmo
-    if enemyShip.rotation and enemyShip.x and enemyShip.y then
+    if canReadAim ~= false and enemyShip.rotation and enemyShip.x and enemyShip.y then
         local enemyLookX = math.sin(enemyShip.rotation)
         local enemyLookY = -math.cos(enemyShip.rotation)
         local dx = ship.x - enemyShip.x
@@ -568,7 +622,7 @@ function AIController:evaluatePerception()
     local hasRivalAIInSector = false
     for i = 1, #ships do
         local c = ships[i]
-        if c and c ~= self.ship and not c.isPiloted and not c.isAbandoned and not c.isDestroyed then
+        if c and c ~= self.ship and c.combatContext == self.ship.combatContext and not c.isPiloted and not c.isAbandoned and not c.isDestroyed then
             if c.aiFaction ~= self.ship.aiFaction then
                 local dx = (c.x or 0) - self.ship.x
                 local dy = (c.y or 0) - self.ship.y
@@ -723,7 +777,7 @@ function AIController:evaluatePerception()
             self.state = AIController.STATES.COMBAT
         end
     else
-        if self.combatMemoryTimer <= 0 then
+        if self.combatMemoryTimer <= 0 and not (self.state == AIController.STATES.COMBAT and self.lastSeenX) then
             self.combatTarget = nil
             self.alertTarget = nil
             self.state = AIController.STATES.WORLD_GOAL
@@ -866,8 +920,10 @@ function AIController:steerTowards(dt, targetX, targetY, desiredSpeedFactor, kee
 
     -- 1. Combinar deseo de movimiento con repulsión de obstáculos y esquiva reactiva (Juke)
     local avoidX, avoidY = self:computeObstacleAvoidance()
-    local desiredX = dirX + avoidX
-    local desiredY = dirY + avoidY
+    local avoidance = math.min(1, math.sqrt(avoidX * avoidX + avoidY * avoidY))
+    local desire = 1 - avoidance * .75
+    local desiredX = dirX * desire + avoidX
+    local desiredY = dirY * desire + avoidY
 
     if self.jukeTimer > 0 then
         desiredX = desiredX + self.jukeDirX * 2.2
@@ -890,7 +946,7 @@ function AIController:steerTowards(dt, targetX, targetY, desiredSpeedFactor, kee
 
     -- Añadir micro-oscilación orgánica cuando está apuntando en combate (ningún piloto humano es un láser estático)
     if aimOverrideX then
-        local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+        local now = self.simTime or 0
         local p = self.pilotPersonality
         local wander = math.sin(now * p.aimWanderSpeed + p.aimWanderPhase) * 0.045
         targetRot = targetRot + wander
@@ -933,7 +989,7 @@ function AIController:steerTowards(dt, targetX, targetY, desiredSpeedFactor, kee
 
     -- 5. Propulsión Física sobre los Ejes Reales de la Nave (Principal Frontal + RCS Lateral + Reversa)
     local stopDist = keepDistance or 40
-    local speedFactor = desiredSpeedFactor or 0.75
+    local speedFactor = (desiredSpeedFactor or .75) * (1 - avoidance * .35)
     local fwdAccel = (ship.forwardAccel or 12) * speedFactor * (ship.isBoostActive and (ship.boostMultiplier or 1.4) or 1.0)
     local strafeAccel = (ship.strafeAccel or 9.5) * speedFactor
     local backAccel = (ship.backwardAccel or 7.5) * speedFactor
@@ -1004,7 +1060,8 @@ end
 function AIController:updateAlert(dt)
     self.worldGoal.isWorking = false
     local target = self.alertTarget
-    if not target or target.isDestroyed or (target.isAbandoned and not target.isInEVA) then
+    if not target or target.isDestroyed or target.combatContext ~= self.ship.combatContext
+        or (target.isAbandoned and not target.isInEVA) then
         self.alertTarget = nil
         self.state = AIController.STATES.WORLD_GOAL
         return
@@ -1364,30 +1421,59 @@ function AIController:updateCombat(dt)
         return
     end
 
-    -- Evaluar proyectiles entrantes y línea de mira enemiga para ejecutar esquivas reactivas (Jukes)
-    self:evaluateIncomingThreats(dt, target)
-
-    local targetEntity = (target.getActiveEntity and target:getActiveEntity()) or target
-    if target.abilitySystem and target.abilitySystem.decoy then targetEntity = target.abilitySystem.decoy end
-    local tx, ty = targetEntity.x or target.x, targetEntity.y or target.y
-    local rawTvx, rawTvy = targetEntity.dx or target.dx or 0, targetEntity.dy or target.dy or 0
-
-    -- Actualizar velocidad percibida del objetivo con tiempo de reacción humano (hace que un Drift/Boost brusco del jugador engañe su puntería)
-    local reactRate = math.min(1.0, dt * (self.pilotPersonality.reactionSpeed or 5.5))
-    self.trackedTargetVx = MathUtil.lerp(self.trackedTargetVx or rawTvx, rawTvx, reactRate)
-    self.trackedTargetVy = MathUtil.lerp(self.trackedTargetVy or rawTvy, rawTvy, reactRate)
-
-    local dx = tx - self.ship.x
-    local dy = ty - self.ship.y
-    local dist = math.sqrt(dx * dx + dy * dy)
-
-    local detected = self:canDetectEntity(target)
-    if (not detected and self.combatMemoryTimer <= 0) or dist > 1800 then
-        self.combatTarget = nil
-        self.telegraphTimer = 0
+    if target.combatContext ~= self.ship.combatContext then
+        self.combatTarget, self.telegraphTimer, self.attackLease = nil, 0, 0
         self.state = AIController.STATES.WORLD_GOAL
         return
     end
+
+    local targetEntity = (target.getActiveEntity and target:getActiveEntity()) or target
+    local decoy = target.abilitySystem and target.abilitySystem.decoy
+    local cue = decoy or targetEntity
+    if self.observedTarget ~= target or self.observedCue ~= cue then
+        if self.observedTarget ~= target then
+            self.lastSeenX, self.lastSeenY, self.searchTime = nil, nil, 0
+        end
+        self.observedTarget, self.observedCue = target, cue
+        self.trackedTargetVx, self.trackedTargetVy = nil, nil
+        self.sightTimer, self.telegraphTimer, self.attackLease = 0, 0, 0
+    end
+    self.sightTimer = (self.sightTimer or 0) - dt
+    if self.sightTimer <= 0 then
+        local visible = (cue.x - self.ship.x)^2 + (cue.y - self.ship.y)^2 <= 1800^2
+            and self:hasLineOfSight(cue.x, cue.y)
+        if visible ~= self.targetVisible then self:recordCombat(visible and 'visible' or 'cover', target) end
+        self.targetVisible = visible
+        if visible then
+            self.lastSeenX, self.lastSeenY = cue.x, cue.y
+            self.seenVx, self.seenVy = cue.dx or 0, cue.dy or 0
+        end
+        self.sightTimer = .12
+    end
+    self:evaluateIncomingThreats(dt, target, self.targetVisible and not decoy)
+    if not self.targetVisible then
+        self.telegraphTimer, self.attackLease = 0, 0
+        self.searchTime = (self.searchTime or 0) + dt
+        if self.lastSeenX and self.searchTime <= 3.2 then
+            if self.searchTime == dt then self:recordCombat('search', target) end
+            self:steerTowards(dt, self.lastSeenX, self.lastSeenY, .65, 75)
+        else
+            self:recordCombat('lost', target)
+            self.combatTarget, self.lastSeenX, self.combatMemoryTimer = nil, nil, 0
+            self.state = AIController.STATES.WORLD_GOAL
+            self:pickNewWorldGoal()
+        end
+        return
+    end
+
+    local tx, ty = self.lastSeenX, self.lastSeenY
+    self.searchTime = 0
+    local rawTvx, rawTvy = self.seenVx, self.seenVy
+    local reactRate = math.min(1, dt * (self.pilotPersonality.reactionSpeed or 5.5))
+    self.trackedTargetVx = MathUtil.lerp(self.trackedTargetVx or rawTvx, rawTvx, reactRate)
+    self.trackedTargetVy = MathUtil.lerp(self.trackedTargetVy or rawTvy, rawTvy, reactRate)
+    local dx, dy = tx - self.ship.x, ty - self.ship.y
+    local dist = math.sqrt(dx * dx + dy * dy)
 
     local shipType = self.ship.shipType or "FIGHTER"
     local isMothership = (self.ship.shipConfig and self.ship.shipConfig.isMothership) or false
@@ -1406,6 +1492,7 @@ function AIController:updateCombat(dt)
         local leader = self.wingmanOf
         local distToLeader = math.sqrt((leader.x - self.ship.x)^2 + (leader.y - self.ship.y)^2)
         if myShieldPct <= 18 or (self.isReceivingCarrierShield and myShieldPct < 82) then
+            self.telegraphTimer, self.attackLease = 0, 0
             self.ship.isBoostActive = (distToLeader > 210)
             self:steerTowards(dt, leader.x, leader.y, 1.18, 95, aimX, aimY)
             if distToLeader <= 250 and self.ship.stats and self.ship.stats.shield then
@@ -1421,6 +1508,20 @@ function AIController:updateCombat(dt)
         end
     else
         self.isReceivingCarrierShield = false
+    end
+
+    -- A damaged pilot opens distance while an ally keeps the pressure.
+    if not isMothership and (myShieldPct <= 12 and myHealthPct < 85 or self.tacticalRetreat) then
+        self.tacticalRetreat = myShieldPct < 42
+        if self.tacticalRetreat then
+            self.telegraphTimer, self.attackLease = 0, 0
+            local retreat = math.max(0, 480 - dist)
+            local nx, ny = dx / math.max(1, dist), dy / math.max(1, dist)
+            self.ship.isBoostActive = dist < 300
+            self:steerTowards(dt, self.ship.x - nx * retreat - ny * 130 * self.strafeDir,
+                self.ship.y - ny * retreat + nx * 130 * self.strafeDir, 1.05, 45, aimX, aimY)
+            return
+        end
     end
 
     -- =========================================================================
@@ -1482,27 +1583,7 @@ function AIController:updateCombat(dt)
             end
         end
 
-        -- Artillería pesada de Nodriza con telegrafía láser
-        self.heavyBurstCooldown = math.max(0, (self.heavyBurstCooldown or 0) - dt)
-        if self.telegraphTimer > 0 then
-            self.telegraphTimer = self.telegraphTimer - dt
-            self.telegraphAimX = MathUtil.lerp(self.telegraphAimX or aimX, aimX, dt * 3.0)
-            self.telegraphAimY = MathUtil.lerp(self.telegraphAimY or aimY, aimY, dt * 3.0)
-            if self.telegraphTimer <= 0 and self.ship.shootAtWorld then
-                self.ship:shootAtWorld(self.telegraphAimX, self.telegraphAimY)
-                self.heavyBurstCooldown = isEclipse and 1.25 or 1.45
-            end
-        elseif dist <= 880 and self.heavyBurstCooldown <= 0 then
-            local aimAngle = math.atan2(aimY - self.ship.y, aimX - self.ship.x) + (math.pi * 0.5)
-            local angleDiff = math.abs((aimAngle - self.ship.rotation) % (math.pi * 2))
-            if angleDiff > math.pi then angleDiff = (math.pi * 2) - angleDiff end
-            if angleDiff < 0.52 then
-                self.telegraphDuration = 0.62
-                self.telegraphTimer = self.telegraphDuration
-                self.telegraphAimX = aimX
-                self.telegraphAimY = aimY
-            end
-        end
+        self:updateTelegraph(dt, target, cue, aimX, aimY, dist, 880, .62, isEclipse and 1.25 or 1.45, .52)
         return
 
     -- =========================================================================
@@ -1542,31 +1623,14 @@ function AIController:updateCombat(dt)
     -- ARQUETIPO 2: GUNSHIP o SENTINEL (Artillería Pesada con Telegrafía)
     -- =========================================================================
     elseif shipType == "GUNSHIP" or shipType == "SENTINEL" then
-        local standoffDist = (shipType == "GUNSHIP") and 370 or 340
+        local standoffDist = (shipType == "GUNSHIP") and 410 or 350
         local orbitX = tx - (dx / math.max(1, dist)) * standoffDist + (-dy / math.max(1, dist)) * 140 * self.strafeDir
         local orbitY = ty - (dy / math.max(1, dist)) * standoffDist + (dx / math.max(1, dist)) * 140 * self.strafeDir
         self:steerTowards(dt, orbitX, orbitY, 0.85, 45, aimX, aimY)
 
-        self.heavyBurstCooldown = math.max(0, (self.heavyBurstCooldown or 0) - dt)
-        if self.telegraphTimer > 0 then
-            self.telegraphTimer = self.telegraphTimer - dt
-            self.telegraphAimX = MathUtil.lerp(self.telegraphAimX or aimX, aimX, dt * 3.2)
-            self.telegraphAimY = MathUtil.lerp(self.telegraphAimY or aimY, aimY, dt * 3.2)
-            if self.telegraphTimer <= 0 and self.ship.shootAtWorld then
-                self.ship:shootAtWorld(self.telegraphAimX, self.telegraphAimY)
-                self.heavyBurstCooldown = (shipType == "GUNSHIP") and 1.35 or 1.10
-            end
-        elseif dist <= 780 and self.heavyBurstCooldown <= 0 then
-            local aimAngle = math.atan2(aimY - self.ship.y, aimX - self.ship.x) + (math.pi * 0.5)
-            local angleDiff = math.abs((aimAngle - self.ship.rotation) % (math.pi * 2))
-            if angleDiff > math.pi then angleDiff = (math.pi * 2) - angleDiff end
-            if angleDiff < 0.42 then
-                self.telegraphDuration = (shipType == "GUNSHIP") and 0.58 or 0.45
-                self.telegraphTimer = self.telegraphDuration
-                self.telegraphAimX = aimX
-                self.telegraphAimY = aimY
-            end
-        end
+        local gunship = shipType == "GUNSHIP"
+        self:updateTelegraph(dt, target, cue, aimX, aimY, dist, 780,
+            gunship and .58 or .45, gunship and 1.35 or 1.10, .42)
         return
 
     -- =========================================================================
@@ -1582,15 +1646,16 @@ function AIController:updateCombat(dt)
             self.strafeSwitchTimer = self:random(1.5, 3.2)
         end
 
-        local prefDist = (myShieldPct <= 5 and myHealthPct < 85) and 430 or ((self.config.preferredDistance or 290) * self.pilotPersonality.aggressiveness)
+        local prefDist = (self.config.preferredDistance or 290) * self.pilotPersonality.aggressiveness
+        local orbitOffset = self.wingmanOf and (110 + 38 * self.formationSlotIndex) or 165
         -- Punto deseado en órbita tangencial alrededor del objetivo (obliga a usar Drift para mirar al centro mientras se mueve por la tangente)
         local nx = dx / math.max(1, dist)
         local ny = dy / math.max(1, dist)
         local tangentX = -ny * self.strafeDir
         local tangentY = nx * self.strafeDir
 
-        local desiredSlotX = tx - nx * prefDist + tangentX * 165
-        local desiredSlotY = ty - ny * prefDist + tangentY * 165
+        local desiredSlotX = tx - nx * prefDist + tangentX * orbitOffset
+        local desiredSlotY = ty - ny * prefDist + tangentY * orbitOffset
 
         self:steerTowards(dt, desiredSlotX, desiredSlotY, 0.98, 45, aimX, aimY)
     end
@@ -1609,16 +1674,13 @@ function AIController:updateCombat(dt)
         if angleDiff > math.pi then angleDiff = (math.pi * 2) - angleDiff end
 
         if angleDiff < 0.44 and self.ship.shootAtWorld then
-            local prevShotTime = self.ship._lastShotTimestamp or 0
             local spread = (self.role == AIController.ROLES.SCAVENGER) and 32 or 16
             local shotX = aimX + (self:random() - 0.5) * spread
             local shotY = aimY + (self:random() - 0.5) * spread
-            self.ship:shootAtWorld(shotX, shotY)
-
-            -- Si el arma realmente disparó en este frame, descontar del cargador de ráfaga actual
-            if (self.ship._lastShotTimestamp or 0) > prevShotTime then
+            if self:fireCombatShot(target, cue, shotX, shotY) then
                 self.burstShotsLeft = (self.burstShotsLeft or 3) - 1
                 if self.burstShotsLeft <= 0 then
+                    self:finishAttack(.24)
                     self.burstPauseTimer = self:random(self.config.burstPauseMin or 0.4, self.config.burstPauseMax or 0.85)
                     self.burstShotsLeft = math.floor(self:random(self.config.burstMin or 3, (self.config.burstMax or 5) + 0.9))
                 end
@@ -1673,6 +1735,16 @@ function AIController:update(dt)
         return
     end
 
+    self.simTime = (self.simTime or 0) + dt
+    local previousLease = self.attackLease or 0
+    self.attackLease = math.max(0, previousLease - dt)
+    self.attackRest = math.max(0, (self.attackRest or 0) - dt)
+    if previousLease > 0 and self.attackLease == 0 then
+        self.attackRest = math.max(self.attackRest, .35)
+    end
+    local previousState = self.state
+    if previousState ~= AIController.STATES.COMBAT then self.tacticalRetreat = false end
+
     if self.combatMemoryTimer > 0 then
         self.combatMemoryTimer = math.max(0, self.combatMemoryTimer - dt)
     end
@@ -1708,7 +1780,14 @@ function AIController:update(dt)
 
     self.decisionTimer = self.decisionTimer - dt
     if self.decisionTimer <= 0 then
-        self.decisionTimer = self.decisionInterval
+        local interval = self.decisionInterval
+        local World = package.loaded['src.core.world']
+        local player = World and World.getPlayer()
+        if self.state == AIController.STATES.WORLD_GOAL and player
+            and (player.x - self.ship.x)^2 + (player.y - self.ship.y)^2 > 1700^2 then
+            interval = interval * 2
+        end
+        self.decisionTimer = interval
         self:evaluatePerception()
     end
 
@@ -1726,6 +1805,11 @@ function AIController:update(dt)
         self:updateAlert(dt)
     else
         self:updateWorldGoal(dt)
+    end
+
+    if self.state ~= previousState then self:recordCombat('state_' .. self.state, self.combatTarget) end
+    if self.state ~= AIController.STATES.COMBAT then
+        self.telegraphTimer, self.attackLease = 0, 0
     end
 
     -- Limitar velocidad máxima según capacidades de la nave
