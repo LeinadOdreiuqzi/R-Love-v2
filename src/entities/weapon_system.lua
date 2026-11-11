@@ -1,3 +1,4 @@
+local Projectile = require 'src.physics.projectiles.projectile'
 -- src/entities/weapon_system.lua
 -- Sistema de Armas con Cambio Rápido tipo "Enter the Gungeon"
 
@@ -200,9 +201,22 @@ function WeaponSystem:upgradeWeaponHardpointLevel(slot, delta)
 end
 
 -- Obtener los emisores físicos activos según el nivel de hardpoints (1 a 4)
+local function getPatternSpec(weapon)
+    if not weapon then return nil end
+    if weapon.firePattern then return weapon end
+    local template = ItemSystem:getItem(weapon.id)
+    return template and template.firePattern and template or nil
+end
+
 function WeaponSystem:getActiveHardpointEmitters(weapon)
     weapon = weapon or self.currentWeapon
     local level = self:getWeaponHardpointLevel(weapon)
+    if getPatternSpec(weapon) then
+        return {{name = "NOSE_CENTER", angleOffset = 0,
+            damageScale = 1 + (level - 1) * .12,
+            speedMult = 1 + (level - 1) * .06,
+            scaleMult = 1 + (level - 1) * .07, overcharged = level == 4}}, level
+    end
     local weaponId = weapon and weapon.id or "basic_laser_pistol"
     local isHeavyOrShotgun = (weaponId == "energy_shotgun" or weaponId == "heavy_plasma_cannon")
 
@@ -502,7 +516,10 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
     local projectileType = self.currentWeapon.projectileArchetype or PROJECTILE_TYPES[weaponId] or "basic_red_projectile"
     local ProjectileClass = require('src.physics.projectiles.types.' .. projectileType)
     local emitters, hpLevel = self:getActiveHardpointEmitters(self.currentWeapon)
-    local projectilesCreated = 0
+    local projectilesCreated, leadProjectile = 0, nil
+    local patternSpec = getPatternSpec(self.currentWeapon)
+    local pattern = patternSpec and patternSpec.firePattern
+
 
     self.shotCounter = (self.shotCounter or 0) + 1
     local synergyMods = self.currentWeapon.synergyMods or {}
@@ -519,6 +536,7 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
         passiveSpeedMult = 1.0 + (projSpeedMod > 1 and (projSpeedMod / 100.0) or projSpeedMod)
     end
     local totalSpeedMult = passiveSpeedMult * (synergyMods.speedMult or 1.0)
+        * (patternSpec and patternSpec.speedMultiplier or 1)
 
     -- Evaluar refracción prismática (por pasiva o amplificación de Regla 3)
     local prismEveryN = synergyMods.prismEveryN
@@ -528,6 +546,8 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
         end
     end
     local triggerPrismSplit = (prismEveryN and prismEveryN > 0 and (self.shotCounter % prismEveryN == 0))
+
+    local prismCharge = triggerPrismSplit and {} or nil
 
     -- Evaluar arco voltaico por impacto
     local chainArcCount = (self.currentWeapon.chainArc or 0) + (synergyMods.chainArcBonus or 0)
@@ -575,14 +595,20 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
                 homing = (synergyMods.homingBonus or 0) > 0
             },
             damage = effectiveDamage * (emitter.damageScale or 1.0),
+            prismCharge = prismCharge,
+            penetrationDecay = patternSpec and patternSpec.penetrationDecay,
+            returnDistance = patternSpec and patternSpec.returnDistance,
+            anchorDistance = pattern == 'seed' and math.max(1, math.min(hDist - 5, self.currentWeapon.range)) or nil,
+            anchorFuse = patternSpec and patternSpec.anchorFuse,
+            graviticRadius = pattern == 'seed' and effectiveExpRadius or nil,
             hardpointOrigin = emitter.name,
             hardpointLevel = hpLevel,
             speedMultiplier = (emitter.speedMult or 1.0) * totalSpeedMult,
-            scaleMultiplier = emitter.scaleMult or 1.0,
+            scaleMultiplier = (emitter.scaleMult or 1) * (patternSpec and patternSpec.scaleMultiplier or 1),
             overcharged = emitter.overcharged or false,
-            penetration = emitter.overcharged or self.currentWeapon.penetration or synergyMods.forcePenetration or false,
-            bounces = self.currentWeapon.bounces or 0,
-            homingStrength = (self.currentWeapon.homingStrength or 0) + (synergyMods.homingBonus or 0),
+            penetration = (not pattern and emitter.overcharged) or self.currentWeapon.penetration or synergyMods.forcePenetration or false,
+            bounces = pattern == "return" and 0 or self.currentWeapon.bounces or 0,
+            homingStrength = pattern ~= "seed" and ((self.currentWeapon.homingStrength or 0) + (synergyMods.homingBonus or 0)) or 0,
             isBoomerang = self.currentWeapon.isBoomerang or false,
             clusterCount = self.currentWeapon.clusterCount or 0,
             chainArc = chainArcCount,
@@ -609,13 +635,13 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
             overcharged = emitter.overcharged or false
         })
 
-        local basePelletCount = tonumber(self.currentWeapon.projectileCount) or ((weaponId == "energy_shotgun") and 5 or 1)
+        local basePelletCount = tonumber((patternSpec or self.currentWeapon).projectileCount) or 1
         if #emitters > 1 and basePelletCount >= 5 then
             basePelletCount = math.max(3, basePelletCount - 1)
         end
-        local spreadAngle = tonumber(self.currentWeapon.spreadAngle) or ((basePelletCount > 1) and (math.pi / 6) or 0.0)
+        local spreadAngle = tonumber((patternSpec or self.currentWeapon).spreadAngle) or ((basePelletCount > 1) and (math.pi / 6) or 0.0)
 
-        if self.player.abilitySystem and self.player.abilitySystem.doubleCast > 0 then basePelletCount = basePelletCount * 2 end
+        if pattern == "fan" then spreadAngle = spreadAngle * (1 - (hpLevel - 1) * .055) end
         if basePelletCount > 1 then
             for i = 1, basePelletCount do
                 local spreadOffset = (i - (basePelletCount + 1) / 2) / math.max(1, basePelletCount - 1)
@@ -631,6 +657,7 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
                     end
                     table.insert(self.player.projectiles, projectile)
                     projectilesCreated = projectilesCreated + 1
+                    leadProjectile = leadProjectile or projectile
                 end
             end
         else
@@ -645,32 +672,23 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
                 end
                 table.insert(self.player.projectiles, projectile)
                 projectilesCreated = projectilesCreated + 1
+                leadProjectile = leadProjectile or projectile
             end
         end
 
-        -- Proyectiles adicionales por Lente de Refracción Prismática / Matriz de Tormenta Refractada
-        if triggerPrismSplit then
-            for _, offsetRad in ipairs({ -0.14, 0.14 }) do
-                local splitConfig = {}
-                for k, v in pairs(emitterCustomConfig) do splitConfig[k] = v end
-                splitConfig.damage = (emitterCustomConfig.damage or 10) * 0.65
-                local splitProj = ProjectileClass.new(box2dWorld, spawnX, spawnY, emitterAngle + offsetRad, nil, splitConfig)
-                if splitProj then
-                    if physMgr and physMgr.addProjectile then
-                        physMgr:addProjectile(splitProj)
-                    end
-                    if not self.player.projectiles then
-                        self.player.projectiles = {}
-                    end
-                    table.insert(self.player.projectiles, splitProj)
-                    projectilesCreated = projectilesCreated + 1
-                end
-            end
-        end
     end
 
     -- Si se crearon proyectiles exitosamente
     if projectilesCreated > 0 then
+        if leadProjectile and self.player.abilitySystem and (self.player.abilitySystem.doubleCast or 0) > 0 then
+            self.pendingEchoes = self.pendingEchoes or {}
+            if #self.pendingEchoes < 4 then
+                self.pendingEchoes[#self.pendingEchoes + 1] = {
+                    shot = leadProjectile, weapon = self.currentWeapon, context = self.player.combatContext, time = .16,
+                    dx = leadProjectile.x - self.player.x, dy = leadProjectile.y - self.player.y,
+                    angle = pattern == 'fan' and baseAngle or leadProjectile.angle}
+            end
+        end
         local energy = self.player.stats and self.player.stats.energy
         if energy and self.currentWeapon.energyCost
             and not (self.player.abilitySystem and self.player.abilitySystem.overclock > 0) then
@@ -809,6 +827,20 @@ function WeaponSystem:update(dt)
         end
     end
 
+    if self.pendingEchoes then
+        local p = self.player
+        for i = #self.pendingEchoes, 1, -1 do
+            local echo = self.pendingEchoes[i]
+            echo.time = echo.time - dt
+            if p.isInEVA or p.isDestroyed or echo.context ~= p.combatContext
+                or echo.weapon ~= self.currentWeapon or not p.abilitySystem or (p.abilitySystem.doubleCast or 0) <= 0 then
+                table.remove(self.pendingEchoes, i)
+            elseif echo.time <= 0 then
+                Projectile.spawnSecondary(echo.shot, p.x + echo.dx, p.y + echo.dy, echo.angle, .55)
+                table.remove(self.pendingEchoes, i)
+            end
+        end
+    end
     -- Actualizar muzzle flash general
     if self.muzzleFlash.active then
         self.muzzleFlash.timer = self.muzzleFlash.timer + dt

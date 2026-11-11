@@ -532,7 +532,7 @@ function ShipsDebugWorld.draw(camera, player)
                 love.graphics.translate(ship.x, ship.y)
                 love.graphics.rotate(ship.rotation or 0)
                 if ship.drawShieldEffect then ship:drawShieldEffect() end
-                if ship.drawGeometricShip then ship:drawGeometricShip(false) end
+                if ship.drawGeometricShip then ship:drawGeometricShip(false, ShipsDebugWorld.classicArt) end
                 love.graphics.pop()
             end
         end
@@ -547,7 +547,7 @@ function ShipsDebugWorld.draw(camera, player)
                     love.graphics.translate(es.x, es.y)
                     love.graphics.rotate(es.rotation or 0)
                     if es.drawShieldEffect then es:drawShieldEffect() end
-                    if es.drawGeometricShip then es:drawGeometricShip(false) end
+                    if es.drawGeometricShip then es:drawGeometricShip(false, ShipsDebugWorld.classicArt) end
                     love.graphics.pop()
                 end
             end
@@ -615,7 +615,7 @@ function ShipsDebugWorld.drawHUD()
             weaponTrial.shield, weaponTrial.hull, weaponTrial.defeated, #weaponTrial.targets,
             weaponTrial.firstKill and string.format('%.2fs', weaponTrial.firstKill) or '-',
             weaponTrial.reload), px + 8, py + 41, panelW - 16, 'center')
-        love.graphics.printf("[1–4] Arma  [J] Pista  [U] Distancia  [H] Nivel  [K] Repetir  [F] Salir",
+        love.graphics.printf("[1–5] Arma  [J] Pista  [U] Distancia  [H] Nivel  [Z] Zoom  [K] Repetir  [F] Salir",
             px + 8, py + 59, panelW - 16, 'center')
         love.graphics.setLineWidth(1)
         love.graphics.setColor(r, g, b, a)
@@ -636,6 +636,7 @@ function ShipsDebugWorld.drawHUD()
     end
 
     local closestName = ShipsDebugWorld.closestPad and ShipsDebugWorld.closestPad.title or "HANGAR CENTRAL"
+    if ShipsDebugWorld.classicArt and not ShipsDebugWorld.liveAIMode then closestName = closestName .. " · Clásico" end
     local rotLabel = ShipsDebugWorld.autoRotate and "ACTIVA" or "PAUSADA"
     local fxLabel = ShipsDebugWorld.showTacticalFX and "VISIBLES" or "OCULTOS"
     local aiLabel = ShipsDebugWorld.liveAIMode and "VUELO IA EN VIVO" or "EXHIBICIÓN / ABORDABLE"
@@ -654,7 +655,7 @@ function ShipsDebugWorld.drawHUD()
 
     love.graphics.setColor(0.68, 0.82, 0.95, 0.90)
     love.graphics.printf(
-        string.format("[R] Rotación (%s) | [T] Enlaces (%s) | [F] Vuelo IA (%s) | [C] Facciones | [J] IA | [L] Armas",
+        string.format("[R] Rotación (%s) | [T] Enlaces (%s) | [F] Vuelo IA (%s) | [C] Facciones | [J] IA | [L] Armas | [V] Arte",
             rotLabel, fxLabel, aiLabel),
         px + 14, py + 55, panelW - 28, "center"
     )
@@ -735,6 +736,9 @@ function ShipsDebugWorld.keypressed(key, player, camera)
         elseif key == 'j' then nextSettings.lane = s.lane % #WeaponTrial.lanes + 1
         elseif key == 'u' and s.lane ~= 3 then nextSettings.distance = s.distance % #WeaponTrial.distances + 1
         elseif key == 'h' then nextSettings.level = s.level == 1 and 4 or 1
+        elseif key == 'z' then
+            if camera then camera:zoomTo(camera.targetZoom < .8 and 1.05 or .55) end
+            return true
         elseif key == 'f' or key == 'l' then
             ShipsDebugWorld.init({})
             player.x, player.y, player.prevX, player.prevY = 0, 340, 0, 340
@@ -752,6 +756,10 @@ function ShipsDebugWorld.keypressed(key, player, camera)
         return ShipsDebugWorld.startWeaponTrial({weapon = 1, lane = 1, distance = 2, level = 1}, player, camera)
     end
     local trial = ShipsDebugWorld.trial
+    if key == 'v' and not trial and not ShipsDebugWorld.liveAIMode then
+        ShipsDebugWorld.classicArt = not ShipsDebugWorld.classicArt
+        return true
+    end
     if key == "j" then
         return ShipsDebugWorld.startTrial(trial and trial.index % #TRIALS + 1 or 1, player, camera)
     elseif trial and key == "k" then

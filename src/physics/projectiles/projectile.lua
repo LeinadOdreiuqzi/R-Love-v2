@@ -90,6 +90,7 @@ function Projectile.new(world, x, y, angle, speed, config)
     else
         self.damage = tonumber(rawDamage) or 10
     end
+    self.launchDamage = self.damage
     self.owner = self.config.owner
     self.explosion_radius = self.config.explosion_radius or 0
     self.statusEffect = self.config.statusEffect
@@ -246,16 +247,35 @@ function Projectile:update(dt)
     
     -- Actualizar edad
     self.age = self.age + dt
+    if self.pendingAnchorX then
+        self:anchor(self.pendingAnchorX, self.pendingAnchorY)
+        self.pendingAnchorX, self.pendingAnchorY = nil, nil
+    end
+    if self.anchorRemaining then
+        self.anchorRemaining = self.anchorRemaining - dt
+        if self.anchorRemaining <= 0 then
+            self:destroy('seed_implosion')
+            return
+        end
+    end
     if self.body then self.x, self.y = self.body:getPosition() end
 
     -- Comportamientos cinemáticos especiales (Homing, Boomerang, Atracción Gravítica)
     local Naves = package.loaded['src.entities.naves']
-    if self.isBoomerang and self.owner and self.owner.x and self.owner.y and self.age > (self.lifetime * 0.45) then
+    local turnDistance = self.config.returnDistance
+    local shouldReturn = (turnDistance and self.distance_traveled >= turnDistance)
+        or (not turnDistance and self.age > self.lifetime * .45)
+    if self.isBoomerang and self.owner and self.owner.x and self.owner.y and shouldReturn then
         local dx = self.owner.x - self.x
         local dy = self.owner.y - self.y
         local distSq = dx * dx + dy * dy
         if distSq > 400 then
             local targetAngle = math.atan2(dy, dx)
+            if turnDistance and not self.isReturning then
+                self.isReturning = true
+                self.hitTargets = {}
+                self.angle = targetAngle
+            end
             local diff = targetAngle - (self.angle or 0)
             while diff > math.pi do diff = diff - 2 * math.pi end
             while diff < -math.pi do diff = diff + 2 * math.pi end
@@ -297,7 +317,8 @@ function Projectile:update(dt)
         end
     end
 
-    if self.graviticPull and self.graviticPull > 0 and Naves and Naves.getAllShips then
+    if self.graviticPull and self.graviticPull > 0 and Naves and Naves.getAllShips
+        and (not self.config.anchorDistance or self.anchorRemaining) then
         local ships = Naves.getAllShips()
         local ownerCtx = self.owner and self.owner.combatContext
         local pullRadiusSq = self.graviticRadius * self.graviticRadius
@@ -317,6 +338,11 @@ function Projectile:update(dt)
         end
     end
     
+    if self.anchorRemaining then
+        ProjectileVFX.updateProjectile(self, dt)
+        return
+    end
+
     -- Actualizar distancia recorrida (cinemática o Box2D)
     if not self.body then
         self.x = (self.x or 0) + (self.vx or self.initial_velocity_x or 0) * dt
@@ -328,7 +354,14 @@ function Projectile:update(dt)
     end
     
     -- Verificar colisiones espaciales contra naves y asteroides
+    local reachedAnchor = self.config.anchorDistance and self.distance_traveled >= self.config.anchorDistance
+    if reachedAnchor then
+        local overflow = self.distance_traveled - self.config.anchorDistance
+        self.x, self.y = self.x - math.cos(self.angle) * overflow, self.y - math.sin(self.angle) * overflow
+        if self.body then self.body:setPosition(self.x, self.y) end
+    end
     self:checkSpatialCollisions()
+    if reachedAnchor and not self.anchorRemaining and not self:isDestroyed() then self:anchor(self.x, self.y) end
     ProjectileVFX.updateProjectile(self, dt)
     if self.state == ProjectileState.DESTROYED then
         return
@@ -379,12 +412,64 @@ end
 --[[
     Comprueba colisiones espaciales continuas (raycast por segmento) contra naves, asteroides y estaciones
 --]]
+function Projectile.spawnSecondary(source, x, y, angle, damageScale)
+    local cfg = {}
+    for key, value in pairs(source.config) do cfg[key] = value end
+    cfg.damage, cfg.speedMultiplier = source.launchDamage * damageScale, 1
+    cfg.anchorDistance, cfg.returnDistance, cfg.prismCharge = nil, nil, nil
+    cfg.explosion_radius, cfg.graviticPull, cfg.chainArc, cfg.homingStrength = 0, 0, 0, 0
+    cfg.statusEffect, cfg.isBoomerang, cfg.penetration, cfg.bounces = nil, false, false, 0
+    cfg.lifetime, cfg.max_distance = .65, 600
+    cfg.visualMods = {prism = true}
+    local shot = Projectile.new(nil, x, y, angle, source.speed, cfg)
+    local list = source.owner.projectiles
+    list[#list + 1] = shot
+    return shot
+end
+
+function Projectile:anchor(x, y)
+    if self.anchorRemaining then return end
+    if self.body and self.world and self.world:isLocked() then
+        self.pendingAnchorX, self.pendingAnchorY = x, y
+        return
+    end
+    self.x, self.y, self.vx, self.vy = x, y, 0, 0
+    if self.body then
+        self.body:destroy()
+        self.body, self.fixture, self.shape = nil, nil, nil
+    end
+    self.anchorRemaining = self.config.anchorFuse
+end
+
+function Projectile:refract(target)
+    local charge, owner = self.config and self.config.prismCharge, self.owner
+    if not charge or charge.used or not owner or not owner.projectiles then return end
+    charge.used = true
+    local Naves = package.loaded['src.entities.naves']
+    if not Naves or not Naves.getAllShips then return end
+    local closest, best = nil, 220^2
+    for _, candidate in ipairs(Naves.getAllShips()) do
+        if candidate ~= owner and candidate ~= target and not candidate.isDestroyed and not candidate.isAbandoned
+            and candidate.combatContext == owner.combatContext
+            and (not owner.aiFaction or candidate.aiFaction ~= owner.aiFaction) then
+            local distance = (candidate.x - target.x)^2 + (candidate.y - target.y)^2
+            if distance < best then closest, best = candidate, distance end
+        end
+    end
+    if closest then
+        local angle = math.atan2(closest.y - target.y, closest.x - target.x)
+        local offset = math.max(22, (target.size or 14) * 1.15 + 10)
+        Projectile.spawnSecondary(self, target.x + math.cos(angle) * offset, target.y + math.sin(angle) * offset, angle, .5)
+    end
+end
+
 function Projectile:damageTarget(target, amount)
     if not target.takeDamage then return end
     local killed = target:takeDamage(amount, self.owner or self)
     if not killed and self.statusEffect == "burn" and target.applyBurn then
         target:applyBurn(self.owner)
     end
+    self:refract(target)
 end
 
 function Projectile:checkSpatialCollisions()
@@ -400,17 +485,26 @@ function Projectile:checkSpatialCollisions()
     local World = package.loaded['src.core.world']
 
     -- 1. Colisión continua contra naves (distintas al propietario del proyectil)
+    local left, right = math.min(x1, px), math.max(x1, px)
+    local top, bottom = math.min(y1, py), math.max(y1, py)
     local Naves = package.loaded['src.entities.naves']
     if Naves and Naves.getAllShips then
         local ships = Naves.getAllShips()
         local ownerCtx = self.owner and self.owner.combatContext
         for i = 1, #ships do
             local ship = ships[i]
-            if ship and ship ~= self.owner and ship.combatContext == ownerCtx and ship.x and ship.y and not (self.hitTargets and self.hitTargets[ship]) then
+            if ship and ship ~= self.owner and ship.combatContext == ownerCtx and ship.x and ship.y and not ship.isDestroyed and not (self.hitTargets and self.hitTargets[ship]) then
                 local shipRadius = math.max(15, (ship.size or 14) * 1.15)
                 local hitDist = shipRadius + projRadius
-                local distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
-                if distSq <= (hitDist * hitDist) then
+                local intersects, hitX, hitY
+                if ship.x >= left - hitDist and ship.x <= right + hitDist
+                    and ship.y >= top - hitDist and ship.y <= bottom + hitDist then
+                    local distSq
+                    distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
+                    intersects = distSq <= hitDist * hitDist
+                end
+                if intersects then
+                    if self.config.anchorDistance then self:anchor(hitX, hitY); return end
                     self:damageTarget(ship, self.damage)
                     local angle = self.angle or self:getAngle()
                     local kb = 2.0 + (self.knockbackForce or 0) * 0.08
@@ -450,6 +544,7 @@ function Projectile:checkSpatialCollisions()
                     end
 
                     if self.penetration then
+                        if self.config.penetrationDecay then self.damage = self.damage * self.config.penetrationDecay end
                         ProjectileVFX.impact(self, hitX, hitY)
                         self.hitTargets = self.hitTargets or {}
                         self.hitTargets[ship] = true
@@ -817,6 +912,7 @@ function Projectile:handleTargetHit(target, contact)
     -- TODO: Implementar manejo de impacto contra objetivo
     
     if target == self.owner or self.hitTargets[target] then return end
+    if self.config.anchorDistance then return end
     self.hitTargets[target] = true
     self:damageTarget(target, self.damage)
     
@@ -905,10 +1001,14 @@ function Projectile:destroy(reason)
         return
     end
     
+    if self.config.anchorDistance and not self.anchorRemaining and reason and reason:match('_hit$') then
+        self:anchor(self.x, self.y)
+        return
+    end
     self.state = ProjectileState.DESTROYED
-    
+
     -- Crear efectos de destrucción si es necesario
-    if self.explosion_radius > 0 then
+    if self.explosion_radius > 0 and (not self.config.anchorDistance or reason == 'seed_implosion') then
         self:createExplosion()
     elseif reason and reason ~= "ship_hit" and reason:match("_hit$") then
         local x, y = self:getPosition()

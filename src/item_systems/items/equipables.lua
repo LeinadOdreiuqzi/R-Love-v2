@@ -144,7 +144,7 @@ function Equipables.registerAll()
         damage = { min = 12, max = 20 }, damageType = DAMAGE_TYPES.ENERGY,
         range = 110, fireRate = 1.5, energyCost = 14, accuracy = 65,
         maxAmmo = 12, reloadTime = 2.0, automatic = false,
-        projectileCount = 5, spreadAngle = math.pi / 6,
+        firePattern = "fan", projectileCount = 5, spreadAngle = math.pi / 6,
         projectileArchetype = "energy_shotgun_projectile"
     })
 
@@ -172,7 +172,7 @@ function Equipables.registerAll()
         damage = { min = 48, max = 72 }, damageType = DAMAGE_TYPES.KINETIC,
         range = 420, fireRate = 1.0, energyCost = 16, accuracy = 98,
         maxAmmo = 6, reloadTime = 2.5, automatic = false,
-        penetration = true, speedMultiplier = 1.75,
+        firePattern = "precision", penetration = true, penetrationDecay = .70, speedMultiplier = 1.75,
         projectileArchetype = "kinetic_projectile"
     })
 
@@ -426,14 +426,14 @@ function Equipables.registerAll()
     registerWeapon({
         id = "orbital_shredder",
         name = "★ Trituradora Orbital de Cuchillas",
-        description = "[EVOLUCIÓN] Sierras gemelas de hiper-aleación que rebotan hasta 5 veces y regresan al chasis.",
+        description = "[EVOLUCIÓN] Lanza una cuchilla que corta al salir y al volver. Cambia tu posición para dirigir el retorno.",
         rarity = ItemSystem.RARITY.EPIC, isEvolved = true,
         value = 2500, weight = 2.8, icon = "assault_rifle",
         tags = {"weapon", "kinetic", "evolved", "ricochet", "boomerang"},
         damage = { min = 38, max = 54 }, damageType = DAMAGE_TYPES.KINETIC,
         range = 260, fireRate = 2.3, energyCost = 8, accuracy = 90,
         maxAmmo = 20, reloadTime = 1.6, automatic = true,
-        projectileCount = 2, spreadAngle = 0.14, bounces = 5, isBoomerang = true, penetration = true,
+        firePattern = "return", returnDistance = 390, isBoomerang = true, penetration = true, speedMultiplier = .52,
         projectileArchetype = "kinetic_projectile"
     })
 
@@ -456,14 +456,14 @@ function Equipables.registerAll()
     registerWeapon({
         id = "singularity_torpedo",
         name = "★ Torpedo de Singularidad",
-        description = "[EVOLUCIÓN] Ojiva gravitacional que succiona a las naves cercanas hacia su núcleo antes de implosionar.",
+        description = "[EVOLUCIÓN] Planta un núcleo en la mira. El área atrae a las naves cercanas y avisa antes de implosionar.",
         rarity = ItemSystem.RARITY.LEGENDARY, isEvolved = true,
         value = 3200, weight = 3.9, icon = "plasma_cannon",
         tags = {"weapon", "explosive", "energy", "evolved", "gravitic", "singularity"},
         damage = { min = 85, max = 125 }, damageType = DAMAGE_TYPES.EXPLOSIVE,
         range = 360, fireRate = 0.95, energyCost = 22, accuracy = 88,
         maxAmmo = 8, reloadTime = 2.6, automatic = false,
-        homingStrength = 2.0, explosionRadius = 120, graviticPull = 320, scaleMultiplier = 1.5,
+        firePattern = "seed", anchorFuse = .75, explosionRadius = 120, graviticPull = 320, scaleMultiplier = 1.5,
         projectileArchetype = "heavy_plasma_projectile"
     })
     

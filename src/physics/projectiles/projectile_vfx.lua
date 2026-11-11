@@ -322,6 +322,7 @@ local function drawBody(p, detail)
     if family == 'saw' then
         sprite(3, x, y, age * 28, size, size, color, 1)
         sprite(2, x, y, -age * 8, size * .65, size * .65, white, .8)
+        if p.isReturning then sprite(2, x, y, age * 5, size * 1.12, size * 1.12, white, .54) end
     elseif family == 'tesla' then
         sprite(5, x, y, age * 5, size * .6, size * .6, white, .95)
         for i = 1, detail and 3 or 1 do
@@ -334,7 +335,12 @@ local function drawBody(p, detail)
         sprite(2, x, y, -age * 2, size * .8, size * .8, color, .8)
         if p.graviticPull > 0 then
             local radius = p.graviticRadius
-            sprite(2, x, y, 0, radius / .72, radius / .72, color, .12)
+            local armed = p.anchorRemaining and math.max(0, p.anchorRemaining / p.config.anchorFuse)
+            sprite(2, x, y, 0, radius / .72, radius / .72, color, armed and .67 or .12)
+            if armed then
+                local pulseRadius = radius * (.15 + .85 * armed) / .72
+                sprite(2, x, y, 0, pulseRadius, pulseRadius, white, .65)
+            end
             for i = 1, detail and 6 or 2 do
                 local phase = age * .7 + i / 6
                 local distance = radius * (1 - phase % 1)

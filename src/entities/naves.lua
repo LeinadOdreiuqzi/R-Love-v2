@@ -325,7 +325,7 @@ function Naves:new(x, y, shipType)
     player.size = shipConfig.size or 14  -- Tamaño según tipo de nave
     player.isPiloted = false             -- Controlado por el jugador o inactivo
     player.isAbandoned = true            -- Por defecto abandonada hasta que se asigne piloto
-    player.useStarterSprite = (player.shipId == 1) -- Solo la nave inicial del jugador usa el sprite Nave.png
+    player.useStarterSprite = false -- La exploradora inicial comparte el arte de la flota.
     player.sprite = nil
     player.spriteScale = 1.0  -- Scale factor for the sprite
     player.spriteOffsetX = 0  -- Offset for centering

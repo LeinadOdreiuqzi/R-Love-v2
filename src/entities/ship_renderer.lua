@@ -3,6 +3,7 @@
 -- Separado de naves.lua para desacoplar estado/física de la presentación visual.
 -- Todas las funciones reciben la nave como primer argumento (self) y no mutan estado de simulación.
 
+local ShipArt = require 'src.entities.ship_art'
 local ShipRenderer = {}
 
 function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color)
@@ -722,8 +723,9 @@ function ShipRenderer.drawArkMonolithShape(self, size, isAbandoned)
     end
 end
 
-function ShipRenderer.drawGeometricShip(self, isAbandoned)
+function ShipRenderer.drawGeometricShip(self, isAbandoned, classic)
     local size = self.size * (self.worldScale or 1)
+    if not classic and ShipArt.draw(self, size, isAbandoned) then return end
     local shipType = self.shipType or "EXPLORER"
     
     if shipType == "FIGHTER" then

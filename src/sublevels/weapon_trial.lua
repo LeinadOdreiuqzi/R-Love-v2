@@ -3,7 +3,7 @@ local WeaponSystem = require 'src.entities.weapon_system'
 local Items = require 'src.item_systems.item_system'
 
 local Trial = {}
-Trial.weapons = {'gauss_railgun', 'orbital_shredder', 'singularity_torpedo', 'energy_shotgun'}
+Trial.weapons = {'gauss_railgun', 'orbital_shredder', 'singularity_torpedo', 'energy_shotgun', 'plasma_rifle'}
 Trial.lanes = {'Blanco fijo', 'Interceptor lateral', 'Fuego cruzado'}
 Trial.distances = {220, 330, 480}
 

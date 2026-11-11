@@ -276,7 +276,7 @@ function Passives.registerAll()
     registerPassive({
         id = "prism_split_lens",
         name = "Lente de Prisma Refractor",
-        description = "Cada 3er disparo de cualquier arma lanza un proyectil refractado adicional sin gastar munición.",
+        description = "El primer impacto de cada tercer disparo refracta un pulso hacia otro blanco cercano.",
         value = 840, weight = 0.4,
         tags = {"weapons", "prism", "synergy_mod"},
         passiveEffects = {
@@ -358,7 +358,7 @@ function Passives.registerAll()
     registerPassive({
         id = "hyperfrequence_core",
         name = "★ Núcleo de Hiper-Frecuencia",
-        description = "[EVOLUCIÓN] -35% cooldown en (Q) y tras activar (Q) tus armas disparan doble proyectil gratis por 3.5s.",
+        description = "[EVOLUCIÓN] -35% cooldown en (Q) y tras activar (Q) tus armas emiten un eco diferido por disparo durante 3.5s.",
         rarity = ItemSystem.RARITY.EPIC, isEvolved = true,
         value = 2100, weight = 0.6,
         tags = {"passive", "ability", "weapons", "evolved"},
@@ -372,7 +372,7 @@ function Passives.registerAll()
     registerPassive({
         id = "refracted_storm_matrix",
         name = "★ Matriz de Tormenta Refractada",
-        description = "[EVOLUCIÓN] +30% velocidad de proyectil, divide disparos cada 2 tiros y encadena rayos eléctricos.",
+        description = "[EVOLUCIÓN] +30% velocidad de proyectil, refracta el primer impacto cada 2 tiros y encadena rayos eléctricos.",
         rarity = ItemSystem.RARITY.LEGENDARY, isEvolved = true,
         value = 2300, weight = 0.7,
         tags = {"passive", "weapons", "voltaic", "prism", "evolved"},
