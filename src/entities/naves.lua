@@ -242,7 +242,7 @@ local shipRegistry = {}
 local nextShipId = 1
 local allShips = {}  -- Lista de todas las naves creadas
 
-function Naves:new(x, y, shipType)
+function Naves:new(x, y, shipType, options)
     shipType = shipType or "EXPLORER"
     local shipConfig = SHIP_TYPES[shipType] or SHIP_TYPES.EXPLORER
     
@@ -325,7 +325,7 @@ function Naves:new(x, y, shipType)
     player.size = shipConfig.size or 14  -- Tamaño según tipo de nave
     player.isPiloted = false             -- Controlado por el jugador o inactivo
     player.isAbandoned = true            -- Por defecto abandonada hasta que se asigne piloto
-    player.useStarterSprite = false -- La exploradora inicial comparte el arte de la flota.
+    player.useStarterSprite = shipType == "EXPLORER" and options and options.debugStarterSprite == true or false
     player.sprite = nil
     player.spriteScale = 1.0  -- Scale factor for the sprite
     player.spriteOffsetX = 0  -- Offset for centering
@@ -428,6 +428,7 @@ function Naves:debugChangeShipType(shipType)
     if self.abilitySystem then self.abilitySystem:cancel() end
     local previous = self.shipConfig
     self.shipType, self.shipConfig = shipType, config
+    self.useStarterSprite, self.sprite = false, nil
     self.shipName = config.name .. " #" .. self.shipId
     self.hardpoints, self.size = config.hardpoints, config.size
     self.hyperTravelEnabled = false
@@ -519,8 +520,7 @@ function Naves.clearAllShips()
 end
 
 function Naves:loadSprite()
-    -- Solo la clase EXPLORER utiliza sprite (si está disponible); FIGHTER y CARGO usan diseño geométrico especializado
-    if self.shipType ~= "EXPLORER" then
+    if not self.useStarterSprite or self.shipType ~= "EXPLORER" then
         self.sprite = nil
         return
     end

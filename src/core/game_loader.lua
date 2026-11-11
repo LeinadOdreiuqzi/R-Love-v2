@@ -3,6 +3,7 @@
 -- Desacoplado de main.lua
 
 local GameLoader = {}
+local DEBUG_STARTER_SPRITE = true
 
 local World = require 'src.core.world'
 local Camera = require 'src.utils.camera'
@@ -111,7 +112,9 @@ local function loadWorld(updateProgress)
             Naves.clearAllShips()
         end
         local playerX, playerY = 0, 0
-        local player = Naves:new(playerX, playerY, "EXPLORER")
+        local player = Naves:new(playerX, playerY, "EXPLORER", {
+            debugStarterSprite = DEBUG_STARTER_SPRITE
+        })
         player.isPiloted = true
         player.isAbandoned = false
         
