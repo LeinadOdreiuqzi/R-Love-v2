@@ -49,6 +49,8 @@ function GameLoop.update(dt)
     end
     
     if not state.loaded then return end
+    local runState = World.get('runState')
+    if runState and runState.defeat then return end
     
     local PauseMenu = require 'src.ui.pause_menu'
     if PauseMenu.isOpen() then
@@ -74,7 +76,6 @@ function GameLoop.update(dt)
     end
 
     local player = World.get('player')
-    local runState = World.get('runState')
     local gameDirector = World.get('director')
     local physMgr = World.get('physics')
     local camera = World.get('camera')
@@ -124,6 +125,11 @@ function GameLoop.update(dt)
             WorldItems.update(physics.fixed_dt)
         end
 
+        if runState and runState.defeat then
+            physics.accumulator = 0
+            World.set('interpolationAlpha', 1)
+            return
+        end
         physics.accumulator = physics.accumulator - physics.fixed_dt
     end
 

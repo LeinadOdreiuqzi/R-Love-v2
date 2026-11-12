@@ -1,5 +1,28 @@
 local HUD = require('src.ui.hud.core')
 
+function HUD.drawDefeat(cause)
+    local g = love.graphics
+    local Theme = require 'src.ui.combat_theme'
+    Theme.init()
+    local w, h = g.getDimensions()
+    local panelW = math.min(380, w - 24)
+    local x, y = (w - panelW) / 2, (h - 110) / 2
+    g.push('all')
+    g.origin()
+    g.setColor(.015, .025, .045, .84)
+    g.rectangle('fill', 0, 0, w, h)
+    Theme.panel(x, y, panelW, 110, Theme.colors.danger)
+    g.setFont(Theme.title)
+    g.setColor(Theme.colors.danger)
+    g.printf('Nave destruida', x + 12, y + 14, panelW - 24, 'center')
+    g.setFont(Theme.font)
+    g.setColor(Theme.colors.text)
+    g.printf(cause, x + 12, y + 39, panelW - 24, 'center')
+    g.setColor(Theme.colors.active)
+    g.printf('[Enter] Nueva salida con la misma semilla', x + 12, y + 76, panelW - 24, 'center')
+    g.pop()
+end
+
 -- Dibuja pulsos diegéticos de horizonte en el borde de la pantalla cuando hay encuentros,
 -- flotas nodrizas o choques de escuadrones ocurriendo fuera de cámara (950px - 2350px).
 function HUD.drawHorizonSignals()

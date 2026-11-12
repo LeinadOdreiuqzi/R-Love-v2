@@ -757,7 +757,7 @@ function Naves:update(dt)
             -- Desacoplar estado usando el bus central World
             local w = getWorld()
             local rs = (w and (w.getRunState and w.getRunState() or w.get('runState')))
-            if rs and rs.incrementBoosts then
+            if rs and rs.incrementBoosts and not self.weaponAuditActive then
                 rs:incrementBoosts()
             end
             local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
@@ -1221,6 +1221,7 @@ end
 
 -- Functions for testing damage and fuel
 function Naves:takeDamage(damage, attacker, damageType)
+    if self.stats.health.currentHealth <= 0 then return true end
     if damageType == "collision" then
         local resistance = (self.resistances or {}).collision or 0
         damage = damage * (1 - math.min(100, math.max(0, resistance)) / 100)
@@ -1254,18 +1255,24 @@ function Naves:takeDamage(damage, attacker, damageType)
         end
     end
 
-    local wasAlive = self.stats.health.currentHealth > 0
     local shieldBefore = self.stats.shield.currentShield
     local died = self.stats:takeDamage(damage)
-    if wasAlive and shieldBefore > 0 and self.stats.shield.currentShield <= 0
+    if shieldBefore > 0 and self.stats.shield.currentShield <= 0
         and (self.abilities or {}).shield_break_shockwave then
         self:emitPassivePulse(145, 14, {.3, .85, 1})
     end
-    if died and wasAlive then
+    if died then
         if self.abilitySystem then self.abilitySystem:cancel() end
-        local source = attacker and (attacker.owner or attacker)
         if source and source.abilitySystem and source.abilitySystem:isHostile(self) then
             source.abilitySystem:onKill(self)
+        end
+        local run = self == mainPlayer and not self.weaponAuditActive and w.get('runState')
+        if run then
+            local cause = damageType == "collision" and "Colisión"
+                or damageType == "heat" and "Calor ambiental"
+                or source and (source.shipName or source.name)
+                or "Daño al casco"
+            run:endByDefeat(cause)
         end
     end
     local audio = w and (w.getAudio and w.getAudio() or w.get('audio'))
@@ -1300,10 +1307,6 @@ function Naves:takeDamage(damage, attacker, damageType)
         end
     end
 
-    if died then
-        -- Nota: Aún no hay mecánica de muerte/respawn definida para el jugador; mantener en posición actual
-        return true
-    end
     return died
 end
 

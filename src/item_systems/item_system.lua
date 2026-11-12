@@ -212,9 +212,9 @@ function ItemSystem:useItem(item, player)
     end
 
     if targetItem.canUse and type(targetItem.canUse) == "function" then
-        local canUseOk, canUseRes = pcall(targetItem.canUse, targetItem, player)
+        local canUseOk, canUseRes, reason = pcall(targetItem.canUse, targetItem, player)
         if canUseOk and canUseRes == false then
-            return false, "No se puede usar en este momento"
+            return false, reason or "No se puede usar en este momento"
         end
     end
     

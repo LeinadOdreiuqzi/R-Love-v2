@@ -98,6 +98,13 @@ function RunState:getPhase()
     return self.phase
 end
 
+function RunState:endByDefeat(cause)
+    if self.defeat then return end
+    self.defeat = cause
+    self.phase = "ended"
+    self.paused = true
+end
+
 -- NUEVO: Utilidades de RNG determinista
 function RunState:getRNG()
     return self.rng
@@ -137,6 +144,7 @@ function RunState:reset(seed)
     self.time = 0
     self.sector = 1
     self.phase = "in_space"
+    self.defeat = nil
     self.resources.fuel = 0
     self.resources.credits = 0
     self.resources.data = 0
@@ -225,6 +233,7 @@ function RunState:serialize()
         time = self.time,
         sector = self.sector,
         phase = self.phase,
+        defeat = self.defeat,
         resources = {
             fuel = self.resources.fuel,
             credits = self.resources.credits,
@@ -244,6 +253,7 @@ function RunState:deserialize(data)
     self.time = data.time or 0
     self.sector = data.sector or 1
     self.phase = data.phase or "in_space"
+    self.defeat = data.defeat
     if type(data.resources) == 'table' then
         self.resources.fuel = data.resources.fuel or 0
         self.resources.credits = data.resources.credits or 0

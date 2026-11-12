@@ -352,6 +352,7 @@ function ShipsDebugWorld.startTrial(index, player, camera)
         ship.rotation = math.atan2(player.y - y, player.x - x) + math.pi * .5
         ship.prevRotation = ship.rotation
         ship.isAI, ship.isAbandoned, ship.isImmobilized = true, false, false
+        ship.debugDisableSynergies = true
         local weapon = Items:getItem(TRIAL_WEAPONS[kind])
         if weapon and ship:equipWeapon(weapon, 2) then ship.weaponSystem:switchToSlot(2) end
         local ai = ship.aiController
@@ -366,8 +367,9 @@ end
 function ShipsDebugWorld.startWeaponTrial(settings, player, camera)
     if not player or player.isInEVA or player.isDestroyed then return false end
     local targets = {}
-    if settings.lane == 3 then
-        if not ShipsDebugWorld.startTrial(3, player, camera) then return false end
+    if settings.lane == 3 or settings.lane == WeaponTrial.duelLane then
+        local encounter = settings.lane == WeaponTrial.duelLane and 2 or 3
+        if not ShipsDebugWorld.startTrial(encounter, player, camera) then return false end
         targets = ShipsDebugWorld.spawnedShips
     else
         ShipsDebugWorld.cleanup()
@@ -398,7 +400,7 @@ function ShipsDebugWorld.update(dt, player)
             end
         end
         if weaponTrial.finished then return end
-        if weaponTrial.settings.lane ~= 3 then
+        if weaponTrial.settings.lane <= 2 then
             local target = weaponTrial.targets[1]
             target.prevX, target.prevY = target.x, target.y
             if weaponTrial.settings.lane == 2 then
@@ -590,9 +592,11 @@ function ShipsDebugWorld.drawHUD()
     local r, g, b, a = love.graphics.getColor()
 
     local panelW = math.min(820, sw - 24)
-    local panelH = 82
+    local weaponTrial = ShipsDebugWorld.weaponTrial
+    local chassisDuel = weaponTrial and weaponTrial.settings.lane == WeaponTrial.duelLane
+    local panelH = chassisDuel and 100 or 82
     local px = (sw - panelW) * 0.5
-    local py = (ShipsDebugWorld.trial or ShipsDebugWorld.weaponTrial) and 66 or sh - panelH - 18
+    local py = (ShipsDebugWorld.trial or weaponTrial) and 66 or sh - panelH - 82
 
     love.graphics.setColor(0.03, 0.06, 0.11, 0.88)
     love.graphics.rectangle("fill", px, py, panelW, panelH, 8, 8)
@@ -600,11 +604,29 @@ function ShipsDebugWorld.drawHUD()
     love.graphics.setLineWidth(1.5)
     love.graphics.rectangle("line", px, py, panelW, panelH, 8, 8)
 
-    local weaponTrial = ShipsDebugWorld.weaponTrial
     if weaponTrial then
         local s = weaponTrial.settings
-        local distance = s.lane ~= 3 and (' · ' .. WeaponTrial.distances[s.distance] .. ' u') or ''
+        local distance = s.lane <= 2 and (' · ' .. WeaponTrial.distances[s.distance] .. ' u') or ''
         love.graphics.setColor(.75, .94, 1, 1)
+        if chassisDuel then
+            love.graphics.printf(string.format("%s contra Gunship · Gauss N1 · %.1f s%s",
+                weaponTrial.player.shipConfig.name, weaponTrial.time,
+                weaponTrial.result and (' · ' .. weaponTrial.result) or ''),
+                px + 8, py + 5, panelW - 16, 'center')
+            love.graphics.printf(string.format("Daño recibido · Escudo %.0f · Casco %.0f | Daño infligido %.0f",
+                weaponTrial.incomingShield, weaponTrial.incomingHull, weaponTrial.shield + weaponTrial.hull),
+                px + 8, py + 23, panelW - 16, 'center')
+            love.graphics.printf(string.format("Tiros %d · Velocidad pico %.0f u/s · Combustible usado %.2f",
+                weaponTrial.triggers, weaponTrial.peakSpeed, weaponTrial.fuelUsed),
+                px + 8, py + 41, panelW - 16, 'center')
+            love.graphics.printf("Para retirarte, aléjate 900 u y evita el daño durante 3 s.",
+                px + 8, py + 59, panelW - 16, 'center')
+            love.graphics.printf("[N] Cambiar chasis  [K] Repetir  [F] Volver al hangar",
+                px + 8, py + 77, panelW - 16, 'center')
+            love.graphics.setLineWidth(1)
+            love.graphics.setColor(r, g, b, a)
+            return
+        end
         love.graphics.printf(string.format("%s · %s%s · N%d · %.1f s%s", weaponTrial.name,
             WeaponTrial.lanes[s.lane], distance, s.level, weaponTrial.time, weaponTrial.finished and ' · FIN' or ''),
             px + 8, py + 5, panelW - 16, 'center')
@@ -655,7 +677,7 @@ function ShipsDebugWorld.drawHUD()
 
     love.graphics.setColor(0.68, 0.82, 0.95, 0.90)
     love.graphics.printf(
-        string.format("[R] Rotación (%s) | [T] Enlaces (%s) | [F] Vuelo IA (%s) | [C] Facciones | [J] IA | [L] Armas | [V] Arte",
+        string.format("[R] Rotación (%s) | [T] Enlaces (%s) | [F] Vuelo IA (%s) | [C] Facciones | [J] IA | [L] Armas | [N] Chasis | [V] Arte",
             rotLabel, fxLabel, aiLabel),
         px + 14, py + 55, panelW - 28, "center"
     )
@@ -727,13 +749,21 @@ end
 
 function ShipsDebugWorld.keypressed(key, player, camera)
     local weaponTrial = ShipsDebugWorld.weaponTrial
+    if key == 'n' then
+        local chassis = weaponTrial and weaponTrial.settings.chassis or 0
+        return ShipsDebugWorld.startWeaponTrial({weapon = 1, lane = WeaponTrial.duelLane,
+            distance = 2, level = 1, chassis = chassis % #WeaponTrial.chassis + 1}, player, camera)
+    end
     if weaponTrial then
         local s = weaponTrial.settings
-        local nextSettings = {weapon = s.weapon, lane = s.lane, distance = s.distance, level = s.level}
+        local duel = s.lane == WeaponTrial.duelLane
+        local nextSettings = {weapon = s.weapon, lane = s.lane, distance = s.distance, level = s.level, chassis = s.chassis}
         local slot = tonumber(key)
-        if slot and slot >= 1 and slot <= #WeaponTrial.weapons then
+        if duel and (slot or key == 'h' or key == 'j' or key == 'u') then
+            return true
+        elseif slot and slot >= 1 and slot <= #WeaponTrial.weapons then
             nextSettings.weapon = slot
-        elseif key == 'j' then nextSettings.lane = s.lane % #WeaponTrial.lanes + 1
+        elseif key == 'j' then nextSettings.lane = s.lane % (WeaponTrial.duelLane - 1) + 1
         elseif key == 'u' and s.lane ~= 3 then nextSettings.distance = s.distance % #WeaponTrial.distances + 1
         elseif key == 'h' then nextSettings.level = s.level == 1 and 4 or 1
         elseif key == 'z' then

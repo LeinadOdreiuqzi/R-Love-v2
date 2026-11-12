@@ -24,7 +24,7 @@ function PlayerStats:new(shipConfig)
         currentShield = maxShield,
         regenRate = 15,          -- Puntos de escudo por segundo
         regenDelay = 3,          -- Segundos antes de comenzar regeneración
-        lastDamageTime = -math.huge,      -- Tiempo del último daño
+        recoveryRemaining = 0,
         isRegenerating = false   -- Estado de regeneración
     }
     
@@ -58,15 +58,15 @@ function PlayerStats:update(dt, isMoving, fuelMultiplier)
 
 end
 
+function PlayerStats:getRecoveryDelay()
+    return self.shield.recoveryRemaining
+end
+
 function PlayerStats:updateShield(dt)
-    local currentTime = love.timer.getTime()
-    
-    -- Verificar si puede comenzar la regeneración
-    if self.shield.currentShield < self.shield.maxShield then
-        if currentTime - self.shield.lastDamageTime >= self.shield.regenDelay then
-            self.shield.isRegenerating = true
-        end
-    end
+    local delay = self.shield.recoveryRemaining
+    self.shield.recoveryRemaining = math.max(0, delay - dt)
+    self.shield.isRegenerating = self.shield.recoveryRemaining == 0
+        and self.shield.currentShield < self.shield.maxShield
     
     -- Regenerar escudo
     if self.shield.isRegenerating then
@@ -79,7 +79,7 @@ function PlayerStats:updateShield(dt)
         
         self.shield.currentShield = math.min(
             self.shield.maxShield, 
-            self.shield.currentShield + regenRate * dt
+            self.shield.currentShield + regenRate * math.max(0, dt - delay)
         )
         
         -- Detener regeneración si está lleno
@@ -106,7 +106,7 @@ function PlayerStats:takeDamage(damage)
     local shield = self.shield
     local shieldDamage = math.min(shield.currentShield, damage)
     shield.currentShield = shield.currentShield - shieldDamage
-    shield.lastDamageTime = now
+    shield.recoveryRemaining = shield.regenDelay
     shield.isRegenerating = false
     if shieldDamage > 0 then
         shield.lastImpactTime = now

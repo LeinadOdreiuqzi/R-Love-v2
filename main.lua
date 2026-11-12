@@ -11,6 +11,7 @@ local StateManager = require 'src.states.state_manager'
 local ItemSystem = require 'src.item_systems.items.init'
 local InventoryUI = require 'src.ui.inventory_ui'
 local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
+local HUD = require 'src.ui.hud'
 
 -- State manager se instancia aquí y se inyecta
 local stateManager = StateManager:new()
@@ -50,30 +51,52 @@ end
 
 function love.draw()
     GameLoop.draw()
+    local run = World.get('runState')
+    if run and run.defeat then
+        HUD.drawDefeat(run.defeat)
+        return
+    end
     CombatDebug.draw()
 end
 
 function love.keypressed(key)
+    local run = World.get('runState')
+    if run and run.defeat then
+        if key == 'return' or key == 'kpenter' then
+            if CombatDebug.opened then CombatDebug.close() end
+            GameLoader.changeSeedWithLoading(run.seed)
+        end
+        return
+    end
     if CombatDebug.opened then CombatDebug.keypressed(key); return end
     InputManager.keypressed(key)
 end
 
+local function runDefeated()
+    local run = World.get('runState')
+    return run and run.defeat ~= nil
+end
+
 function love.textinput(text)
+    if runDefeated() then return end
     if CombatDebug.opened then CombatDebug.textinput(text); return end
     InputManager.textinput(text)
 end
 
 function love.wheelmoved(x, y)
+    if runDefeated() then return end
     if CombatDebug.opened then CombatDebug.wheelmoved(x, y); return end
     InputManager.wheelmoved(x, y)
 end
 
 function love.mousepressed(x, y, button)
+    if runDefeated() then return end
     if CombatDebug.opened then CombatDebug.mousepressed(x, y, button); return end
     InputManager.mousepressed(x, y, button)
 end
 
 function love.mousereleased(x, y, button)
+    if runDefeated() then return end
     if CombatDebug.opened then
         CombatDebug.mousereleased(x, y, button)
         return
@@ -82,6 +105,7 @@ function love.mousereleased(x, y, button)
 end
 
 function love.mousemoved(x, y)
+    if runDefeated() then return end
     if CombatDebug.opened then CombatDebug.mousemoved(x, y) end
 end
 

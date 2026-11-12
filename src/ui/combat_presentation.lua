@@ -51,6 +51,11 @@ end
 function View.tooltip(player, data)
     local state, lines = View.item(player, data), {}
     local ws = player and player.weaponSystem
+    local kit = player and data.id == 'repair_kit' and Items:getItem(data.id)
+    if kit then
+        local available, reason = kit:canUse(player)
+        if not available then lines[#lines + 1] = {kind = 'muted', text = reason} end
+    end
     if data.equipType == Items.EQUIPABLE_TYPES.WEAPON and ws then
         local low, high = ws:getEffectiveDamageRange(data)
         local damage = string.format('%.1f', low)

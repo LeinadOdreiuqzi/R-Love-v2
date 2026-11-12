@@ -117,6 +117,8 @@ local function loadWorld(updateProgress)
         })
         player.isPiloted = true
         player.isAbandoned = false
+        local repairKit = require('src.item_systems.item_system'):getItem('repair_kit')
+        if repairKit then player.inventory:addItemToCompartment('ship', repairKit, 1) end
         
         World.set('player', player)
         World.addEntity(player)

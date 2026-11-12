@@ -312,7 +312,7 @@ function Consumables.registerAll()
     ItemSystem:registerItem({
         id = "repair_kit",
         name = "Kit de Reparación",
-        description = "Restaura 50 puntos de vida de la nave.",
+        description = "Restaura hasta 50 puntos de casco. Requiere 3 segundos sin recibir daño.",
         category = ItemSystem.CATEGORIES.CONSUMABLE,
         rarity = ItemSystem.RARITY.COMMON,
         stackable = true,
@@ -323,8 +323,16 @@ function Consumables.registerAll()
         tags = {"repair", "healing", "ship"},
         
         canUse = function(self, player)
-            if player and player.stats and type(player.stats.health) == "table" then
-                return player.stats.health.currentHealth < player.stats.health.maxHealth
+            local stats = player and player.stats
+            local health = stats and stats.health
+            if not health or not stats.getRecoveryDelay or player.isInEVA or health.currentHealth <= 0 then
+                return false, "Necesitas una nave operativa."
+            end
+            if health.currentHealth >= health.maxHealth then
+                return false, "El casco está intacto."
+            end
+            if stats:getRecoveryDelay() > 0 then
+                return false, "Reparación bloqueada por daño reciente."
             end
             return true
         end,
