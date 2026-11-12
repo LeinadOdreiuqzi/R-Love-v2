@@ -2,34 +2,36 @@
 
 local PlayerStats = {}
 
-function PlayerStats:new()
+function PlayerStats:new(shipConfig)
     local stats = {}
     setmetatable(stats, self)
     self.__index = self
     
-    -- Sistema de vida (corazones)
+    shipConfig = shipConfig or {}
+    local maxHealth = shipConfig.maxHealth or 10
+    local maxShield = shipConfig.maxShield or 100
+    local maxFuel = shipConfig.maxFuel or 100
+
+    -- Casco en puntos. La interfaz deriva los corazones del casco actual.
     stats.health = {
-        maxHearts = 5,           -- Máximo de corazones
-        currentHearts = 5,       -- Corazones actuales (enteros)
-        heartHalves = 0,         -- Medios corazones (0 o 1)
-        maxHealth = 10,          -- Vida total (5 corazones * 2 = 10)
-        currentHealth = 10       -- Vida actual
+        maxHealth = maxHealth,
+        currentHealth = maxHealth
     }
-    
+
     -- Sistema de escudo
     stats.shield = {
-        maxShield = 100,         -- Escudo máximo
-        currentShield = 100,     -- Escudo actual
+        maxShield = maxShield,
+        currentShield = maxShield,
         regenRate = 15,          -- Puntos de escudo por segundo
         regenDelay = 3,          -- Segundos antes de comenzar regeneración
-        lastDamageTime = 0,      -- Tiempo del último daño
+        lastDamageTime = -math.huge,      -- Tiempo del último daño
         isRegenerating = false   -- Estado de regeneración
     }
     
     -- Sistema de combustible
     stats.fuel = {
-        maxFuel = 100,           -- Combustible máximo
-        currentFuel = 100,       -- Combustible actual
+        maxFuel = maxFuel,
+        currentFuel = maxFuel,
         consumeRate = 0.5,       -- Consumo por segundo al moverse
         efficiency = 1.0         -- Multiplicador de eficiencia (puede mejorar)
     }
@@ -53,9 +55,7 @@ function PlayerStats:update(dt, isMoving, fuelMultiplier)
     if isMoving and not self.debug.infiniteFuel then
         self:consumeFuel(dt, fuelMultiplier)
     end
-    
-    -- Actualizar corazones basado en vida actual
-    self:updateHeartDisplay()
+
 end
 
 function PlayerStats:updateShield(dt)
@@ -96,50 +96,32 @@ function PlayerStats:consumeFuel(dt, fuelMultiplier)
     end
 end
 
-function PlayerStats:updateHeartDisplay()
-    -- Calcular corazones basado en vida actual (soporta valores fraccionarios por dt)
-    local h = math.max(0, self.health.currentHealth or 0)
-    local halfUnits = math.ceil(h - 1e-6) -- Cada unidad entera (1..10) equivale a medio corazón
-    self.health.currentHearts = math.floor(halfUnits / 2)
-    self.health.heartHalves = halfUnits % 2
-end
-
 function PlayerStats:takeDamage(damage)
-    -- Debug: invulnerabilidad
-    if self.debug.invulnerable then
+    if self.debug.invulnerable or damage <= 0 then
         return false
     end
-    
-    local actualDamage = damage
-    
-    -- El escudo absorbe el daño primero
-    if self.shield.currentShield > 0 then
-        local shieldDamage = math.min(self.shield.currentShield, actualDamage)
-        self.shield.currentShield = self.shield.currentShield - shieldDamage
-        actualDamage = actualDamage - shieldDamage
-        
-        -- Registrar tiempo de daño para regeneración
-        self.shield.lastDamageTime = love.timer.getTime()
-        self.shield.isRegenerating = false
+    if self.health.currentHealth <= 0 then return true end
+
+    local now = love.timer.getTime()
+    local shield = self.shield
+    local shieldDamage = math.min(shield.currentShield, damage)
+    shield.currentShield = shield.currentShield - shieldDamage
+    shield.lastDamageTime = now
+    shield.isRegenerating = false
+    if shieldDamage > 0 then
+        shield.lastImpactTime = now
     end
-    
-    -- Si queda daño, afecta la vida
-    if actualDamage > 0 then
-        self.health.currentHealth = math.max(0, self.health.currentHealth - actualDamage)
-        self:updateHeartDisplay()
-        
-        -- Verificar muerte
-        if self.health.currentHealth <= 0 then
-            return true -- Jugador murió
-        end
+
+    local hullDamage = damage - shieldDamage
+    if hullDamage > 0 then
+        self.health.currentHealth = math.max(0, self.health.currentHealth - hullDamage)
+        self.health.lastImpactTime = now
     end
-    
-    return false
+    return self.health.currentHealth == 0
 end
 
 function PlayerStats:heal(amount)
     self.health.currentHealth = math.min(self.health.maxHealth, self.health.currentHealth + amount)
-    self:updateHeartDisplay()
 end
 
 function PlayerStats:addFuel(amount)
@@ -151,16 +133,21 @@ function PlayerStats:canMove()
     return self.fuel.currentFuel > 0 or self.debug.infiniteFuel
 end
 
+local function percentage(current, maximum)
+    if maximum <= 0 then return 0 end
+    return math.max(0, math.min(100, current / maximum * 100))
+end
+
 function PlayerStats:getHealthPercentage()
-    return (self.health.currentHealth / self.health.maxHealth) * 100
+    return percentage(self.health.currentHealth, self.health.maxHealth)
 end
 
 function PlayerStats:getShieldPercentage()
-    return (self.shield.currentShield / self.shield.maxShield) * 100
+    return percentage(self.shield.currentShield, self.shield.maxShield)
 end
 
 function PlayerStats:getFuelPercentage()
-    return (self.fuel.currentFuel / self.fuel.maxFuel) * 100
+    return percentage(self.fuel.currentFuel, self.fuel.maxFuel)
 end
 
 -- Funciones de debug

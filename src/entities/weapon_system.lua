@@ -377,6 +377,53 @@ function WeaponSystem:switchToPreviousWeapon()
     return false
 end
 
+function WeaponSystem:getEffectiveFireRate(weapon)
+    local fireRate = weapon.fireRate or 1.0
+    local fireRateMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.fire_rate
+    if type(fireRateMod) == "table" then
+        fireRate = (fireRate + (fireRateMod.flat or 0)) * (1.0 + ((fireRateMod.percent or 0) / 100.0))
+    elseif type(fireRateMod) == "number" then
+        fireRate = fireRate * (1.0 + (fireRateMod > 1 and (fireRateMod / 100.0) or fireRateMod))
+    end
+    if self.player.abilitySystem and self.player.abilitySystem.overclock > 0 then fireRate = fireRate * 1.3 end
+    return math.max(.05, fireRate)
+end
+
+local function getBaseDamageRange(weapon)
+    local damage = weapon.damage
+    if type(damage) == "table" then
+        local minimum = tonumber(damage.min or damage[1]) or 15
+        return minimum, math.max(minimum, tonumber(damage.max or damage[2]) or minimum)
+    end
+    local amount = type(damage) == "number" and damage or 15
+    return amount, amount
+end
+
+function WeaponSystem:getEffectiveDamage(weapon, damage)
+    local dmgMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.damage
+    local effectiveDamage = damage
+    if type(dmgMod) == "table" then
+        effectiveDamage = (damage + (dmgMod.flat or 0)) * (1.0 + ((dmgMod.percent or 0) / 100.0))
+    elseif type(dmgMod) == "number" then
+        effectiveDamage = damage * (1.0 + (dmgMod > 1 and (dmgMod / 100.0) or dmgMod))
+    end
+
+    -- Balancear daño saliente de agentes IA para permitir duelos tácticos sin muertes instantáneas
+    if self.player and self.player.isAI and not self.player.isPiloted then
+        effectiveDamage = math.max(4, effectiveDamage * 0.34)
+    end
+
+    local synergy = weapon.synergyMods
+    return effectiveDamage * (synergy and synergy.damageMult or 1)
+end
+
+function WeaponSystem:getEffectiveDamageRange(weapon)
+    local minimum, maximum = getBaseDamageRange(weapon)
+    local low = self:getEffectiveDamage(weapon, minimum)
+    local high = self:getEffectiveDamage(weapon, maximum)
+    return math.min(low, high), math.max(low, high)
+end
+
 -- Verificar si se puede disparar
 function WeaponSystem:canShoot()
     if not self.currentWeapon then
@@ -390,16 +437,8 @@ function WeaponSystem:canShoot()
     -- Verificar rate of fire (incluyendo modificador pasivo fire_rate)
     local currentTime = love.timer.getTime()
     local timeSinceLastShot = currentTime - self.lastShotTime
-    local fireRate = self.currentWeapon.fireRate or 1.0
-    local fireRateMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.fire_rate
-    if type(fireRateMod) == "table" then
-        fireRate = (fireRate + (fireRateMod.flat or 0)) * (1.0 + ((fireRateMod.percent or 0) / 100.0))
-    elseif type(fireRateMod) == "number" then
-        fireRate = fireRate * (1.0 + (fireRateMod > 1 and (fireRateMod / 100.0) or fireRateMod))
-    end
-    if self.player.abilitySystem and self.player.abilitySystem.overclock > 0 then fireRate = fireRate * 1.3 end
-    local shotInterval = 1.0 / math.max(0.05, fireRate)
-    
+    local shotInterval = 1 / self:getEffectiveFireRate(self.currentWeapon)
+
     if timeSinceLastShot < shotInterval then
         return false
     end
@@ -416,15 +455,13 @@ function WeaponSystem:canShoot()
         end
     end
     
-    -- Verificar energía si aplica
-    if self.currentWeapon.energyCost and self.player.stats
-        and not (self.player.abilitySystem and self.player.abilitySystem.overclock > 0) then
-        local currentEnergy = self.player.stats.energy and self.player.stats.energy.currentEnergy or 100
-        if currentEnergy < self.currentWeapon.energyCost then
-            return false
-        end
+    local energy = self.player.stats and self.player.stats.energy
+    if energy and self.currentWeapon.energyCost
+        and not (self.player.abilitySystem and self.player.abilitySystem.overclock > 0)
+        and energy.currentEnergy < self.currentWeapon.energyCost then
+        return false
     end
-    
+
     return true
 end
 
@@ -472,32 +509,12 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
     dy = dy / distance
     local baseAngle = math.atan2(dy, dx)
 
-    -- Calcular daño efectivo incluyendo modificador pasivo de daño
-    local rawDamage = self.currentWeapon.damage or 15
-    local baseDamage = 15
-    if type(rawDamage) == "table" then
-        local minD = tonumber(rawDamage.min or rawDamage[1]) or 15
-        local maxD = tonumber(rawDamage.max or rawDamage[2]) or minD
-        if maxD > minD then
-            baseDamage = minD + math.random() * (maxD - minD)
-        else
-            baseDamage = minD
-        end
-    elseif type(rawDamage) == "number" then
-        baseDamage = rawDamage
+    local minDamage, maxDamage = getBaseDamageRange(self.currentWeapon)
+    local baseDamage = minDamage
+    if maxDamage > minDamage then
+        baseDamage = minDamage + math.random() * (maxDamage - minDamage)
     end
-    local dmgMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.damage
-    local effectiveDamage = baseDamage
-    if type(dmgMod) == "table" then
-        effectiveDamage = (baseDamage + (dmgMod.flat or 0)) * (1.0 + ((dmgMod.percent or 0) / 100.0))
-    elseif type(dmgMod) == "number" then
-        effectiveDamage = baseDamage * (1.0 + (dmgMod > 1 and (dmgMod / 100.0) or dmgMod))
-    end
-
-    -- Balancear daño saliente de agentes IA para permitir duelos tácticos sin muertes instantáneas
-    if self.player and self.player.isAI and not self.player.isPiloted then
-        effectiveDamage = math.max(4, effectiveDamage * 0.34)
-    end
+    local effectiveDamage = self:getEffectiveDamage(self.currentWeapon, baseDamage)
 
     -- Si estamos dentro de un subnivel, aplicar límites de mundo a proyectiles
     local inSublevel = false
@@ -523,10 +540,6 @@ function WeaponSystem:shoot(mouseX, mouseY, isWorldCoords)
 
     self.shotCounter = (self.shotCounter or 0) + 1
     local synergyMods = self.currentWeapon.synergyMods or {}
-    if synergyMods.damageMult then
-        effectiveDamage = effectiveDamage * synergyMods.damageMult
-    end
-
     -- Modificador pasivo de velocidad de proyectil (Acelerador Magnético, etc.)
     local projSpeedMod = self.player and self.player.passiveModifiers and self.player.passiveModifiers.projectile_speed
     local passiveSpeedMult = 1.0
@@ -958,11 +971,14 @@ function WeaponSystem:getCurrentWeaponInfo()
     end
     
     local emitters, hpLevel = self:getActiveHardpointEmitters(self.currentWeapon)
+    local minDamage, maxDamage = self:getEffectiveDamageRange(self.currentWeapon)
     local info = {
         name = self.currentWeapon.name,
         slot = self.currentSlot,
         damage = self.currentWeapon.damage,
-        fireRate = self.currentWeapon.fireRate,
+        damageMin = minDamage,
+        damageMax = maxDamage,
+        fireRate = self:getEffectiveFireRate(self.currentWeapon),
         hardpointLevel = hpLevel,
         emitterCount = #emitters,
         ammo = nil,

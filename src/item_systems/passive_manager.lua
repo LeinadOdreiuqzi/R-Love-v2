@@ -107,10 +107,9 @@ function PassiveManager.applyPassiveEffect(player, itemData, itemId)
                 -- Aplicar efectos específicos a las estadísticas del jugador
                 if effect.stat == "max_health" and effect.modifierType == "flat" then
                     if player.stats and player.stats.health then
-                        player.stats.health.maxHearts = player.stats.health.maxHearts + effect.amount
-                        player.stats.health.maxHealth = player.stats.health.maxHealth + (effect.amount * 2) -- 1 corazón = 2 vida
+                        player.stats.health.maxHealth = player.stats.health.maxHealth + (effect.amount * 2)
                         player.stats.health.currentHealth = player.stats.health.currentHealth + (effect.amount * 2)
-                        print("[PassiveManager] Aplicado a estadísticas: +" .. effect.amount .. " corazones")
+                        print("[PassiveManager] Aplicado a estadísticas: +" .. effect.amount * 2 .. " puntos de casco")
                     end
                 end
                 
@@ -194,10 +193,9 @@ function PassiveManager.removePassiveEffect(itemIdOrPlayer, maybeItemData)
                 -- Remover efectos específicos de las estadísticas del jugador
                 if effect.stat == "max_health" and effect.modifierType == "flat" then
                     if player.stats and player.stats.health then
-                        player.stats.health.maxHearts = math.max(1, player.stats.health.maxHearts - effect.amount)
                         player.stats.health.maxHealth = math.max(2, player.stats.health.maxHealth - (effect.amount * 2))
                         player.stats.health.currentHealth = math.min(player.stats.health.currentHealth, player.stats.health.maxHealth)
-                        print("[PassiveManager] Removido de estadísticas: -" .. effect.amount .. " corazones")
+                        print("[PassiveManager] Removido de estadísticas: -" .. effect.amount * 2 .. " puntos de casco")
                     end
                 end
                 
@@ -376,14 +374,9 @@ function PassiveManager.reset()
         -- Restaurar sistema de vida a valores base
         if player.stats.health then
             local baseMaxHealth = (player.shipConfig and player.shipConfig.maxHealth) or 10
-            player.stats.health.maxHearts = 5      -- Valor base
             player.stats.health.maxHealth = baseMaxHealth
             -- Ajustar vida actual si excede el nuevo máximo
             player.stats.health.currentHealth = math.min(player.stats.health.currentHealth, player.stats.health.maxHealth)
-            -- Actualizar display de corazones
-            if player.stats.updateHeartDisplay then
-                player.stats:updateHeartDisplay()
-            end
         end
         
         -- Limpiar modificadores pasivos

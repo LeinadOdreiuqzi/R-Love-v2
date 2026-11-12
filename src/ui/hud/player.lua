@@ -25,9 +25,10 @@ local function drawShieldCrest(x, y, size, fillRatio, activeColor)
         else
             local sx, sy = g.transformPoint(x, y + h * (1 - fillRatio))
             local ex, ey = g.transformPoint(x + w, y + h)
-            g.setScissor( math.floor(sx), math.floor(sy), math.max(1, math.ceil(ex - sx)), math.max(1, math.ceil(ey - sy)) )
+            g.push('all')
+            g.intersectScissor(math.floor(sx), math.floor(sy), math.max(1, math.ceil(ex - sx)), math.max(1, math.ceil(ey - sy)))
             g.polygon("fill", pts)
-            g.setScissor()
+            g.pop()
         end
         -- Brillo especular superior
         g.setColor(0.85, 0.97, 1.0, 0.55 * fillRatio)
@@ -45,57 +46,56 @@ local function drawShieldCrest(x, y, size, fillRatio, activeColor)
     g.setLineWidth(1)
 end
 
--- HUD del jugador estilo Enter the Gungeon (Esquina superior izquierda: Corazones + Blasón de Escudo + Micro-barra de Combustible)
+local HEART_COUNT, HEART_SPACING = 5, 19
+local SHIELD_COUNT, SHIELD_SPACING = 4, 15
+
 function HUD.drawPlayerHUD()
     if not HUD.player or not HUD.player.stats then return end
 
     local g = love.graphics
-    local r, gr, b, a = g.getColor()
-    local isInEVA = HUD.player.isInEVA or false
+    local stats = HUD.player.stats
+    local panelX, panelH = 16, 46
+    local panelY = g.getHeight() - 16 - panelH
+    local startX, topY = panelX + 6, panelY + 5
+    local shieldStartX = startX + HEART_COUNT * HEART_SPACING + 12
+    local shieldEndX = shieldStartX + (SHIELD_COUNT - 1) * SHIELD_SPACING + 12
+    local panelW = shieldEndX - panelX + 8
+    local now = love.timer.getTime()
+    local hullHit = now - (stats.health.lastImpactTime or -math.huge) < .22
+    local shieldHit = now - (stats.shield.lastImpactTime or -math.huge) < .22
+    local hullPct = stats:getHealthPercentage()
+    local shieldPct = stats:getShieldPercentage()
 
-    local startX = 18
-    local topY = 16
-    local maxHearts = (HUD.player.stats.health and HUD.player.stats.health.maxHearts) or 3
-    local heartSpacing = 22
-
-    -- Placa translúcida sutil de respaldo para lectura limpia sobre nebulosas brillantes
-    local shieldPipCount = 4
-    local totalTopWidth = maxHearts * heartSpacing + 14 + shieldPipCount * 17 + 34
-    g.setColor(0.015, 0.03, 0.055, 0.62)
-    g.rectangle("fill", startX - 6, topY - 5, totalTopWidth, 48, 5, 5)
-    g.setColor(0.22, 0.50, 0.68, 0.28)
-    g.rectangle("line", startX - 6, topY - 5, totalTopWidth, 48, 5, 5)
-
-    -- 1. Corazones de vida (arriba a la izquierda, estilo Gungeon)
-    HUD.drawHearts(startX, topY)
-
-    -- 2. Escudo junto a los corazones (Blasones segmentados estilo Armor de Enter the Gungeon)
-    local shieldPct = math.max(0, math.min(100, HUD.player.stats:getShieldPercentage() or 0))
-    local shieldStartX = startX + maxHearts * heartSpacing + 8
-    local shieldColor = {0.25, 0.85, 1.0, 1.0}
-
-    for i = 1, shieldPipCount do
-        local segMin = (i - 1) * (100 / shieldPipCount)
-        local segSpan = 100 / shieldPipCount
-        local segFill = math.max(0, math.min(1, (shieldPct - segMin) / segSpan))
-        drawShieldCrest(shieldStartX + (i - 1) * 16, topY, 12, segFill, shieldColor)
-    end
-
+    g.push('all')
     if HUD.hudState.tinyFont then g.setFont(HUD.hudState.tinyFont) end
-    g.setColor(shieldPct > 0 and {0.65, 0.92, 1.0, 0.95} or {0.45, 0.55, 0.65, 0.75})
-    g.print(string.format("%.0f%%", shieldPct), shieldStartX + shieldPipCount * 16 + 3, topY + 3)
+    g.setColor(0.015, 0.03, 0.055, 0.75)
+    g.rectangle("fill", panelX, panelY, panelW, panelH, 5, 5)
+    g.setColor(0.22, 0.50, 0.68, 0.36)
+    g.rectangle("line", panelX, panelY, panelW, panelH, 5, 5)
+
+    HUD.drawHearts(startX, topY, hullPct, hullHit)
+
+    local shieldColor = shieldHit and {.72, .97, 1}
+        or stats.shield.isRegenerating and {.36, 1, .88} or {.25, .85, 1}
+    for i = 1, SHIELD_COUNT do
+        local fill = math.max(0, math.min(1, shieldPct / 100 * SHIELD_COUNT - i + 1))
+        drawShieldCrest(shieldStartX + (i - 1) * SHIELD_SPACING, topY, 12, fill, shieldColor)
+    end
+    if shieldHit or stats.shield.isRegenerating then
+        g.setColor(shieldColor)
+        g.line(shieldStartX, topY + 17, shieldEndX, topY + 17)
+    end
 
     -- 3. Fila inferior compacta: Micro-barra de Combustible o Indicador EVA
     local subY = topY + 23
-    if not isInEVA then
-        local fuelPct = math.max(0, math.min(100, HUD.player.stats:getFuelPercentage() or 0))
-        if HUD.hudState.tinyFont then g.setFont(HUD.hudState.tinyFont) end
+    if not HUD.player.isInEVA then
+        local fuelPct = stats:getFuelPercentage()
         g.setColor(0.75, 0.82, 0.90, 0.85)
-        g.print("FUEL", startX, subY)
-        HUD.drawBar(startX + 32, subY + 2, 108, 7, fuelPct, {1.0, 0.78, 0.22, 0.95}, {0.12, 0.14, 0.18, 0.85}, false)
+        g.print("COMB.", startX, subY)
+        HUD.drawBar(startX + 33, subY + 2, 72, 7, fuelPct, {1.0, 0.78, 0.22, 0.95}, {0.12, 0.14, 0.18, 0.85}, false)
 
         g.setColor(0.55, 0.66, 0.76, 0.72)
-        g.print("S+E: EVA", startX + 148, subY)
+        g.printf("S+E: EVA", startX, subY, shieldEndX - startX, "right")
     else
         if HUD.hudState.smallFont then g.setFont(HUD.hudState.smallFont) end
         g.setColor(1.0, 0.58, 0.18, 0.95)
@@ -111,42 +111,7 @@ function HUD.drawPlayerHUD()
         g.print(string.format("Nave a %.0fu · [E] Entrar", distance), startX + 34, subY + 1)
     end
 
-    g.setColor(r, gr, b, a)
-end
-
--- Dibujar corazones de vida con acabado estilo Enter the Gungeon
-function HUD.drawHearts(x, y)
-    if not HUD.player or not HUD.player.stats or not HUD.player.stats.health then return end
-
-    local heartSize = 16
-    local heartSpacing = 22
-    local maxHearts = HUD.player.stats.health.maxHearts or 3
-    local curHearts = HUD.player.stats.health.currentHearts or 0
-    local halves = HUD.player.stats.health.heartHalves or 0
-
-    for i = 1, maxHearts do
-        local heartX = x + (i - 1) * heartSpacing
-
-        -- Sombra / base oscura del contenedor de corazón
-        love.graphics.setColor(0.14, 0.04, 0.06, 0.85)
-        HUD.drawHeart(heartX, y, heartSize, true)
-
-        if i <= curHearts then
-            love.graphics.setColor(0.96, 0.18, 0.24, 1)
-            HUD.drawHeart(heartX, y, heartSize, true)
-            -- Brillo especular estilo Gungeon
-            love.graphics.setColor(1, 0.75, 0.78, 0.75)
-            love.graphics.circle("fill", heartX + 4, y + 4, 1.6)
-        elseif i == curHearts + 1 and halves > 0 then
-            love.graphics.setColor(0.96, 0.18, 0.24, 1)
-            HUD.drawHeart(heartX, y, heartSize, false)
-            love.graphics.setColor(1, 0.75, 0.78, 0.75)
-            love.graphics.circle("fill", heartX + 4, y + 4, 1.6)
-        else
-            love.graphics.setColor(0.38, 0.14, 0.18, 0.8)
-            HUD.drawHeartOutline(heartX, y, heartSize)
-        end
-    end
+    g.pop()
 end
 
 local function heartVertices(x, y, size)
@@ -165,26 +130,33 @@ local function heartVertices(x, y, size)
     }
 end
 
-function HUD.drawHeart(x, y, size, full)
+function HUD.drawHearts(x, y, percentage, hit)
     local g = love.graphics
-    local pts = heartVertices(x, y, size)
-    if full then
-        g.polygon("fill", pts)
-        g.setColor(0.55, 0.08, 0.12, 0.85)
-        g.polygon("line", pts)
-    else
-        local sx, sy = g.transformPoint(x, y)
-        local mx, my = g.transformPoint(x + size * 0.5, y + size)
-        g.setScissor(math.floor(sx), math.floor(sy), math.max(1, math.ceil(mx - sx)), math.max(1, math.ceil(my - sy)))
-        g.polygon("fill", pts)
-        g.setScissor()
-        g.setColor(0.45, 0.14, 0.18, 0.85)
-        g.polygon("line", pts)
-    end
-end
+    local size = 15
+    for i = 1, HEART_COUNT do
+        local heartX = x + (i - 1) * HEART_SPACING
+        local points = heartVertices(heartX, y, size)
+        local fill = math.max(0, math.min(1, percentage / 100 * HEART_COUNT - i + 1))
 
-function HUD.drawHeartOutline(x, y, size)
-    love.graphics.polygon("line", heartVertices(x, y, size))
+        g.setColor(.17, .05, .08, .95)
+        g.polygon("fill", points)
+        if fill > 0 then
+            g.setColor(hit and {1, .57, .62} or {.96, .20, .31})
+            if fill < 1 then
+                local sx, sy = g.transformPoint(heartX, y)
+                local ex, ey = g.transformPoint(heartX + size * fill, y + size)
+                g.push('all')
+                g.intersectScissor(math.floor(sx), math.floor(sy),
+                    math.max(1, math.floor(ex) - math.floor(sx)), math.ceil(ey) - math.floor(sy))
+                g.polygon("fill", points)
+                g.pop()
+            else
+                g.polygon("fill", points)
+            end
+        end
+        g.setColor(hit and {.95, .55, .57, .95} or {.65, .24, .30, .9})
+        g.polygon("line", points)
+    end
 end
 
 function HUD.drawBar(x, y, width, height, percentage, color, backgroundColor, showLabel)

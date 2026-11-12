@@ -1,6 +1,7 @@
 local Theme = require 'src.ui.combat_theme'
 local View = require 'src.ui.combat_presentation'
 local utf8 = require("utf8")
+local ABILITY_GAP = 8
 
 local WeaponHUD = {
     visible = true,
@@ -132,8 +133,12 @@ function WeaponHUD:layout(width, height)
 
     local abilW = compact and 106 or 124
     local abilH = compact and 38 or 42
-    local abilX = 18
     local abilY = height - bottomMargin - abilH
+    if width < 640 then
+        abilW = 78
+        abilY = abilY - cardH - ABILITY_GAP
+    end
+    local abilX = math.floor((width - 2 * abilW - ABILITY_GAP) * .5)
 
     return {
         compact = compact,
@@ -183,12 +188,12 @@ function WeaponHUD:draw(player, suppressTooltip)
     g.origin()
 
     -- =========================================================================
-    -- 1. ESQUINA INFERIOR IZQUIERDA: HABILIDADES ACTIVAS Q Y R (Estilo Gungeon Active Items)
+    -- 1. CENTRO INFERIOR: HABILIDADES ACTIVAS Q Y R
     -- =========================================================================
     if player.abilitySystem then
         for index, key in ipairs({'q', 'r'}) do
             local info = View.ability(player.abilitySystem, key)
-            local x = layout.abilX + (index - 1) * (layout.abilW + 8)
+            local x = layout.abilX + (index - 1) * (layout.abilW + ABILITY_GAP)
             local y = layout.abilY
             local color = info.state == 'ACTIVA' and colors.active
                 or info.state == 'RECARGA' and colors.recipe

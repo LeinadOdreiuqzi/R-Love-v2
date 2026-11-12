@@ -95,7 +95,7 @@ function Passives.registerAll()
     registerPassive({
         id = "auxiliary_heart",
         name = "Corazón Auxiliar",
-        description = "Un núcleo vital auxiliar que aumenta la integridad máxima del casco en +1 corazón.",
+        description = "Un núcleo vital auxiliar que aumenta la integridad máxima del casco en +2 puntos de casco.",
         value = 800, weight = 0.3, icon = "auxiliary_heart",
         tags = {"health", "life", "medical"},
         passiveEffects = {

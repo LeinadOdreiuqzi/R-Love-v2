@@ -86,7 +86,7 @@ function Equipables.registerAll()
     registerWeapon({
         id = "basic_laser_pistol",
         name = "Pistola Láser Básica",
-        description = "Pistola láser estándar precisa y de bajo consumo. Daño: 15-25 energía.",
+        description = "Pistola láser estándar de disparo semiautomático.",
         value = 200, weight = 1.2, icon = "laser_pistol",
         tags = {"weapon", "energy", "ranged", "laser"},
         damage = { min = 15, max = 25 }, damageType = DAMAGE_TYPES.ENERGY,
@@ -99,7 +99,7 @@ function Equipables.registerAll()
     registerWeapon({
         id = "plasma_rifle",
         name = "Rifle de Plasma",
-        description = "Rifle de plasma de largo alcance y daño sostenido. Daño: 30-45 plasma.",
+        description = "Rifle de plasma de largo alcance y daño sostenido.",
         value = 800, weight = 2.5, icon = "plasma_rifle",
         tags = {"weapon", "plasma", "ranged", "heavy"},
         damage = { min = 30, max = 45 }, damageType = DAMAGE_TYPES.PLASMA,
@@ -112,7 +112,7 @@ function Equipables.registerAll()
     registerWeapon({
         id = "kinetic_assault_rifle",
         name = "Rifle de Asalto Cinético",
-        description = "Rifle automático de proyectiles físicos de alta cadencia. Daño: 18-28 cinético.",
+        description = "Rifle automático de proyectiles físicos de alta cadencia.",
         value = 450, weight = 2.0, icon = "assault_rifle",
         tags = {"weapon", "kinetic", "ranged", "automatic"},
         damage = { min = 18, max = 28 }, damageType = DAMAGE_TYPES.KINETIC,
@@ -125,7 +125,7 @@ function Equipables.registerAll()
     registerWeapon({
         id = "heavy_plasma_cannon",
         name = "Cañón de Plasma Pesado",
-        description = "Artillería pesada de plasma con gran daño de impacto. Daño: 55-85 plasma.",
+        description = "Artillería pesada de plasma con gran daño de impacto.",
         value = 1500, weight = 4.0, icon = "plasma_cannon",
         tags = {"weapon", "plasma", "ranged", "heavy", "explosive"},
         damage = { min = 55, max = 85 }, damageType = DAMAGE_TYPES.PLASMA,

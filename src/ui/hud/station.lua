@@ -188,8 +188,9 @@ function HUD.drawStationHint()
     local maxWidth = math.max(promptWidth, typeWidth, stateWidth)
     local totalHeight = promptHeight + infoHeight * 2 + 16
     
-    local px = (w - maxWidth) * 0.5
-    local py = h - totalHeight - 30
+    local layout = require('src.ui.weapon_hud'):layout(w, h)
+    local px = math.max(16, math.min((w - maxWidth) * 0.5, layout.gunX - maxWidth - 24))
+    local py = layout.abilY - totalHeight - 14
     
     love.graphics.setColor(0, 0, 0, 0.7 * (0.6 + 0.4 * pulse))
     love.graphics.rectangle("fill", px - 16, py - 8, maxWidth + 32, totalHeight + 16, 8, 8)
@@ -281,7 +282,7 @@ function HUD.drawBoardingHint()
     local totalH = promptH + subH + 12
 
     local px = (w - maxW) * 0.5
-    local py = h - totalH - 45
+    local py = h - totalH - 76
 
     -- Fondo translúcido con esquinas redondeadas
     love.graphics.setColor(0.04, 0.06, 0.10, 0.85)

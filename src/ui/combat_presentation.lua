@@ -50,6 +50,20 @@ end
 
 function View.tooltip(player, data)
     local state, lines = View.item(player, data), {}
+    local ws = player and player.weaponSystem
+    if data.equipType == Items.EQUIPABLE_TYPES.WEAPON and ws then
+        local low, high = ws:getEffectiveDamageRange(data)
+        local damage = string.format('%.1f', low)
+        if string.format('%.1f', high) ~= damage then
+            damage = damage .. '-' .. string.format('%.1f', high)
+        end
+        lines[#lines + 1] = {kind = 'text', text = string.format(
+            'Daño de referencia %s  |  Cadencia %.2f disp/s', damage, ws:getEffectiveFireRate(data))}
+        if data.maxAmmo then
+            lines[#lines + 1] = {kind = 'muted', text = string.format(
+                'Cargador %d  |  Recarga %.2f s', data.maxAmmo, ws:getEffectiveReloadTime(data))}
+        end
+    end
     if state.evolved then lines[#lines + 1] = {kind = 'evolved', text = '★ EVOLUCIÓN · ' .. (state.equipped and 'equipada' or 'en carga')} end
     for _, amp in ipairs(state.amplifications) do
         lines[#lines + 1] = {kind = 'active', text = (amp.equipped and 'AMP EQUIPADA · ' or 'AMP EN CARGA · ') .. amp.name

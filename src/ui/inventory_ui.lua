@@ -347,7 +347,7 @@ function InventoryUI:draw(player)
     
     -- Dibujar panel de inventario
     local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
-    self:drawInventoryPanel(shipComp, player.inventory)
+    self:drawInventoryPanel(shipComp, player)
     
     -- Dibujar panel EVA integrado
     local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
@@ -393,7 +393,7 @@ function InventoryUI:drawTooltip(item)
 end
 
 -- Dibujar panel de inventario
-function InventoryUI:drawInventoryPanel(compartment, mainInventory)
+function InventoryUI:drawInventoryPanel(compartment, player)
     local layout = uiState.layout
     local colors = uiState.colors
     local slotSize = uiState.slotSize
@@ -413,10 +413,23 @@ function InventoryUI:drawInventoryPanel(compartment, mainInventory)
     -- Título con fuente más grande
     love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.titleFont)
-    local shipType = (mainInventory and mainInventory.shipType) or "Carga"
-    love.graphics.print("NAVE: " .. shipType:upper(), 
-                       layout.inventoryX + panelPadding, layout.inventoryY + 10)
-    
+    local shipName = player.shipConfig and player.shipConfig.name or player.inventory.shipType or "Carga"
+    local headerX = layout.inventoryX + panelPadding
+    love.graphics.print(shipName, headerX, layout.inventoryY + 5)
+
+    if player.stats and player.getCruiseStats then
+        local stats = player.stats
+        local speed, accel = player:getCruiseStats()
+        love.graphics.setFont(uiState.smallFont)
+        love.graphics.setColor(colors.textSecondary)
+        local headerWidth = layout.inventoryWidth - 2 * panelPadding
+        love.graphics.printf(string.format("Vel. %.1f  |  Acel. %.1f", speed, accel),
+            headerX, layout.inventoryY + 9, headerWidth, "right")
+        love.graphics.print(string.format("Casco %d  |  Escudo %d  |  Comb. %d",
+            stats.health.maxHealth, stats.shield.maxShield, stats.fuel.maxFuel),
+            headerX, layout.inventoryY + 25)
+    end
+
     -- Slots del inventario (8 columnas)
     local startX = layout.inventoryX + panelPadding
     local startY = layout.inventoryY + 40

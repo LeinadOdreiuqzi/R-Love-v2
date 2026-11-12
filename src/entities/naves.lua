@@ -339,13 +339,7 @@ function Naves:new(x, y, shipType, options)
     player.thrusterParticles = {}
     
     -- Stats system basados en configuración de nave
-    player.stats = PlayerStats:new()
-    player.stats.health.maxHealth = shipConfig.maxHealth
-    player.stats.health.currentHealth = shipConfig.maxHealth
-    player.stats.shield.maxShield = shipConfig.maxShield
-    player.stats.shield.currentShield = shipConfig.maxShield
-    player.stats.fuel.maxFuel = shipConfig.maxFuel
-    player.stats.fuel.currentFuel = shipConfig.maxFuel
+    player.stats = PlayerStats:new(shipConfig)
     
     -- Sistema de inventario
     player.inventory = InventorySystem:new(shipType)
@@ -415,6 +409,25 @@ end
 -- Métodos estáticos para gestión de naves
 function Naves.getShipRegistry()
     return shipRegistry
+end
+
+function Naves:getSpeedModifiers()
+    local speedMod = self.passiveModifiers and self.passiveModifiers.speed
+    local speedMult = 1.0
+    local speedFlat = 0
+    if type(speedMod) == "table" then
+        speedMult = 1.0 + ((speedMod.percent or 0) / 100.0)
+        speedFlat = speedMod.flat or 0
+    elseif type(speedMod) == "number" then
+        speedMult = 1.0 + (speedMod > 1 and (speedMod / 100.0) or speedMod)
+    end
+    return speedFlat, speedMult
+end
+
+function Naves:getCruiseStats()
+    local flat, multiplier = self:getSpeedModifiers()
+    return (self.baseParams.maxSpeed + flat) * multiplier,
+        (self.baseParams.forwardAccel + flat) * multiplier
 end
 
 function Naves.getShipTypes()
@@ -712,10 +725,7 @@ function Naves:update(dt)
         if self._nanobotTimer >= 12.0 then
             self._nanobotTimer = 0
             if self.stats.health.currentHealth < self.stats.health.maxHealth then
-                self.stats.health.currentHealth = math.min(self.stats.health.maxHealth, self.stats.health.currentHealth + 1)
-                if self.stats.updateHeartDisplay then
-                    self.stats:updateHeartDisplay()
-                end
+                self.stats:heal(1)
             end
         end
     end
@@ -805,16 +815,7 @@ function Naves:update(dt)
         isMoving = true
     end
     
-    -- Modificador pasivo de velocidad (Propulsores Mejorados, etc.)
-    local speedMod = self.passiveModifiers and self.passiveModifiers.speed
-    local speedMult = 1.0
-    local speedFlat = 0
-    if type(speedMod) == "table" then
-        speedMult = 1.0 + ((speedMod.percent or 0) / 100.0)
-        speedFlat = speedMod.flat or 0
-    elseif type(speedMod) == "number" then
-        speedMult = 1.0 + (speedMod > 1 and (speedMod / 100.0) or speedMod)
-    end
+    local speedFlat, speedMult = self:getSpeedModifiers()
     local effectiveMaxSpeed = (self.maxSpeed + speedFlat) * speedMult
     
     -- Normalize movement vector if moving

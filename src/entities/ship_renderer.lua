@@ -992,19 +992,24 @@ function ShipRenderer.drawAIShip(self)
 
     love.graphics.pop()
 
-    -- 4. Micro-indicador diegético de casco/escudo cuando la nave está dañada o en combate
-    local hpPct = (self.stats and self.stats:getHealthPercentage()) or 100
-    local isMothership = (self.shipConfig and self.shipConfig.isMothership)
-    if hpPct < 99 or (ai and ai.state == "COMBAT") or isMothership then
+    -- Una lectura de defensa cuando hay combate o un impacto reciente.
+    local stats = self.stats
+    local isMothership = self.shipConfig and self.shipConfig.isMothership
+    local now = love.timer.getTime()
+    local shieldHit = stats and now - (stats.shield.lastImpactTime or -math.huge) or math.huge
+    local hullHit = stats and now - (stats.health.lastImpactTime or -math.huge) or math.huge
+    if stats and (math.min(shieldHit, hullHit) < 2 or (ai and ai.state == "COMBAT") or isMothership) then
         local barW = isMothership and 56 or 28
-        local barH = isMothership and 4.5 or 3
-        local bx = renderX - barW * 0.5
-        local by = renderY - (self.size or 14) * (isMothership and 1.55 or 1.9)
-        love.graphics.setColor(0.05, 0.07, 0.10, 0.82)
-        love.graphics.rectangle("fill", bx - 1, by - 1, barW + 2, barH + 2, 1, 1)
-        local bCol = (ai and ai.config and ai.config.beaconColor) or {0.9, 0.3, 0.2}
-        love.graphics.setColor(bCol[1], bCol[2], bCol[3], 0.92)
-        love.graphics.rectangle("fill", bx, by, barW * math.max(0, math.min(1, hpPct / 100)), barH, 1, 1)
+        local barH = isMothership and 4 or 3
+        local bx = renderX - barW * .5
+        local by = renderY - (self.size or 14) * (isMothership and 1.55 or 1.9) - barH
+        local g = love.graphics
+        g.setColor(.05, .07, .10, .92)
+        g.rectangle("fill", bx - 1, by - 1, barW + 2, 2 * barH + 3, 1, 1)
+        g.setColor(shieldHit < .22 and {.8, .98, 1} or {.25, .85, 1})
+        g.rectangle("fill", bx, by, barW * stats:getShieldPercentage() / 100, barH)
+        g.setColor(hullHit < .22 and {1, .65, .65} or {.98, .31, .39})
+        g.rectangle("fill", bx, by + barH + 1, barW * stats:getHealthPercentage() / 100, barH)
     end
 
     love.graphics.setColor(r, g, b, a)

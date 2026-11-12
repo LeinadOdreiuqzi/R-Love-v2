@@ -25,9 +25,6 @@ local Effects = {
                 local oldHealth = player.stats.health.currentHealth or 0
                 local maxHealth = player.stats.health.maxHealth or 100
                 player.stats.health.currentHealth = math.min(oldHealth + amount, maxHealth)
-                if player.stats.updateHeartDisplay then
-                    player.stats:updateHeartDisplay()
-                end
                 local healed = player.stats.health.currentHealth - oldHealth
                 return string.format("Curado %d puntos de vida", healed)
             elseif type(player.stats.health) == "number" then
@@ -107,9 +104,6 @@ local Effects = {
                     player.stats:heal(maxH)
                 else
                     player.stats.health.currentHealth = maxH
-                    if player.stats.updateHeartDisplay then
-                        player.stats:updateHeartDisplay()
-                    end
                 end
             elseif type(player.stats.health) == "number" then
                 player.stats.health = player.stats.maxHealth or 100
@@ -136,10 +130,6 @@ local Effects = {
                     player.stats.health.maxHealth,
                     (player.stats.health.currentHealth or 10) + amount
                 )
-                player.stats.health.maxHearts = math.ceil(player.stats.health.maxHealth / 2)
-                if player.stats.updateHeartDisplay then
-                    player.stats:updateHeartDisplay()
-                end
             else
                 player.stats.maxHealth = (player.stats.maxHealth or 100) + amount
                 player.stats.health = (player.stats.health or 100) + amount
