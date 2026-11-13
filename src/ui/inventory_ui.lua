@@ -5,6 +5,8 @@ local InventoryUI = {}
 local World = require 'src.core.world'
 local InventoryModal = require 'src.ui.inventory.inventory_modal'
 local InventoryEquipPanels = require 'src.ui.inventory.inventory_equip_panels'
+local PilotPanel = require 'src.ui.inventory.pilot_panel'
+local Theme = require 'src.ui.combat_theme'
 
 -- Estado de la UI
 local uiState = {
@@ -96,6 +98,12 @@ local uiState = {
     }
 }
 
+local function statsButton()
+    local layout = uiState.layout
+    return layout.inventoryX + layout.inventoryWidth - uiState.panelPadding - 104,
+        layout.inventoryY + 5, 104, 20
+end
+
 -- Inicializar UI
 function InventoryUI:init()
     -- Cargar fuentes
@@ -186,6 +194,7 @@ end
 function InventoryUI:close()
     if not uiState.isOpen then return end
     uiState.isOpen = false
+    uiState.showPilotStats = false
     -- Limpiar estado de drag y modal al cerrar
     uiState.draggedItem = nil
     uiState.draggedFromSlot = nil
@@ -342,6 +351,10 @@ function InventoryUI:draw(player)
         return 
     end
     uiState.currentPlayer = player
+    if uiState.showPilotStats then
+        PilotPanel.draw(player)
+        return
+    end
     
     love.graphics.push()
     
@@ -417,17 +430,18 @@ function InventoryUI:drawInventoryPanel(compartment, player)
     local headerX = layout.inventoryX + panelPadding
     love.graphics.print(shipName, headerX, layout.inventoryY + 5)
 
-    if player.stats and player.getCruiseStats then
+    if player.stats and player.shipConfig then
         local stats = player.stats
-        local speed, accel = player:getCruiseStats()
         love.graphics.setFont(uiState.smallFont)
         love.graphics.setColor(colors.textSecondary)
-        local headerWidth = layout.inventoryWidth - 2 * panelPadding
-        love.graphics.printf(string.format("Vel. %.1f  |  Acel. %.1f", speed, accel),
-            headerX, layout.inventoryY + 9, headerWidth, "right")
         love.graphics.print(string.format("Casco %d  |  Escudo %d  |  Comb. %d",
             stats.health.maxHealth, stats.shield.maxShield, stats.fuel.maxFuel),
             headerX, layout.inventoryY + 25)
+        local x, y, w, h = statsButton()
+        local mx, my = uiState.mouseX, uiState.mouseY
+        Theme.panel(x, y, w, h, Theme.colors.active, mx >= x and mx < x + w and my >= y and my < y + h)
+        love.graphics.setColor(colors.accent)
+        love.graphics.printf("Estadísticas", x, y + 2, w, "center")
     end
 
     -- Slots del inventario (8 columnas)
@@ -690,6 +704,12 @@ end
 -- Manejar click del mouse
 function InventoryUI:mousepressed(x, y, button, player)
     if not uiState.isOpen or not player or not player.inventory then return end
+    if uiState.showPilotStats then
+        if button == 1 and PilotPanel.isBackButton(x, y) then
+            uiState.showPilotStats = false
+        end
+        return
+    end
     
     -- Si hay modal abierto, verificar clics en él
     if uiState.modal.isOpen then
@@ -699,6 +719,12 @@ function InventoryUI:mousepressed(x, y, button, player)
     
     -- Solo manejar drag con clic izquierdo
     if button == 1 then
+        local bx, by, bw, bh = statsButton()
+        if player.stats and player.shipConfig and not uiState.draggedItem
+            and x >= bx and x < bx + bw and y >= by and y < by + bh then
+            uiState.showPilotStats = true
+            return
+        end
         -- Verificar click en inventario (compartimento 'ship')
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
         local inventorySlot = self:getInventorySlotAt(x, y, shipComp)

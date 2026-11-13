@@ -972,10 +972,14 @@ function WeaponSystem:getCurrentWeaponInfo()
     
     local emitters, hpLevel = self:getActiveHardpointEmitters(self.currentWeapon)
     local minDamage, maxDamage = self:getEffectiveDamageRange(self.currentWeapon)
+    local baseMin, baseMax = getBaseDamageRange(self.currentWeapon)
     local info = {
         name = self.currentWeapon.name,
         slot = self.currentSlot,
         damage = self.currentWeapon.damage,
+        baseDamageMin = baseMin,
+        baseDamageMax = baseMax,
+        baseFireRate = self.currentWeapon.fireRate or 1,
         damageMin = minDamage,
         damageMax = maxDamage,
         fireRate = self:getEffectiveFireRate(self.currentWeapon),
