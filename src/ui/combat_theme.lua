@@ -44,6 +44,9 @@ function Theme.tooltip(player, data, mouseX, mouseY)
     local width = math.min(350, g.getWidth() - 24)
     local sections = {{text = (data.name or data.id):gsub('★%s*', ''), kind = data.isEvolved and 'evolved' or 'text', font = Theme.title},
         {text = data.description or '', kind = 'muted', font = Theme.font}}
+    if type(data.rarity) == 'table' and data.rarity.name then
+        table.insert(sections, 2, {text = data.rarity.name, color = data.rarity.color})
+    end
     for _, line in ipairs(lines) do sections[#sections + 1] = line end
     if data.value then
         sections[#sections + 1] = {text = 'Valor: ' .. data.value .. ' créditos'
@@ -64,7 +67,7 @@ function Theme.tooltip(player, data, mouseX, mouseY)
     Theme.panel(0, 0, width, height, Theme.colors.active, true)
     local top = 10
     for _, section in ipairs(sections) do
-        g.setFont(section.font); g.setColor(Theme.colors[section.kind] or Theme.colors.text)
+        g.setFont(section.font); g.setColor(section.color or Theme.colors[section.kind] or Theme.colors.text)
         if section.kind == 'evolved' then Theme.star(width - 9, top + 5, 4) end
         g.printf(section.text, 12, top, width - 24)
         top = top + section.height

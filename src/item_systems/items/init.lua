@@ -6,6 +6,7 @@ local Consumables = require("src.item_systems.items.consumables")
 local Passives = require("src.item_systems.items.passives")
 local Equipables = require("src.item_systems.items.equipables")
 local Materials = require("src.item_systems.items.materials")
+local Loot = require("src.gameplay.loot")
 
 local ItemInit = {}
 
@@ -30,6 +31,15 @@ function ItemInit.initialize()
     
     -- Registrar equipables
     Equipables.registerAll()
+    ItemSystem:registerItem({
+        id = Loot.roomKeyId,
+        name = "Llave de cámara de salvamento",
+        description = "Abre una cámara de salvamento y libera sus cajas.",
+        category = ItemSystem.CATEGORIES.QUEST,
+        stackable = true,
+        maxStack = 10
+    })
+    Loot.applyCatalogRarities()
     
     -- Registrar recetas de crafting
     print("Registrando recetas de crafting...")

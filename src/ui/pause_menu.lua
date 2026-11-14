@@ -35,6 +35,14 @@ local SOUNDTRACKS = {
 -- Lista de submundos y sus subniveles
 local SUBWORLDS = {
     {
+        id = "loot_debug",
+        name = "Botín (Laboratorio)",
+        color = { 0.35, 0.85, 0.85 },
+        levels = {
+            { id = "loot_lab", name = "Contenedores con llave", tier = 0, width = 8, height = 8 }
+        }
+    },
+    {
         id = "ships_debug",
         name = "Naves y Nodrizas (Hangar)",
         color = { 0.82, 0.35, 1.00 },
@@ -380,8 +388,8 @@ function PauseMenu.drawSublevelsListView(sw, sh, alpha)
 
     local pw = 380
     local btnW = pw - 60
-    local btnH = 42
-    local gap = 12
+    local gap = sh < 500 and 6 or 12
+    local btnH = math.min(42, math.floor((sh - 116 - (#buttons - 1) * gap) / #buttons))
     local totalBtnH = #buttons * btnH + (#buttons - 1) * gap
     local ph = 70 + totalBtnH + 34
     local px = math.floor((sw - pw) / 2)
@@ -866,8 +874,8 @@ function PauseMenu.mousepressed(x, y, button)
 
         local pw = 380
         local btnW = pw - 60
-        local btnH = 42
-        local gap = 12
+        local gap = sh < 500 and 6 or 12
+        local btnH = math.min(42, math.floor((sh - 116 - (#buttons - 1) * gap) / #buttons))
         local totalBtnH = #buttons * btnH + (#buttons - 1) * gap
         local ph = 70 + totalBtnH + 34
         local px = math.floor((sw - pw) / 2)

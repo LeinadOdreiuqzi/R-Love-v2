@@ -7,6 +7,7 @@ local GameDirector = {}
 GameDirector.__index = GameDirector
 
 local World = require 'src.core.world'
+local Loot = require 'src.gameplay.loot'
 local SeedSystem = require 'src.utils.seed_system'
 local AIController = require 'src.entities.ai_controller'
 
@@ -84,6 +85,7 @@ function GameDirector:spawnEcologicalShip(x, y, shipType, role, rng, extraOpts)
     ship.sprite = nil
     local ai = AIController:new(ship, {
         role = role,
+        lootProfile = extraOpts.lootProfile,
         faction = extraOpts.faction,
         rng = rng,
         homeX = extraOpts.homeX or x,
@@ -381,17 +383,17 @@ function GameDirector:spawnAftermathSite(x, y, rng)
     World.addEntity(wreck)
 
     -- Generar un rastro direccional de recursos ("Breadcrumb Trail" de leveldesigner.md)
-    if WorldItems and WorldItems.drop and ItemSystem and ItemSystem.getItem then
+    if WorldItems and WorldItems.create and ItemSystem and ItemSystem.getItem then
         local trailAngle = rng:random() * math.pi * 2
-        local lootPool = { "iron_ore", "energy_crystal", "shield_battery", "basic_circuit" }
-        for i = 1, 3 do
+        local loot = Loot.roll('standard', rng)
+        loot[#loot + 1] = 'salvaged_fuel'
+        for i, itemId in ipairs(loot) do
             local dist = 55 * i + rng:random(-15, 15)
             local lx = x + math.cos(trailAngle) * dist
             local ly = y + math.sin(trailAngle) * dist
-            local itemId = lootPool[1 + (i % #lootPool)]
             local itemData = ItemSystem:getItem(itemId)
             if itemData then
-                pcall(function() WorldItems.drop(itemData, x, y, lx, ly, 1) end)
+                WorldItems.create(itemData, lx, ly, 1)
             end
         end
     end

@@ -1,4 +1,5 @@
 local CombatSight = require 'src.entities.combat_sight'
+local Loot = require 'src.gameplay.loot'
 -- src/entities/ai_controller.lua
 -- Controlador de IA Táctica y Ecológica v3 (Pilotaje Inercial Orgánico, Esquiva Reactiva y Estados de Tensión).
 -- Incluye:
@@ -120,6 +121,7 @@ function AIController:new(ship, opts)
         ship = ship,
         role = role,
         config = cfg,
+        lootProfile = opts.lootProfile or Loot.enemyProfile(ship),
         state = AIController.STATES.WORLD_GOAL,
         active = true,
 
@@ -1884,15 +1886,17 @@ function AIController:onDamaged(damage, attacker)
 end
 
 -- Suelta el botín físico al espacio exterior (y eyecta el botín robado si dropAllScavenged es true)
-function AIController:dropLoot(numDrops, dropAllScavenged)
+function AIController:dropLoot(numDrops, dropAllScavenged, playerKill)
     local ship = self.ship
     if not ship then return end
     local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
     local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
     if WorldItems and WorldItems.drop and ItemSystem and ItemSystem.getItem then
         local dropTable = { "iron_ore", "energy_crystal", "repair_kit", "basic_circuit", "energy_stim" }
-        for i = 1, (numDrops or 1) do
-            local itemId = dropTable[1 + ((i + (ship.shipId or 1)) % #dropTable)]
+        numDrops = numDrops or 1
+        local roll = playerKill and Loot.roll(self.lootProfile, self)[1]
+        for i = 1, numDrops do
+            local itemId = i == 1 and roll or dropTable[1 + ((i + (ship.shipId or 1)) % #dropTable)]
             local itemData = ItemSystem:getItem(itemId)
             if itemData then
                 local angle = (i / math.max(1, numDrops or 1)) * math.pi * 2 + self:random(-0.35, 0.35)
@@ -1982,6 +1986,8 @@ function AIController:onKilled(attacker)
 
     local World = package.loaded['src.core.world']
     local Naves = package.loaded['src.entities.naves']
+    local owner = attacker and (attacker.owner or attacker)
+    local playerKill = owner and World and owner == World.getPlayer()
 
     if roll <= intactChance then
         self.state = AIController.STATES.DISABLED
@@ -2001,7 +2007,7 @@ function AIController:onKilled(attacker)
         end
 
         local drops = isMothership and 3 or 1
-        self:dropLoot(drops, true)
+        self:dropLoot(drops, true, playerKill)
 
         local director = World and (World.get('director') or World.get('gameDirector'))
         if director and director.notifyDebrisSite then
@@ -2022,7 +2028,7 @@ function AIController:onKilled(attacker)
         ship.isPiloted = false
 
         local drops = isMothership and 5 or ((self.role == AIController.ROLES.SCAVENGER) and 3 or 2)
-        self:dropLoot(drops, true)
+        self:dropLoot(drops, true, playerKill)
 
         local director = World and (World.get('director') or World.get('gameDirector'))
         if director and director.notifyDebrisSite then

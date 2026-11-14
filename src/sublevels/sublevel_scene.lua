@@ -112,6 +112,9 @@ function SubLevelScene:enter(params)
     -- Posicionar jugador y cámara exactamente en el punto de entrada
     local player = World.get('player')
     local camera = World.get('camera')
+    if player and cfg.meta and cfg.meta.subworldId == 'loot_debug' then
+        self.lootLab = require('src.sublevels.loot_debug_world').new(player, cfg.numericSeed)
+    end
     if player then
         player.x = entryX
         player.y = entryY
@@ -198,9 +201,10 @@ function SubLevelScene:update(dt)
         if player.savePreviousState then player:savePreviousState() end
         player:update(dt)
     end
+    if self.lootLab then self.lootLab:update(dt) end
 
     -- Actualizar items del mundo
-    if WorldItems and WorldItems.update then
+    if not self.lootLab and WorldItems and WorldItems.update then
         WorldItems.update(dt)
     end
 
@@ -352,13 +356,14 @@ function SubLevelScene:draw()
     do
         local px, py = 0, 0
         if player then px, py = player.x or 0, player.y or 0 end
-        if WorldItems and WorldItems.draw then
+        if not self.lootLab and WorldItems and WorldItems.draw then
             WorldItems.draw(camera, px, py)
         end
     end
 
     -- Grilla de debug (F4) dentro del subnivel
     if DebugGrid and DebugGrid.draw then DebugGrid.draw(camera) end
+    if self.lootLab then self.lootLab:draw() end
 
     -- Dibujar submundo de depuración si está activo
     if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
@@ -406,6 +411,7 @@ function SubLevelScene:draw()
 
     if showHUD then
         if HUD and HUD.draw then HUD.draw(inventoryOpen) end
+        if self.lootLab and not inventoryOpen then self.lootLab:drawHUD() end
 
         -- Indicador simple de subnivel (ocultable con el HUD)
         local status = SubLevelManager.getStatus()
@@ -465,6 +471,7 @@ function SubLevelScene:keypressed(key)
     if PauseMenu.isOpen() then
         return false
     end
+    if self.lootLab and self.lootLab:keypressed(key) then return true end
 
     -- Atajos específicos del submundo de depuración (1-9, 0 teletransporte, R rotación, T/F efectos)
     if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
@@ -509,8 +516,7 @@ function SubLevelScene:keypressed(key)
 
     -- 'Ctrl + q': Atajo debug para salir del subnivel (la tecla 'q' simple queda libre para Habilidad Táctica)
     if key == 'q' and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl')) then
-        SubLevelManager.exit()
-        if self.manager then self.manager:pop({ fadeDuration = 0.2 }) end
+        if self.manager then self.manager:pop({ fadeDuration = 0.2 }) else self:exit() end
         return true
     end
 
@@ -520,7 +526,7 @@ function SubLevelScene:keypressed(key)
         if inEVA then
             if EVAInventoryUI then EVAInventoryUI:toggle() end
         else
-            if InventoryUI then InventoryUI:toggle() end
+            if InventoryUI then InventoryUI:toggle(player) end
         end
         return true
     end
@@ -552,8 +558,7 @@ function SubLevelScene:keypressed(key)
                     destination = "Mapa Estelar Principal",
                     duration = 1.8,
                     onMidpoint = function()
-                        SubLevelManager.exit()
-                        if self.manager then self.manager:pop({ fadeDuration = 0 }) end
+                        if self.manager then self.manager:pop({ fadeDuration = 0 }) else self:exit() end
                     end,
                     onComplete = function()
                         print("✓ Regreso exitoso al mapa principal")
@@ -664,6 +669,10 @@ function SubLevelScene:mousepressed(x, y, button)
         InventoryUI:mousepressed(x, y, button, player)
         return true
     end
+    if self.lootLab then
+        self.lootLab:mousepressed(x, y, button)
+        return true
+    end
     if button == 1 and player and not player.isInEVA and player.shoot then
         player:shoot(x, y)
         return true
@@ -702,6 +711,10 @@ function SubLevelScene:wheelmoved(x, y)
 end
 
 function SubLevelScene:exit()
+    if self.lootLab then
+        self.lootLab:close()
+        self.lootLab = nil
+    end
     -- Limpiar entidades del hangar de naves si estaba activo
     if self.config and self.config.meta and self.config.meta.subworldId == "ships_debug" then
         local ok, ShipsDebugWorld = pcall(require, 'src.sublevels.ships_debug_world')

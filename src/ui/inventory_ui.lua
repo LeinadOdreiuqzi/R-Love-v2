@@ -1001,6 +1001,7 @@ end
 
 -- Lanzar item al mundo desde modal
 function InventoryUI:dropItemFromModal(slotIndex, slotType, player)
+    if player and player.lootLabActive then return end
     return InventoryModal.dropItemFromModal(self, slotIndex, slotType, player)
 end
 
@@ -1222,6 +1223,7 @@ end
 
 -- Lanzar item al mundo
 function InventoryUI:dropItemToWorld(item, player, mouseX, mouseY)
+    if player and player.lootLabActive then return end
     local cam = World.get('camera')
     if not item or not item.data or not player or not cam then return end
     

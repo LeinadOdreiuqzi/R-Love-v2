@@ -142,6 +142,24 @@ local Effects = {
 
 -- Función para registrar todos los consumibles
 function Consumables.registerAll()
+    ItemSystem:registerItem({
+        id = "salvaged_fuel",
+        name = "Depósito de combustible",
+        description = "Repone hasta el 25% de la capacidad de combustible de tu nave.",
+        category = ItemSystem.CATEGORIES.CONSUMABLE,
+        stackable = true,
+        maxStack = 5,
+        value = 45,
+        weight = 1,
+        canUse = function(_, player)
+            local fuel = player and player.stats and player.stats.fuel
+            return fuel and player.addFuel and not player.isInEVA and fuel.currentFuel < fuel.maxFuel or false
+        end,
+        use = function(_, player)
+            player:addFuel(player.stats.fuel.maxFuel * .25)
+            return "Combustible repuesto"
+        end
+    })
     -- Kit de Reparación EVA (ya existente)
     ItemSystem:registerItem({
         id = "eva_repair_kit",
@@ -342,7 +360,7 @@ function Consumables.registerAll()
         end
     })
     
-    print("Items consumibles registrados: 8 items")
+    print("Items consumibles registrados: 9 items")
 end
 
 return Consumables
