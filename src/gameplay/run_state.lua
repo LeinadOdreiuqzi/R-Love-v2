@@ -28,6 +28,7 @@ function RunState:new(opts)
         },
         objectives = {},         -- objetivos activos (placeholder)
         lootRooms = {},
+        salvageKeys = {},
         meta = {                 -- NUEVO: métricas de telemetría (placeholders)
             distanceTravelled = 0,
             eventsTriggered = 0,
@@ -151,6 +152,7 @@ function RunState:reset(seed)
     self.resources.data = 0
     self.objectives = {}
     self.lootRooms = {}
+    self.salvageKeys = {}
     self.meta = { distanceTravelled = 0, eventsTriggered = 0, fuelConsumed = 0, damageTaken = 0, boostsUsed = 0, timeByBiome = {} }
     self.started = true
     self.paused = false
@@ -237,6 +239,7 @@ function RunState:serialize()
         phase = self.phase,
         defeat = self.defeat,
         lootRooms = self.lootRooms,
+        salvageKeys = self.salvageKeys,
         resources = {
             fuel = self.resources.fuel,
             credits = self.resources.credits,
@@ -258,6 +261,7 @@ function RunState:deserialize(data)
     self.phase = data.phase or "in_space"
     self.defeat = data.defeat
     self.lootRooms = data.lootRooms or {}
+    self.salvageKeys = data.salvageKeys or {}
     if type(data.resources) == 'table' then
         self.resources.fuel = data.resources.fuel or 0
         self.resources.credits = data.resources.credits or 0

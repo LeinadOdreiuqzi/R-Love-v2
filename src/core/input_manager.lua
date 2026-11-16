@@ -8,6 +8,7 @@ local InputManager = {}
 -- Referencias locales para optimización
 local World = nil
 local GameState = require 'src.core.game_state'
+local SalvageSites = require 'src.gameplay.salvage_sites'
 
 -- Estados internos
 local _isInitialized = false
@@ -79,6 +80,8 @@ function InputManager.keypressed(key)
     end
     local topState = stateManager and stateManager.top and stateManager:top()
     local isSubLevel = topState and topState.name == "SubLevelScene"
+    local fullscreenShortcut = key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))
+    if not topState and not fullscreenShortcut and SalvageSites.keypressed(player, key) then return end
     if stateManager and stateManager.blocksUnderlying and stateManager:blocksUnderlying() and not isSubLevel then
         -- Permitir solo atajos globales esenciales de ventana/pausa cuando una estación (StationScene) bloquea el Overworld
         if key == "escape" or key == "p" then
@@ -103,7 +106,7 @@ function InputManager.keypressed(key)
         -- De lo contrario, abrir el menú de pausa
         PauseMenu.open()
         return
-    elseif (key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))) or key == "f11" then
+    elseif fullscreenShortcut or key == "f11" then
         toggleFullscreen()
         return
     elseif key == "p" then
@@ -354,6 +357,7 @@ function InputManager.mousepressed(x, y, button)
         InventoryUI:mousepressed(x, y, button, player)
         return
     end
+    if (not stateManager or not stateManager:top()) and SalvageSites.mousepressed(player, x, y, button) then return end
 
     -- 3. Gameplay: Disparo (Botón Izquierdo) y Recarga Manual (Botón Central)
     if button == 1 and player and not player.isInEVA then

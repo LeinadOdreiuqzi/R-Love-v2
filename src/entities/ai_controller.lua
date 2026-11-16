@@ -1706,7 +1706,7 @@ function AIController:updateSurvive(dt)
     -- Si es un Recolector (SCAVENGER) en pánico y aún no ha soltado señuelo, suelta una caja de mineral para distraer al Corsario
     if self.role == AIController.ROLES.SCAVENGER and not self.panicJettisoned then
         self.panicJettisoned = true
-        self:dropLoot(1, false)
+        self:dropLoot(false)
     end
 
     local dx = self.ship.x - threat.x
@@ -1885,69 +1885,50 @@ function AIController:onDamaged(damage, attacker)
     end
 end
 
--- Suelta el botín físico al espacio exterior (y eyecta el botín robado si dropAllScavenged es true)
-function AIController:dropLoot(numDrops, dropAllScavenged, playerKill)
+-- El botín generado y la carga existente tienen orígenes independientes.
+function AIController:dropLoot(defeated, playerKill)
     local ship = self.ship
-    if not ship then return end
+    if not ship then return 0 end
     local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
     local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
-    if WorldItems and WorldItems.drop and ItemSystem and ItemSystem.getItem then
-        local dropTable = { "iron_ore", "energy_crystal", "repair_kit", "basic_circuit", "energy_stim" }
-        numDrops = numDrops or 1
-        local roll = playerKill and Loot.roll(self.lootProfile, self)[1]
-        for i = 1, numDrops do
-            local itemId = i == 1 and roll or dropTable[1 + ((i + (ship.shipId or 1)) % #dropTable)]
-            local itemData = ItemSystem:getItem(itemId)
-            if itemData then
-                local angle = (i / math.max(1, numDrops or 1)) * math.pi * 2 + self:random(-0.35, 0.35)
-                local tx = ship.x + math.cos(angle) * 48
-                local ty = ship.y + math.sin(angle) * 48
-                pcall(function() WorldItems.drop(itemData, ship.x, ship.y, tx, ty, 1) end)
-            end
-        end
+    local count = 0
+    local function eject(item, quantity, distance)
+        local angle = self:random(0, math.pi * 2)
+        local x = ship.x + math.cos(angle) * distance
+        local y = ship.y + math.sin(angle) * distance
+        local ok, dropped = pcall(WorldItems.drop, item, ship.x, ship.y, x, y, quantity or 1)
+        if not ok or not dropped then return false end
+        count = count + 1
+        return true
+    end
 
-        -- CAZADOR CAZADO: Al ser destruida o inutilizada la nave, soltar todo el botín acumulado/robado
-        if dropAllScavenged ~= false and self.scavengedLoot and #self.scavengedLoot > 0 then
-            print(string.format("[ECOSYSTEM] ¡CAZADOR CAZADO! %s soltó %d ítems previamente recolectados/robados.",
-                ship.shipName or "Carroñero", #self.scavengedLoot))
-            for _, loot in ipairs(self.scavengedLoot) do
-                local itemData = loot.data or loot
-                if itemData then
-                    local angle = self:random(0, math.pi * 2)
-                    local dist = self:random(40, 95)
-                    local tx = ship.x + math.cos(angle) * dist
-                    local ty = ship.y + math.sin(angle) * dist
-                    local qty = loot.quantity or 1
-                    pcall(function() WorldItems.drop(itemData, ship.x, ship.y, tx, ty, qty) end)
-                end
-            end
-            self.scavengedLoot = {}
-        elseif dropAllScavenged == false and self.scavengedLoot and #self.scavengedLoot > 0 then
-            -- Soltar solo 1 ítem carroñado como señuelo de pánico
-            local decoy = table.remove(self.scavengedLoot, 1)
-            if decoy and decoy.data then
-                local angle = self:random(0, math.pi * 2)
-                local tx = ship.x + math.cos(angle) * 45
-                local ty = ship.y + math.sin(angle) * 45
-                pcall(function() WorldItems.drop(decoy.data, ship.x, ship.y, tx, ty, decoy.quantity or 1) end)
-            end
-        end
+    local recovered = self.scavengedLoot or {}
+    if not defeated then
+        local decoy = recovered[1]
+        if decoy and eject(decoy.data or decoy, decoy.quantity, 45) then table.remove(recovered, 1) end
+        return count
+    end
 
-        -- Eyectar cualquier inventario residual en slots
-        if dropAllScavenged ~= false and ship.inventory and ship.inventory.items then
-            for slot = 1, (ship.inventory.maxSlots or 12) do
-                local slotItem = ship.inventory.items[slot]
-                if slotItem and slotItem.data then
-                    local angle = self:random(0, math.pi * 2)
-                    local dist = self:random(40, 95)
-                    local tx = ship.x + math.cos(angle) * dist
-                    local ty = ship.y + math.sin(angle) * dist
-                    pcall(function() WorldItems.drop(slotItem.data, ship.x, ship.y, tx, ty, slotItem.quantity or 1) end)
-                    ship.inventory.items[slot] = nil
-                end
+    local reward = Loot.enemyDrop(self.lootProfile, self, playerKill)
+    if reward then eject(ItemSystem:getItem(reward), 1, 48) end
+
+    local remaining = {}
+    for _, entry in ipairs(recovered) do
+        if not eject(entry.data or entry, entry.quantity, self:random(40, 95)) then
+            remaining[#remaining + 1] = entry
+        end
+    end
+    self.scavengedLoot = remaining
+    local inventory = ship.inventory
+    if inventory and inventory.items then
+        for slot = 1, inventory.maxSlots do
+            local entry = inventory.items[slot]
+            if entry and entry.data and eject(entry.data, entry.quantity, self:random(40, 95)) then
+                inventory.items[slot] = nil
             end
         end
     end
+    return count
 end
 
 -- Callback cuando el casco de la nave llega a 0:
@@ -2006,8 +1987,7 @@ function AIController:onKilled(attacker)
             ship.stats.health.currentHealth = math.max(2, math.floor(ship.stats.health.maxHealth * 0.18))
         end
 
-        local drops = isMothership and 3 or 1
-        self:dropLoot(drops, true, playerKill)
+        local drops = self:dropLoot(true, playerKill)
 
         local director = World and (World.get('director') or World.get('gameDirector'))
         if director and director.notifyDebrisSite then
@@ -2027,11 +2007,10 @@ function AIController:onKilled(attacker)
         ship.isAbandoned = false
         ship.isPiloted = false
 
-        local drops = isMothership and 5 or ((self.role == AIController.ROLES.SCAVENGER) and 3 or 2)
-        self:dropLoot(drops, true, playerKill)
+        local drops = self:dropLoot(true, playerKill)
 
         local director = World and (World.get('director') or World.get('gameDirector'))
-        if director and director.notifyDebrisSite then
+        if drops > 0 and director and director.notifyDebrisSite then
             director:notifyDebrisSite(ship.x, ship.y, drops, nil)
         end
 

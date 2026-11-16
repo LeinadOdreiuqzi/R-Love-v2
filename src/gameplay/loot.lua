@@ -22,6 +22,8 @@ local roomProfiles = {
     exceptional = {profile = 'roomExceptional', minBoxes = 3, extraBoxChance = .12, itemWeights = {5, 20, 40, 27, 8}}
 }
 
+local enemyDropChance = {enemy = 35, reinforced = 60, elite = 80, capital = 100}
+
 function Loot.enemyProfile(ship)
     local config = ship.shipConfig or {}
     if config.isMothership then return 'capital' end
@@ -61,17 +63,36 @@ local function choose(rng, weights)
     end
 end
 
+local function pickItem(profile, rng, category)
+    local pool = pools[category]
+    if not pool then return nil end
+    local tier = choose(rng, {unpack(profile[3], 1, #pool)})
+    local ids = pool[tier]
+    return ids[1 + math.floor(rng:random() * #ids)]
+end
+
 function Loot.roll(profileId, rng, count)
     local profile = assert(profiles[profileId], 'Perfil de botín desconocido')
     local result = {}
     local categories = {profile[1], profile[2], 100 - profile[1] - profile[2]}
     for i = 1, count or profile[4] or 1 do
-        local pool = pools[choose(rng, categories)]
-        local tier = choose(rng, {unpack(profile[3], 1, #pool)})
-        local ids = pool[tier]
-        result[i] = ids[1 + math.floor(rng:random() * #ids)]
+        result[i] = pickItem(profile, rng, choose(rng, categories))
     end
     return result
+end
+
+function Loot.enemyDrop(profileId, rng, playerKill)
+    local chance = assert(enemyDropChance[profileId], 'Perfil de botín enemigo desconocido')
+    local profile = profiles[profileId]
+    if playerKill then
+        local category = choose(rng, {profile[1], profile[2],
+            chance - profile[1] - profile[2], 100 - chance})
+        return pickItem(profile, rng, category)
+    end
+    -- Ambient skirmishes can leave supplies. The ship's actual cargo is recovered separately.
+    if rng:random() * 100 < chance * .5 then
+        return pickItem(profile, rng, 3)
+    end
 end
 
 function Loot.unlockRoom(run, roomId, inventory, rarity)

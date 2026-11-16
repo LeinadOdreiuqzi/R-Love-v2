@@ -17,6 +17,7 @@ local FullscreenManager = require 'src.utils.fullscreen_manager'
 local DebugRenderer = require 'src.utils.debug_renderer'
 local WorldItems = require 'src.item_systems.world_items'
 local AudioManager = require 'src.audio.audio_manager'
+local SalvageSites = require 'src.gameplay.salvage_sites'
 
 local _lastLoggedError = nil
 local _lastLoggedErrorTime = 0
@@ -136,6 +137,7 @@ function GameLoop.update(dt)
     -- 4. ACTUALIZACIONES VISUALES (Tasa Variable)
     local interpolationAlpha = physics.accumulator / physics.fixed_dt
     World.set('interpolationAlpha', interpolationAlpha)
+    SalvageSites.update(runState, player, Map, dt)
 
     DebugRenderer.updateAdvancedStats(dt)
     
@@ -235,6 +237,7 @@ function GameLoop.draw()
     if WorldItems and WorldItems.draw then
         WorldItems.draw(camera, playerX, playerY)
     end
+    SalvageSites.draw()
     
     local physMgr = World.get('physics')
     if physMgr then physMgr:drawDebug() end
@@ -244,6 +247,7 @@ function GameLoop.draw()
     local inventoryOpen = InventoryManager.isAnyInventoryOpen()
     
     if state.showHUD then HUD.draw(inventoryOpen) end
+    if not inventoryOpen then SalvageSites.drawHUD(player, camera) end
     
     if InventoryUI and InventoryUI.draw and InventoryUI.isOpen and InventoryUI:isOpen() then
         InventoryUI:draw(player)
