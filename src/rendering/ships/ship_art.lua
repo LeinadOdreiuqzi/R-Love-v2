@@ -275,7 +275,7 @@ local beacons = {
 }
 beacons.DREADNOUGHT = beacons.ECLIPSE
 
-function Art.draw(ship, size, abandoned)
+function Art.draw(ship, size, abandoned, hullOnly)
     local id = ship.shipType
     local design = designs[id]
     if not design then return false end
@@ -293,6 +293,7 @@ function Art.draw(ship, size, abandoned)
     local light = abandoned and .60 or 1
     g.setColor(light, light, light, 1)
     g.draw(meshes[id], 0, 0, 0, size, size)
+    if hullOnly then return true end
     if abandoned then
         g.setColor(1,.24,.20,.42 + .40 * math.sin(love.timer.getTime() * 4)^2)
         g.circle('fill',0,-size*.25,math.max(1,size*.095),8)

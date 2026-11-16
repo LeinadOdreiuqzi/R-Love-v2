@@ -1,9 +1,10 @@
--- src/entities/ship_renderer.lua
+-- src/rendering/ships/ship_renderer.lua
 -- Renderizado geométrico puro de naves (cascos, propulsores y siluetas por clase).
 -- Separado de naves.lua para desacoplar estado/física de la presentación visual.
 -- Todas las funciones reciben la nave como primer argumento (self) y no mutan estado de simulación.
 
-local ShipArt = require 'src.entities.ship_art'
+local ShipArt = require 'src.rendering.ships.ship_art'
+local InterceptorPixelArt = require 'src.rendering.ships.interceptor_pixel_art'
 local ShipRenderer = {}
 
 function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color)
@@ -725,6 +726,10 @@ end
 
 function ShipRenderer.drawGeometricShip(self, isAbandoned, classic)
     local size = self.size * (self.worldScale or 1)
+    if not classic and self.shipType == 'INTERCEPTOR' then
+        InterceptorPixelArt.draw(self, size, isAbandoned)
+        return
+    end
     if not classic and ShipArt.draw(self, size, isAbandoned) then return end
     local shipType = self.shipType or "EXPLORER"
     

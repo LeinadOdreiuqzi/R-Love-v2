@@ -10,7 +10,8 @@ local InventorySystem = require 'src.maps.systems.inventory_system'
 local InventoryUI = require 'src.ui.inventory_ui'
 local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local WeaponSystem = require 'src.entities.weapon_system'
-local ShipRenderer = require 'src.entities.ship_renderer'
+local ShipRenderer = require 'src.rendering.ships.ship_renderer'
+local InterceptorPixelArt = require 'src.rendering.ships.interceptor_pixel_art'
 
 -- Getter perezoso del World context para evitar require circular en el 
 -- momento del módulo (main.lua carga Naves antes de crear el World).
@@ -441,6 +442,7 @@ function Naves:debugChangeShipType(shipType)
     if self.abilitySystem then self.abilitySystem:cancel() end
     local previous = self.shipConfig
     self.shipType, self.shipConfig = shipType, config
+    self.visualBank = 0
     self.useStarterSprite, self.sprite = false, nil
     self.shipName = config.name .. " #" .. self.shipId
     self.hardpoints, self.size = config.hardpoints, config.size
@@ -648,6 +650,7 @@ function Naves:update(dt)
     self:updateShipRegistry()
     -- Ensure we have a valid delta time
     dt = math.min(dt or 1/60, 1/30)
+    local previousRotation = self.rotation
     
     local World = getWorld()
     local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
@@ -659,6 +662,7 @@ function Naves:update(dt)
         if self.abilitySystem then self.abilitySystem:cancel() end
         if self.aiController and self.aiController.active and not self.isAbandoned then
             self.aiController:update(dt)
+            InterceptorPixelArt.update(self, dt, previousRotation)
         else
             self:updatePassivePhysics(dt)
         end
@@ -718,6 +722,7 @@ function Naves:update(dt)
         rotMult = 1.0 + (rotMod > 1 and (rotMod / 100.0) or rotMod)
     end
     self.rotation = self.rotation + angleDiff * (self.rotationSpeed * rotMult) * dt
+    InterceptorPixelArt.update(self, dt, previousRotation)
 
     -- Regeneración pasiva de casco (Colonia de Nanobots de Reparación)
     if self.abilities and self.abilities.passive_hull_regen and self.stats and self.stats.health then
@@ -1338,7 +1343,7 @@ function Naves:savePreviousState()
     end
 end
 
--- Renderizado geométrico de cascos y propulsores: ver src/entities/ship_renderer.lua
+-- Renderizado geométrico de cascos y propulsores: ver src/rendering/ships/ship_renderer.lua
 ShipRenderer.install(Naves)
 
 function Naves:toggleHyperTravel(targetMaxSpeed)
