@@ -22,11 +22,10 @@ local faction = 'SALVAGE_CONVOY'
 
 function Convoy.candidate(seed, cx, cy, biome, phase)
     if cx == 0 and cy == 0 then return end
-    local chance = Catalog.chance(Catalog.armoredConvoy, biome, phase)
-    if chance == 0 then return end
+    if Catalog.select(seed, cx, cy, biome, phase) ~= 'armoredConvoy' then return end
     local id = ('convoy:%d:%d'):format(cx, cy)
     local rng = love.math.newRandomGenerator(Seed.toNumeric(tostring(seed) .. ':' .. id))
-    if rng:random() >= chance then return end
+    rng:random()
     return id, rng
 end
 

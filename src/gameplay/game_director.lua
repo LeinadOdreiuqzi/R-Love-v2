@@ -38,7 +38,7 @@ function GameDirector:new(runState, opts)
         ecosystem = {
             populatedChunks = {},     -- [chunkKey] = true
             chunkTimers = {},         -- [chunkKey] = timestamp
-            chunkCooldown = 60,       -- Segundos antes de refrescar el tráfico ecológico de un sector
+            chunkCooldown = 240,      -- Segundos antes de refrescar el tráfico de un sector
             populatedSectors = {},    -- [sectorKey] = true
             activeAgents = {},        -- Lista de naves con AIController activo
             maxActiveAgents = 28,     -- Presupuesto para fauna regional, rutas inter-chunk y batallas raras
@@ -48,8 +48,8 @@ function GameDirector:new(runState, opts)
             lastMajorClashTime = -999,
             lastMajorClashX = nil,
             lastMajorClashY = nil,
-            minTimeBetweenMajorClashes = 90,  -- Mínimo ~1.5 minutos entre batallas de flotas masivas pre-iniciadas
-            minDistBetweenMajorClashes = 4500, -- Mínimo ~4500px entre zonas de guerra masivas pre-iniciadas
+            minTimeBetweenMajorClashes = 240,
+            minDistBetweenMajorClashes = 9000,
             debrisSites = {},
             lastOpportunisticScavTime = -999
         },
@@ -536,13 +536,13 @@ end
 -- Verifica si el mundo permite iniciar un conflicto mayor (4v4 o 7v7) respetando espaciado temporal y geográfico
 function GameDirector:canTriggerMajorClash(x, y)
     local eco = self.ecosystem
-    if (self.time or 0) - (eco.lastMajorClashTime or -999) < (eco.minTimeBetweenMajorClashes or 90) then
+    if (self.time or 0) - (eco.lastMajorClashTime or -999) < (eco.minTimeBetweenMajorClashes or 240) then
         return false
     end
     if eco.lastMajorClashX and eco.lastMajorClashY then
         local dx = x - eco.lastMajorClashX
         local dy = y - eco.lastMajorClashY
-        local minDist = eco.minDistBetweenMajorClashes or 4500
+        local minDist = eco.minDistBetweenMajorClashes or 9000
         if (dx * dx + dy * dy) < (minDist * minDist) then
             return false
         end
@@ -591,7 +591,7 @@ end
 function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playerX, playerY)
     local key = tostring(cx) .. ":" .. tostring(cy)
     local lastPop = self.ecosystem.chunkTimers and self.ecosystem.chunkTimers[key]
-    if lastPop and (self.time - lastPop) < (self.ecosystem.chunkCooldown or 60) then
+    if lastPop and (self.time - lastPop) < (self.ecosystem.chunkCooldown or 240) then
         return
     end
 
@@ -640,16 +640,16 @@ function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playe
     -- 2. Densidad Ecológica Normalizada por Bioma (El espacio tiene zonas tranquilas y zonas activas reales)
     local biome, isBorderChunk, _, BT = self:getChunkBiomeAndBorder(cx, cy)
     local activityDensityByBiome = {
-        [BT.DEEP_SPACE]       = 0.58, -- Espacio profundo activo con tráfico comercial y piratería
-        [BT.NEBULA_FIELD]     = 0.70, -- Alta actividad corsaria oculta en el gas
-        [BT.ASTEROID_BELT]    = 0.75, -- Zona industrial minera y asaltos a cargueros
-        [BT.GRAVITY_ANOMALY]  = 0.55,
-        [BT.RADIOACTIVE_ZONE] = 0.60,
-        [BT.ANCIENT_RUINS]    = 0.70
+        [BT.DEEP_SPACE]       = 0.20,
+        [BT.NEBULA_FIELD]     = 0.25,
+        [BT.ASTEROID_BELT]    = 0.30,
+        [BT.GRAVITY_ANOMALY]  = 0.16,
+        [BT.RADIOACTIVE_ZONE] = 0.18,
+        [BT.ANCIENT_RUINS]    = 0.22
     }
 
     local isStartChunk = (cx == 0 and cy == 0)
-    local activityChance = isStartChunk and 0.88 or (activityDensityByBiome[biome] or 0.60)
+    local activityChance = isStartChunk and 0.20 or (activityDensityByBiome[biome] or 0.20)
     if rng:random() > activityChance then
         return
     end
@@ -674,15 +674,11 @@ function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playe
         transitAngle = rng:random() * math.pi * 2
     end
 
-    -- 4. Pirámide Ecológica Normalizada:
-    --   0.00 - 0.56 (56%): Fauna Cotidiana Recurrente (Enemigos corsarios, mineros, centinelas y nómadas habituales)
-    --   0.56 - 0.78 (22%): Escaramuza Dinámica / Asalto Corsario a Minero (combate orgánico entre facciones)
-    --   0.78 - 0.88 (10%): Vestigio Espacial / Pecio con Carroñero o Trampa
-    --   0.88 - 0.95 (7%):  Flota Nodriza Capital Regional
-    --   0.95 - 1.00 (5%):  Gran Choque de Flotas (4v4 o 7v7 Masiva), sujeto a enfriamiento global
+    -- Distribución condicionada a actividad: 78% tráfico, 12% escaramuza,
+    -- 7% pecio, 2.5% nodriza y 0.5% choque de flotas.
     local tierRoll = rng:random()
 
-    if tierRoll < 0.56 then
+    if tierRoll < 0.78 then
         -- TIER 1: FAUNA COTIDIANA RECURRENTE (Enemigos y Civiles habituales)
         local raiderWeight = 0.45 -- 45% en Deep Space
         if biome == BT.NEBULA_FIELD then raiderWeight = 0.70
@@ -761,7 +757,7 @@ function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playe
             if traveler and traveler.aiController then traveler.aiController:pickNewWorldGoal() end
         end
 
-    elseif tierRoll < 0.78 then
+    elseif tierRoll < 0.90 then
         -- TIER 2: ESCARAMUZA DINÁMICA O ASALTO CORSARIO (Encuentro orgánico entre 2 facciones)
         -- Un corsario Violeta atacando a una nave minera o mercante Ámbar con contexto real
         local scavShip = self:spawnEcologicalShip(spawnX - 130, spawnY + 90, "SALVAGER", AIController.ROLES.SCAVENGER, rng, {
@@ -785,7 +781,7 @@ function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playe
             scavShip.aiController.combatMemoryTimer = 22.0
         end
 
-    elseif tierRoll < 0.88 then
+    elseif tierRoll < 0.97 then
         -- TIER 3: VESTIGIO ESPACIAL / PECIO A LA DERIVA (50% con carroñero o corsario examinando el botín)
         local wreck = self:spawnAftermathSite(spawnX, spawnY, rng)
         if rng:random() < 0.50 then
@@ -806,7 +802,7 @@ function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playe
             end
         end
 
-    elseif tierRoll < 0.95 then
+    elseif tierRoll < 0.995 then
         -- TIER 4: FLOTA NODRIZA CAPITAL EN OPERACIÓN REGIONAL
         local carrierType = "ECLIPSE" -- Corsaria Violeta por defecto
         if biome == BT.ASTEROID_BELT then
@@ -819,7 +815,7 @@ function GameDirector:populateChunkDeterministically(cx, cy, strideScaled, playe
         })
 
     else
-        -- TIER 5 (RARO ~5%): GRAN CHOQUE DE FLOTAS MULTI-FACCIÓN
+        -- TIER 5 (0.5% de sectores activos): GRAN CHOQUE DE FLOTAS MULTI-FACCIÓN
         local clashX, clashY = spawnX, spawnY
         if px and py then
             local cDist = 2100 + rng:random() * 350
@@ -1019,6 +1015,7 @@ function GameDirector:reset()
     self.accumulator = 0
     self.eventQueue = {}
     self.ecosystem.populatedChunks = {}
+    self.ecosystem.chunkTimers = {}
     self.ecosystem.activeAgents = {}
     self.ecosystem.checkAccumulator = 0
     self.ecosystem.lastMajorClashTime = -999

@@ -4,6 +4,7 @@ local Seed = require 'src.utils.seed_system'
 local Loot = require 'src.gameplay.loot'
 local Inspection = require 'src.ui.loot_inspection'
 local ConvoyArt = require 'src.rendering.ships.convoy_art'
+local Catalog = require 'src.gameplay.encounter_catalog'
 
 local Sites = {}
 local BT = Biomes.BiomeType
@@ -45,12 +46,17 @@ function Sites.addConvoyWreck(run, id)
     loaded[id] = true
 end
 
-function Sites.candidate(seed, cx, cy, biome)
+function Sites.candidate(seed, cx, cy, biome, phase, legacy)
     if cx == 0 and cy == 0 then return nil end
     local id = ('salvage:%d:%d'):format(cx, cy)
     local rng = love.math.newRandomGenerator(Seed.toNumeric(tostring(seed) .. ':' .. id))
     local rate = rates[biome] or rates[BT.DEEP_SPACE]
-    if rng:random() * 100 >= rate[1] then return nil end
+    local previousCandidate = rng:random() * 100 < rate[1]
+    if legacy then
+        if not previousCandidate then return nil end
+    elseif Catalog.select(seed, cx, cy, biome, phase or Catalog.phaseForSector(cx, cy, stride)) ~= 'salvageSite' then
+        return nil
+    end
     local quality = rng:random() * 100
     local rarity = quality < rate[3] and 'exceptional' or quality < rate[2] + rate[3] and 'rare' or 'common'
     local x = cx * stride + stride * (.27 + .46 * rng:random())
@@ -96,7 +102,9 @@ function Sites.update(run, player, map, dt)
         end
         for y = cy - 1, cy + 1 do
             for x = cx - 1, cx + 1 do
-                local site = Sites.candidate(run.seed, x, y, Biomes.getBiomeForChunk(x, y))
+                local id = ('salvage:%d:%d'):format(x, y)
+                local legacy = run.lootRooms[id] or run.salvageKeys[id]
+                local site = Sites.candidate(run.seed, x, y, Biomes.getBiomeForChunk(x, y), nil, legacy)
                 if site then candidates[#candidates + 1] = site end
             end
         end
