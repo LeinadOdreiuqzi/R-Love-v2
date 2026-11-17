@@ -424,129 +424,15 @@ end
 
 -- Recolectar item y agregarlo al inventario correcto según el estado del jugador
 function WorldItems.collectItem(item, ship)
-    if not item or not ship or not ship.inventory then
-        return false
-    end
-    
+    local inventory = ship and ship.inventory
+    if not item or not inventory then return false end
     local ItemSystem = require 'src.item_systems.items.init'
-    
-    -- Crear instancia del item para el inventario
-    local itemInstance = ItemSystem.createItem(item.itemData.id, item.quantity)
-    if not itemInstance then
-        print("[COLLECTION] Error: No se pudo crear instancia del item", item.itemData.id)
-        return false
-    end
-    
-    -- Determinar el inventario de destino según el estado del jugador
-    local targetInventory
-    local maxSlots
-    local inventoryType
-    
-    if ship.isInEVA then
-        -- Jugador en EVA: usar inventario EVA
-        if ship.inventory.compartments and ship.inventory.compartments.eva then
-            targetInventory = ship.inventory.compartments.eva.items
-            maxSlots = ship.inventory.compartments.eva.maxSlots or 3
-            inventoryType = "EVA"
-            
-            -- Verificar si el item es permitido en EVA
-            -- Mapear categorías del sistema de items a tipos permitidos en EVA
-            local categoryToEVAType = {
-                ["consumable"] = "consumable",
-                ["equipable"] = "tool",  -- Los equipables se consideran herramientas en EVA
-                ["material"] = "resource"  -- Los materiales se consideran recursos en EVA
-            }
-            
-            local allowedTypes = {"tool", "consumable", "resource"}
-            local itemCategory = item.itemData.category
-            local evaType = categoryToEVAType[itemCategory]
-            
-            local isAllowed = false
-            if evaType then
-                for _, allowedType in ipairs(allowedTypes) do
-                    if evaType == allowedType then
-                        isAllowed = true
-                        break
-                    end
-                end
-            end
-            
-            if not isAllowed then
-                print("[COLLECTION] Item categoría '" .. (itemCategory or "unknown") .. "' no permitido en inventario EVA")
-                return false
-            end
-        else
-            print("[COLLECTION] Error: Inventario EVA no disponible")
-            return false
-        end
-    else
-        -- Jugador en nave: usar inventario principal
-        if ship.inventory.compartments and ship.inventory.compartments.ship then
-            targetInventory = ship.inventory.compartments.ship.items
-            maxSlots = ship.inventory.compartments.ship.maxSlots
-            inventoryType = "NAVE"
-        else
-            -- Fallback al inventario legacy
-            targetInventory = ship.inventory.items
-            maxSlots = ship.inventory.maxSlots
-            inventoryType = "NAVE"
-        end
-    end
-    
-    if not targetInventory then
-        print("[COLLECTION] Error: No se pudo determinar inventario de destino")
-        return false
-    end
-    
-    print("[MANUAL COLLECTION] Recolectando en inventario:", inventoryType)
-    
-    local function finishPickup()
-        restoreSalvageShield(ship, ship.isInEVA)
-        if ship.inventory.evaluateSynergies then ship.inventory:evaluateSynergies() end
-        return true
-    end
-
-    -- 1. Si el item es stackeable, intentar apilar primero con items existentes
-    if item.itemData.stackable then
-        for slot = 1, maxSlots do
-            local existingItem = targetInventory[slot]
-            if existingItem and existingItem.data and existingItem.data.id == item.itemData.id then
-                local maxStack = item.itemData.maxStack or 99
-                local currentStack = existingItem.quantity or existingItem.data.quantity or 1
-                local spaceAvailable = maxStack - currentStack
-                
-                if spaceAvailable > 0 then
-                    local amountToAdd = math.min(spaceAvailable, item.quantity)
-                    local newQty = currentStack + amountToAdd
-                    existingItem.quantity = newQty
-                    existingItem.data.quantity = newQty
-                    
-                    if amountToAdd < item.quantity then
-                        item.quantity = item.quantity - amountToAdd
-                        if itemInstance.data then itemInstance.data.quantity = item.quantity end
-                        itemInstance.quantity = item.quantity
-                    else
-                        return finishPickup()
-                    end
-                end
-            end
-        end
-    end
-    
-    -- 2. Buscar slot vacío en el inventario de destino
-    for slot = 1, maxSlots do
-        if not targetInventory[slot] then
-            itemInstance.quantity = item.quantity
-            if itemInstance.data then
-                itemInstance.data.quantity = item.quantity
-            end
-            targetInventory[slot] = itemInstance
-            return finishPickup()
-        end
-    end
-    
-    print("[COLLECTION] Inventario " .. inventoryType .. " lleno, no se puede recolectar:", item.itemData.name)
-    return false
+    local instance = ItemSystem.createItem(item.itemData.id, item.quantity)
+    if not instance then return false end
+    local compartment = ship.isInEVA and 'eva' or 'ship'
+    if not inventory:addItemToCompartment(compartment, instance, item.quantity, true) then return false end
+    restoreSalvageShield(ship, ship.isInEVA)
+    return true
 end
 
 -- Obtener estadísticas

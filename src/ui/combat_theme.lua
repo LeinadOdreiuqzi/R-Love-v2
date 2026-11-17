@@ -36,7 +36,7 @@ function Theme.star(x, y, size)
     love.graphics.polygon('fill', points)
 end
 
-function Theme.tooltip(player, data, mouseX, mouseY)
+function Theme.tooltip(player, data, mouseX, mouseY, footprint)
     Theme.init()
     local g = love.graphics
     local View = require 'src.ui.combat_presentation'
@@ -47,6 +47,7 @@ function Theme.tooltip(player, data, mouseX, mouseY)
     if type(data.rarity) == 'table' and data.rarity.name then
         table.insert(sections, 2, {text = data.rarity.name, color = data.rarity.color})
     end
+    if footprint then table.insert(sections, #sections, {text = footprint, kind = 'muted'}) end
     for _, line in ipairs(lines) do sections[#sections + 1] = line end
     if data.value then
         sections[#sections + 1] = {text = 'Valor: ' .. data.value .. ' créditos'

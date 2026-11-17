@@ -102,12 +102,15 @@ function Materials.craftItem(recipeId, inventory, player)
         end
     end
     
-    -- Consumir ingredientes sin desplazar índices de slots (sin table.remove)
+    local outputItem = ItemSystem:createItemInstance(recipe.output, 1)
+    if not outputItem then return false, 'Resultado no registrado' end
+    local remainingItems = {}
+    for slot, item in pairs(itemsTable) do remainingItems[slot] = item end
     for _, ingredient in ipairs(recipe.ingredients) do
         local remaining = ingredient.quantity
         
         for i = maxSlots, 1, -1 do
-            local item = itemsTable[i]
+            local item = remainingItems[i]
             if item and remaining > 0 then
                 local itemId = (item.data and item.data.id) or item.id
                 if itemId == ingredient.id then
@@ -116,46 +119,42 @@ function Materials.craftItem(recipeId, inventory, player)
                     remaining = remaining - toConsume
                     local newQty = currentQty - toConsume
                     
-                    item.quantity = newQty
-                    if item.data then
-                        item.data.quantity = newQty
-                    end
-                    
-                    if newQty <= 0 then
-                        if invSystem and type(invSystem.removeItemFromCompartment) == "function" then
-                            invSystem:removeItemFromCompartment('ship', i)
-                        else
-                            itemsTable[i] = nil
+                    if newQty == 0 then remainingItems[i] = nil
+                    else
+                        local updated = {}
+                        for k, v in pairs(item) do updated[k] = v end
+                        updated.quantity = newQty
+                        if item.data then
+                            updated.data = {}
+                            for k, v in pairs(item.data) do updated.data[k] = v end
+                            updated.data.quantity = newQty
                         end
+                        remainingItems[i] = updated
                     end
                 end
             end
         end
+        if remaining > 0 then return false, 'Materiales insuficientes: ' .. ingredient.id end
     end
-    
-    -- Crear item resultante y agregarlo al inventario
-    local outputItem = ItemSystem:createItemInstance(recipe.output, 1)
-    local added = false
-    if invSystem and type(invSystem.addItemToCompartment) == "function" then
-        added = invSystem:addItemToCompartment('ship', outputItem, 1)
-    elseif invSystem and type(invSystem.addItem) == "function" then
-        added = invSystem:addItem(outputItem, 1)
+    if invSystem and invSystem.findCargoSlot then
+        invSystem.items = remainingItems
+        if not invSystem:addItemToCompartment('ship', outputItem, 1) then
+            invSystem.items = itemsTable
+            invSystem:getCompartment('ship')
+            return false, 'Sin espacio para el resultado'
+        end
     else
+        local slot
         for i = 1, maxSlots do
-            if not itemsTable[i] then
-                itemsTable[i] = outputItem
-                added = true
-                break
-            end
+            if not remainingItems[i] then slot = i; break end
         end
-        if not added then
-            table.insert(itemsTable, outputItem)
-            added = true
-        end
+        if not slot then return false, 'Sin espacio para el resultado' end
+        remainingItems[slot] = outputItem
+        for i = 1, maxSlots do itemsTable[i] = remainingItems[i] end
     end
     
     local outName = (outputItem.data and outputItem.data.name) or outputItem.name or recipe.output
-    return added, "Item crafteado exitosamente: " .. outName
+    return true, "Item crafteado exitosamente: " .. outName
 end
 
 -- Función para registrar todos los materiales

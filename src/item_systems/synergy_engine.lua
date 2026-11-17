@@ -6,6 +6,7 @@
 
 local ItemSystem = require 'src.item_systems.item_system'
 local PassiveManager = require 'src.item_systems.passive_manager'
+local Grid = require 'src.item_systems.cargo_grid'
 
 local SynergyEngine = {}
 
@@ -199,7 +200,18 @@ local function accepts(container, data)
     return not container.comp.allowedTypes or container.comp.allowedTypes[kind]
 end
 
+local function cargoDestination(container, a, b, data)
+    local skipA = a.container == container and (a.entry.quantity or 1) == 1 and a.slot or nil
+    local skipB = b.container == container and (b.entry.quantity or 1) == 1 and b.slot or nil
+    local cells = Grid.occupancy(container.comp.items, skipA, skipB, container.comp.columns)
+    local slot, rotated = Grid.find(cells, container.comp.maxSlots, data, container.comp.columns)
+    if slot then return {container = container, slot = slot, rotated = rotated} end
+end
+
 local function destination(containers, a, b, data)
+    if a.container.name == 'ship' and b.container.name == 'ship' then
+        return cargoDestination(a.container, a, b, data)
+    end
     -- Reuse a consumed slot, retaining equipped results whenever possible.
     local candidates = {a, b}
     if b.container.order < a.container.order
@@ -207,10 +219,17 @@ local function destination(containers, a, b, data)
         candidates = {b, a}
     end
     for _, ref in ipairs(candidates) do
-        if (ref.entry.quantity or 1) == 1 and accepts(ref.container, data) then return ref end
+        if (ref.entry.quantity or 1) == 1 and accepts(ref.container, data) then
+            if ref.container.name ~= 'ship' then return ref end
+            local target = cargoDestination(ref.container, a, b, data)
+            if target then return target end
+        end
     end
     for _, container in ipairs(containers) do
-        if accepts(container, data) then
+        if container.name == 'ship' then
+            local target = cargoDestination(container, a, b, data)
+            if target then return target end
+        elseif accepts(container, data) then
             for slot = 1, container.comp.maxSlots do
                 if not container.comp.items[slot] then return {container = container, slot = slot} end
             end
@@ -246,7 +265,7 @@ local function fuse(player, containers, recipes, rule)
             data.isEvolved, data.fuzedFrom = true, {recipe.ingredients[1], recipe.ingredients[2]}
             consume(a, player)
             consume(b, player)
-            local entry = {data = data, quantity = 1}
+            local entry = {data = data, quantity = 1, rotated = target.rotated}
             if target.container.name == "passives" then
                 entry.passiveId = PassiveManager.applyPassiveEffect(player, data)
             end

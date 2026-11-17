@@ -1,5 +1,5 @@
 -- src/maps/systems/inventory_system.lua
--- Sistema de inventario básico con slots predeterminados por tipo de nave
+-- Bodega cuadriculada y compartimentos de equipo por nave.
 
 local InventorySystem = {}
 InventorySystem.__index = InventorySystem
@@ -9,6 +9,8 @@ local ItemSystem = require 'src.item_systems.item_system'
 local Passives = require 'src.item_systems.items.passives'
 local PassiveManager = require 'src.item_systems.passive_manager'
 local SynergyEngine = require 'src.item_systems.synergy_engine'
+local Grid = require 'src.item_systems.cargo_grid'
+InventorySystem.gridVersion = Grid.version
 
 -- Usar los tipos del sistema principal
 local CATEGORIES = ItemSystem.CATEGORIES
@@ -40,6 +42,12 @@ local function _mapCategoryToType(itemData)
     return mapping[itemData.category] or itemData.category
 end
 
+local function allowedIn(comp, data)
+    if not comp.allowedTypes then return true end
+    if comp.name == 'eva' and data.category == CATEGORIES.EQUIPABLE then return comp.allowedTypes.tool end
+    return comp.allowedTypes[_mapCategoryToType(data)]
+end
+
 -- Función centralizada para manejar efectos pasivos usando PassiveManager
 local function handlePassiveEffects(item, player, action)
     if not item or not item.data or item.data.category ~= CATEGORIES.PASSIVE then
@@ -64,39 +72,17 @@ end
 
 -- Configuración de slots por tipo de nave
 local SHIP_INVENTORY_CONFIG = {
-    EXPLORER = {
-        inventorySlots = 20
-    },
-    FIGHTER = {
-        inventorySlots = 12
-    },
-    CARGO = {
-        inventorySlots = 35
-    },
-    INTERCEPTOR = {
-        inventorySlots = 10
-    },
-    GUNSHIP = {
-        inventorySlots = 18
-    },
-    SALVAGER = {
-        inventorySlots = 30
-    },
-    SENTINEL = {
-        inventorySlots = 8
-    },
-    TITAN_EXCAVATOR = {
-        inventorySlots = 40
-    },
-    ECLIPSE = {
-        inventorySlots = 28
-    },
-    DREADNOUGHT = {
-        inventorySlots = 28
-    },
-    ARK_MONOLITH = {
-        inventorySlots = 24
-    }
+    EXPLORER = {columns = 3, inventorySlots = 18},
+    FIGHTER = {columns = 3, inventorySlots = 12},
+    CARGO = {columns = 4, inventorySlots = 32},
+    INTERCEPTOR = {columns = 3, inventorySlots = 12},
+    GUNSHIP = {columns = 3, inventorySlots = 18},
+    SALVAGER = {columns = 4, inventorySlots = 32},
+    SENTINEL = {columns = 3, inventorySlots = 12},
+    TITAN_EXCAVATOR = {columns = 4, inventorySlots = 32},
+    ECLIPSE = {columns = 4, inventorySlots = 24},
+    DREADNOUGHT = {columns = 4, inventorySlots = 24},
+    ARK_MONOLITH = {columns = 4, inventorySlots = 24}
 }
 
 -- Items de ejemplo usando el formato estándar del ItemSystem
@@ -193,9 +179,11 @@ function InventorySystem:new(shipType)
     -- Configuración básica
     inventory.shipType = shipType
     inventory.maxSlots = config.inventorySlots
+    inventory.columns = config.columns
     
     -- Inicializar slots de inventario
     inventory.items = {}
+    inventory.recoveryCargo = {}
     for i = 1, inventory.maxSlots do
         inventory.items[i] = nil
     end
@@ -210,6 +198,7 @@ function InventorySystem:new(shipType)
     inventory.compartments.ship = {
         name = "ship",
         maxSlots = inventory.maxSlots,
+        columns = inventory.columns,
         items = inventory.items
     }
     
@@ -260,81 +249,214 @@ end
 
 -- Agregar item al inventario
 function InventorySystem:addItem(itemData, quantity)
-    if not itemData then return false end
-    local rawData = (type(itemData) == "table" and itemData.data) or itemData
-    quantity = quantity or (type(itemData) == "table" and (itemData.quantity or (itemData.data and itemData.data.quantity))) or 1
-    
-    -- 1. Intentar apilar si es posible
-    if rawData.stackable then
-        local maxStack = rawData.maxStack or 99
-        for i = 1, self.maxSlots do
-            local existing = self.items[i]
-            if existing and existing.data and existing.data.id == rawData.id then
-                local currentQty = existing.quantity or existing.data.quantity or 1
-                if currentQty < maxStack then
-                    local canAdd = math.min(quantity, maxStack - currentQty)
-                    local newQty = currentQty + canAdd
-                    existing.quantity = newQty
-                    existing.data.quantity = newQty
-                    quantity = quantity - canAdd
-                    if quantity <= 0 then self:evaluateSynergies(); return true end
-                end
-            end
+    return self:addItemToCompartment('ship', itemData, quantity)
+end
+
+function InventorySystem:removeItem(slotIndex)
+    return self:removeItemFromCompartment('ship', slotIndex)
+end
+
+function InventorySystem:moveItem(fromSlot, toSlot)
+    return self:moveItemWithinCompartment('ship', fromSlot, toSlot)
+end
+
+function InventorySystem:findCargoSlot(item)
+    return Grid.find(Grid.occupancy(self.items, nil, nil, self.columns), self.maxSlots, item, self.columns)
+end
+
+function InventorySystem:cargoAnchor(cell)
+    return Grid.occupancy(self.items, nil, nil, self.columns)[cell]
+end
+
+local function applyPacking(items, capacity, packed)
+    for slot = 1, capacity do items[slot] = nil end
+    for anchor, entry in pairs(packed) do
+        entry.item.rotated = entry.rotated
+        items[anchor] = entry.item
+    end
+end
+
+function InventorySystem:restoreCargo(items, recovery, preserveLayout, previousColumns)
+    previousColumns = previousColumns or self.columns
+    local config = self:getShipConfig()
+    self.maxSlots, self.columns = config.inventorySlots, config.columns
+    self.items, self.recoveryCargo = {}, {}
+    local comp = self:getCompartment('ship')
+    comp.maxSlots = self.maxSlots
+    comp.columns = self.columns
+    local cells, pending, order = {}, {}, {}
+    for anchor, item in pairs(items or {}) do
+        if type(item) == 'table' and item.data and tonumber(anchor) then order[#order + 1] = tonumber(anchor) end
+    end
+    table.sort(order)
+    for _, anchor in ipairs(order) do
+        local item = items[anchor] or items[tostring(anchor)]
+        local column, row = (anchor - 1) % previousColumns, math.floor((anchor - 1) / previousColumns)
+        local target = row * self.columns + column + 1
+        if preserveLayout and column < self.columns and Grid.fits(cells, self.maxSlots, target, item, nil, self.columns) then
+            item.rotated = Grid.canRotate(item) and item.rotated == true
+            self.items[target] = item
+            Grid.claim(cells, target, item, nil, self.columns)
+        else
+            pending[#pending + 1] = item
         end
     end
-    
-    -- 2. Buscar slot vacío para el resto
-    if quantity <= 0 then self:evaluateSynergies(); return true end
-    
-    for i = 1, self.maxSlots do
-        if not self.items[i] then
-            -- contra doble anidación y sincronización de quantity
-            if type(itemData) == "table" and itemData.data then
-                self.items[i] = itemData
-                self.items[i].quantity = quantity
-                self.items[i].data.quantity = quantity
-            else
-                local clonedData = {}
-                for k, v in pairs(rawData) do clonedData[k] = v end
-                clonedData.quantity = quantity
-                self.items[i] = {
-                    data = clonedData,
-                    quantity = quantity
-                }
-            end
+    for _, item in ipairs(recovery or {}) do pending[#pending + 1] = item end
+    for _, item in ipairs(pending) do
+        local anchor, rotated = Grid.find(cells, self.maxSlots, item, self.columns)
+        if anchor then
+            item.rotated = rotated
+            self.items[anchor] = item
+            Grid.claim(cells, anchor, item, nil, self.columns)
+        else
+            self.recoveryCargo[#self.recoveryCargo + 1] = item
+        end
+    end
+    if #self.recoveryCargo > 0 and (not recovery or #recovery == 0) then
+        local all = {}
+        for _, anchor in ipairs(order) do all[#all + 1] = items[anchor] or items[tostring(anchor)] end
+        local packed = Grid.pack(self.maxSlots, all, self.columns)
+        if packed then
+            applyPacking(self.items, self.maxSlots, packed)
+            self.recoveryCargo = {}
+        end
+    end
+end
+
+function InventorySystem:recoverCargo()
+    for index, item in ipairs(self.recoveryCargo) do
+        local anchor, rotated = self:findCargoSlot(item)
+        if anchor then
+            item.rotated = rotated
+            self.items[anchor] = table.remove(self.recoveryCargo, index)
             self:evaluateSynergies()
             return true
         end
     end
-    
-    return false -- Inventario lleno
-end
-
--- Remover item del inventario
-function InventorySystem:removeItem(slotIndex)
-    if slotIndex >= 1 and slotIndex <= self.maxSlots then
-        local item = self.items[slotIndex]
-        self.items[slotIndex] = nil
-        self:evaluateSynergies()
-        return item
-    end
-    return nil
-end
-
--- Mover item entre slots
-function InventorySystem:moveItem(fromSlot, toSlot)
-    if fromSlot >= 1 and fromSlot <= self.maxSlots and 
-       toSlot >= 1 and toSlot <= self.maxSlots then
-        local item = self.items[fromSlot]
-        self.items[fromSlot] = self.items[toSlot]
-        self.items[toSlot] = item
-        self:evaluateSynergies()
-        return true
-    end
     return false
 end
 
+function InventorySystem:rotateCargo(anchor)
+    local item = self.items[anchor]
+    if not item or not Grid.canRotate(item) then return false end
+    return self:moveItemWithinCompartment('ship', anchor, anchor, not item.rotated)
+end
 
+local function copyStack(itemData, quantity)
+    local entry, data = {}, {}
+    if itemData.data then
+        for k, v in pairs(itemData) do entry[k] = v end
+    end
+    for k, v in pairs(itemData.data or itemData) do data[k] = v end
+    data.quantity, entry.data, entry.quantity = quantity, data, quantity
+    return entry
+end
+
+local function copyEntries(items)
+    local result = {}
+    for slot, item in pairs(items or {}) do
+        if type(item) == 'table' and item.data and tonumber(slot) then
+            local entry = copyStack(item, item.quantity or item.data.quantity or 1)
+            entry.passiveId = nil
+            result[tonumber(slot)] = entry
+        end
+    end
+    return result
+end
+
+function InventorySystem:saveState()
+    local compartments = {}
+    for _, name in ipairs({'eva', 'weapons', 'passives'}) do
+        local comp = self:getCompartment(name)
+        compartments[name] = {maxSlots = comp.maxSlots, items = copyEntries(comp.items)}
+    end
+    return {gridVersion = Grid.version, shipType = self.shipType, columns = self.columns, items = copyEntries(self.items),
+        recoveryCargo = copyEntries(self.recoveryCargo), compartments = compartments}
+end
+
+function InventorySystem:loadState(state)
+    self.shipType = state.shipType or self.shipType
+    self:restoreCargo(copyEntries(state.items), copyEntries(state.recoveryCargo),
+        (state.gridVersion or 0) >= 1, state.columns or Grid.columns)
+    for _, name in ipairs({'eva', 'weapons', 'passives'}) do
+        local saved = state.compartments and state.compartments[name]
+        local comp = self:getCompartment(name)
+        if saved then
+            if name == 'passives' then
+                for _, item in pairs(comp.items) do handlePassiveEffects(item, self.player, 'remove') end
+            elseif name == 'eva' then comp.maxSlots = saved.maxSlots or comp.maxSlots end
+            comp.items = copyEntries(saved.items)
+            if name == 'passives' then
+                for _, item in pairs(comp.items) do handlePassiveEffects(item, self.player, 'apply') end
+            end
+        end
+    end
+    self:evaluateSynergies()
+end
+
+local function addToStorage(self, comp, itemData, quantity, autoPack)
+    if type(quantity) ~= 'number' or quantity < 1 or quantity % 1 ~= 0 then return false end
+    local data = itemData.data or itemData
+    local maximum = data.stackable and (data.maxStack or 99) or 1
+    local topUps, placements = {}, {}
+    if data.stackable then
+        for slot = 1, comp.maxSlots do
+            local item = comp.items[slot]
+            if quantity > 0 and item and item.data.id == data.id then
+                local current = item.quantity or item.data.quantity or 1
+                local add = math.min(quantity, math.max(0, maximum - current))
+                topUps[item] = current + add
+                quantity = quantity - add
+            end
+        end
+    end
+    local isCargo = comp.name == 'ship'
+    local cells = isCargo and Grid.occupancy(comp.items, nil, nil, comp.columns)
+    local incoming = {}
+    if math.ceil(quantity / maximum) > comp.maxSlots then return false end
+    while quantity > 0 do
+        local amount = math.min(maximum, quantity)
+        incoming[#incoming + 1] = copyStack(itemData, amount)
+        quantity = quantity - amount
+    end
+    local packed
+    for _, item in ipairs(incoming) do
+        local anchor, rotated
+        if isCargo then anchor, rotated = Grid.find(cells, comp.maxSlots, item, comp.columns)
+        else
+            for slot = 1, comp.maxSlots do
+                if not comp.items[slot] and not placements[slot] then anchor = slot; break end
+            end
+        end
+        if not anchor then
+            if not isCargo or not autoPack then return false end
+            local all = {}
+            for slot = 1, comp.maxSlots do
+                if comp.items[slot] then all[#all + 1] = comp.items[slot] end
+            end
+            for _, entry in ipairs(incoming) do all[#all + 1] = entry end
+            packed = Grid.pack(comp.maxSlots, all, comp.columns)
+            if not packed then return false end
+            break
+        end
+        placements[anchor] = item
+        if isCargo then
+            item.rotated = rotated
+            Grid.claim(cells, anchor, item, nil, comp.columns)
+        end
+    end
+    for item, total in pairs(topUps) do item.quantity, item.data.quantity = total, total end
+    if packed then
+        applyPacking(comp.items, comp.maxSlots, packed)
+    else
+        for anchor, item in pairs(placements) do
+            comp.items[anchor] = item
+            if comp.name == 'passives' then handlePassiveEffects(item, self.player, 'apply') end
+        end
+    end
+    self:evaluateSynergies()
+    return true
+end
 
 -- Obtener información del item por ID
 function InventorySystem:getItemById(itemId)
@@ -383,7 +505,7 @@ function InventorySystem:getCompartment(name)
     return self.compartments[name]
 end
 
-function InventorySystem:addItemToCompartment(name, itemData, quantity)
+function InventorySystem:addItemToCompartment(name, itemData, quantity, autoPack)
     local c = self:getCompartment(name)
     if not c or not c.items or not itemData then return false end
     
@@ -403,67 +525,15 @@ function InventorySystem:addItemToCompartment(name, itemData, quantity)
     end
 
     -- Validación opcional de tipos permitidos en el compartimento
-    if c.allowedTypes and rawData then
-        local itemType = _mapCategoryToType(rawData)
-        if not c.allowedTypes[itemType] then
-            return false
-        end
-    end
+    if not allowedIn(c, rawData) then return false end
     
-    -- 1. Intentar apilar en este compartimento si el item lo permite
-    if rawData.stackable then
-        local maxStack = rawData.maxStack or 99
-        for i = 1, c.maxSlots do
-            local existing = c.items[i]
-            if existing and existing.data and existing.data.id == rawData.id then
-                local currentQty = existing.quantity or existing.data.quantity or 1
-                if currentQty < maxStack then
-                    local canAdd = math.min(quantity, maxStack - currentQty)
-                    local newQty = currentQty + canAdd
-                    existing.quantity = newQty
-                    existing.data.quantity = newQty
-                    quantity = quantity - canAdd
-                    if quantity <= 0 then self:evaluateSynergies(); return true end
-                end
-            end
-        end
-    end
-    
-    -- 2. Buscar slot vacío para el resto
-    if quantity <= 0 then self:evaluateSynergies(); return true end
-
-    for i = 1, c.maxSlots do
-        if not c.items[i] then
-            local newItem
-            -- Si itemData ya es una instancia (tiene campo 'data'), usarla directamente y sincronizar quantity
-            if type(itemData) == "table" and itemData.data then
-                newItem = itemData
-                newItem.quantity = quantity
-                newItem.data.quantity = quantity
-            else
-                local clonedData = {}
-                for k, v in pairs(rawData) do clonedData[k] = v end
-                clonedData.quantity = quantity
-                newItem = { data = clonedData, quantity = quantity }
-            end
-            
-            c.items[i] = newItem
-            
-            -- Aplicar efectos pasivos si se está agregando al compartimento de pasivos
-            if name == "passives" then
-                handlePassiveEffects(newItem, self.player, "apply")
-            end
-            self:evaluateSynergies()
-            
-            return true
-        end
-    end
-    return false
+    return addToStorage(self, c, itemData, quantity, autoPack)
 end
 
 function InventorySystem:removeItemFromCompartment(name, slotIndex)
     local c = self:getCompartment(name)
     if not c or not c.items or not slotIndex then return nil end
+    if name == 'ship' then slotIndex = self:cargoAnchor(slotIndex) or slotIndex end
     if slotIndex >= 1 and slotIndex <= c.maxSlots then
         local item = c.items[slotIndex]
         
@@ -479,9 +549,148 @@ function InventorySystem:removeItemFromCompartment(name, slotIndex)
     return nil
 end
 
-function InventorySystem:moveItemWithinCompartment(name, fromSlot, toSlot)
+local function placementsNear(cells, occupied, capacity, columns, destination, item)
+    local choices = {}
+    local preferred = item.rotated == true
+    local column, row = (destination - 1) % columns, math.floor((destination - 1) / columns)
+    for turn = 1, Grid.canRotate(item) and 2 or 1 do
+        local rotated = (turn == 1 and preferred) or (turn == 2 and not preferred)
+        local w, h = Grid.dimensions(item, rotated)
+        for anchor = 1, capacity do
+            if Grid.fits(cells, capacity, anchor, item, rotated, columns) then
+                local touchesDestination = false
+                for y = 0, h - 1 do
+                    for x = 0, w - 1 do
+                        if occupied[anchor + y * columns + x] == destination then touchesDestination = true end
+                    end
+                end
+                if touchesDestination then
+                    local distance = math.abs((anchor - 1) % columns - column)
+                        + math.abs(math.floor((anchor - 1) / columns) - row)
+                    choices[#choices + 1] = {anchor = anchor, rotated = rotated, cost = distance * 3 + turn - 1}
+                end
+            end
+        end
+    end
+    return choices
+end
+
+local function planCargoSwap(self, occupied, origin, swapAnchor, destinations)
+    local columns = self.columns
+    local item, swap = self.items[origin], self.items[swapAnchor]
+    local cells = Grid.occupancy(self.items, origin, swapAnchor, columns)
+    destinations = destinations or placementsNear(cells, occupied, self.maxSlots, columns, swapAnchor, item)
+    local returns = placementsNear(cells, occupied, self.maxSlots, columns, origin, swap)
+    local best, bestCost
+    for _, destination in ipairs(destinations) do
+        local placed = Grid.occupancy(self.items, origin, swapAnchor, columns)
+        Grid.claim(placed, destination.anchor, item, destination.rotated, columns)
+        for _, returning in ipairs(returns) do
+            local cost = destination.cost + returning.cost
+            if (not bestCost or cost < bestCost)
+                and Grid.fits(placed, self.maxSlots, returning.anchor, swap, returning.rotated, columns) then
+                bestCost = cost
+                best = {origin = origin, target = destination.anchor, rotated = destination.rotated,
+                    swap = swap, swapOrigin = swapAnchor, swapTarget = returning.anchor, swapRotated = returning.rotated}
+            end
+        end
+    end
+    return best
+end
+
+local function footprintBlocker(occupied, columns, anchor, w, h, origin)
+    local blocker
+    for y = 0, h - 1 do
+        for x = 0, w - 1 do
+            local other = occupied[anchor + y * columns + x]
+            if other and other ~= origin then
+                if blocker and blocker ~= other then return false end
+                blocker = other
+            end
+        end
+    end
+    return blocker
+end
+
+local function planCargoLanding(self, occupied, origin, hovered, offsetX, offsetY)
+    local item, columns = self.items[origin], self.columns
+    local preferred = item.rotated == true
+    local column, row = (hovered - 1) % columns, math.floor((hovered - 1) / columns)
+    local empty, overlaps = {}, {}
+    local best, bestCost
+    -- Consider every legal anchor under which the released cell belongs to the item.
+    for turn = 1, Grid.canRotate(item) and 2 or 1 do
+        local rotated = (turn == 1 and preferred) or (turn == 2 and not preferred)
+        local w, h = Grid.dimensions(item, rotated)
+        for y = 0, math.min(h - 1, row) do
+            for x = 0, math.min(w - 1, column) do
+                local anchor = hovered - x - y * columns
+                if Grid.fits(empty, self.maxSlots, anchor, item, rotated, columns) then
+                    local cost = (turn - 1) * (columns + self.maxSlots) + math.abs(x - offsetX) + math.abs(y - offsetY)
+                    local blocker = footprintBlocker(occupied, columns, anchor, w, h, origin)
+                    if blocker then
+                        overlaps[#overlaps + 1] = {anchor = anchor, rotated = rotated, cost = cost, blocker = blocker}
+                    elseif blocker == nil and (not bestCost or cost < bestCost) then
+                        bestCost = cost
+                        best = {origin = origin, target = anchor, rotated = rotated}
+                    end
+                end
+            end
+        end
+    end
+    if best then return best end
+
+    for _, placement in ipairs(overlaps) do
+        local swap = planCargoSwap(self, occupied, origin, placement.blocker, {placement})
+        if swap and (not bestCost or placement.cost < bestCost) then
+            best, bestCost = swap, placement.cost
+        end
+    end
+    return best
+end
+
+function InventorySystem:previewCargoMove(fromSlot, hovered, rotated, offsetX, offsetY)
+    if not hovered or hovered < 1 or hovered > self.maxSlots then return end
+    local columns = self.columns
+    local occupied = Grid.occupancy(self.items, nil, nil, columns)
+    local origin = occupied[fromSlot]
+    if not origin then return end
+    local swapAnchor = occupied[hovered]
+    if swapAnchor and swapAnchor ~= origin then
+        return planCargoSwap(self, occupied, origin, swapAnchor)
+    end
+    if offsetX ~= nil then
+        return planCargoLanding(self, occupied, origin, hovered, offsetX, offsetY or 0)
+    end
+
+    local item = self.items[origin]
+    local current = item.rotated == true
+    if rotated ~= nil then current = rotated end
+    local cells = Grid.occupancy(self.items, origin, nil, columns)
+    if Grid.fits(cells, self.maxSlots, hovered, item, current, columns) then
+        return {origin = origin, target = hovered, rotated = current}
+    end
+end
+
+function InventorySystem:moveItemWithinCompartment(name, fromSlot, toSlot, rotated, offsetX, offsetY)
     local c = self:getCompartment(name)
     if not c or not c.items or not fromSlot or not toSlot then return false end
+    if name == 'weapons' and (fromSlot == 1 or toSlot == 1) then return false end
+    if name == 'ship' then
+        local move = self:previewCargoMove(fromSlot, toSlot, rotated, offsetX, offsetY)
+        if not move then return false end
+        local item = c.items[move.origin]
+        c.items[move.origin] = nil
+        item.rotated = move.rotated
+        if move.swap then
+            c.items[move.swapOrigin] = nil
+            move.swap.rotated = move.swapRotated
+            c.items[move.swapTarget] = move.swap
+        end
+        c.items[move.target] = item
+        self:evaluateSynergies()
+        return true
+    end
     if fromSlot >= 1 and fromSlot <= c.maxSlots and toSlot >= 1 and toSlot <= c.maxSlots then
         local item = c.items[fromSlot]
         c.items[fromSlot] = c.items[toSlot]
@@ -496,13 +705,26 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     local fromC = self:getCompartment(fromName)
     local toC = self:getCompartment(toName)
     if not fromC or not toC or not fromC.items or not toC.items then return false end
+    if fromName == toName then return self:moveItemWithinCompartment(fromName, fromSlot, toSlot) end
+    if fromName == 'ship' then fromSlot = self:cargoAnchor(fromSlot) end
+    if not fromSlot or not fromC.items[fromSlot] then return false end
+    local itemFrom = fromC.items[fromSlot]
+    local cargoRotation
+    if toName == 'ship' then
+        if toSlot then toSlot = self:cargoAnchor(toSlot) or toSlot
+        else toSlot, cargoRotation = self:findCargoSlot(itemFrom) end
+    end
     
     -- Validar que los slots sean válidos (no nil y dentro de rango)
     if not fromSlot or not toSlot then return false end
     if fromSlot < 1 or fromSlot > fromC.maxSlots or toSlot < 1 or toSlot > toC.maxSlots then return false end
 
-    local itemFrom = fromC.items[fromSlot]
     local itemTo = toC.items[toSlot]
+    if fromName == 'ship' and itemTo
+        and not Grid.fits(Grid.occupancy(self.items, fromSlot, nil, self.columns),
+            self.maxSlots, fromSlot, itemTo, nil, self.columns) then return false end
+    if toName == 'ship' and not Grid.fits(Grid.occupancy(self.items, toSlot, nil, self.columns),
+        self.maxSlots, toSlot, itemFrom, cargoRotation, self.columns) then return false end
 
     -- Validaciones especiales para el compartimento weapons
     if toName == "weapons" then
@@ -541,18 +763,7 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     end
 
     -- Validar tipos permitidos en destino (validación general) usando el mapeo centralizado
-    if toC.allowedTypes and itemFrom and itemFrom.data then
-        local typeFrom = _mapCategoryToType(itemFrom.data)
-        if not toC.allowedTypes[typeFrom] then
-            return false
-        end
-    end
-    if fromC.allowedTypes and itemTo and itemTo.data then
-        local typeTo = _mapCategoryToType(itemTo.data)
-        if not fromC.allowedTypes[typeTo] then
-            return false
-        end
-    end
+    if not allowedIn(toC, itemFrom.data) or (itemTo and not allowedIn(fromC, itemTo.data)) then return false end
 
     -- Manejar efectos pasivos antes de la transferencia
     
@@ -573,6 +784,7 @@ function InventorySystem:transferItemBetweenCompartments(fromName, fromSlot, toN
     end
 
     fromC.items[fromSlot] = itemTo
+    if cargoRotation ~= nil then itemFrom.rotated = cargoRotation end
     toC.items[toSlot] = itemFrom
 
     self:evaluateSynergies()
@@ -704,19 +916,7 @@ function InventorySystem:transferWeaponToInventory(slot)
     local weaponItem = self:getWeaponInSlot(slot)
     if not weaponItem then return false end
     
-    -- Buscar espacio libre en el inventario principal
-    local shipComp = self:getCompartment('ship')
-    if not shipComp then return false end
-    
-    for i = 1, shipComp.maxSlots do
-        if not shipComp.items[i] then
-            shipComp.items[i] = weaponItem
-            self:removeWeaponFromSlot(slot)
-            return true
-        end
-    end
-    
-    return false -- No hay espacio en el inventario
+    return self:transferItemBetweenCompartments('weapons', slot, 'ship')
 end
 
 -- Transferir item desde inventario principal a slot de arma

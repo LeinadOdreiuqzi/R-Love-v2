@@ -254,7 +254,8 @@ function InventoryModal.useItem(parentUI, slotIndex, slotType, player)
             elseif itemData.category == "equipable" then
                 if itemData.equipType == "weapon" and player.weaponSystem then
                     local weaponSlot = nil
-                    for slot = 2, 4 do
+                    local weapons = player.inventory:getCompartment('weapons')
+                    for slot = 2, weapons.maxSlots do
                         if not player.inventory:getWeaponInSlot(slot) then
                             weaponSlot = slot
                             break
@@ -262,16 +263,10 @@ function InventoryModal.useItem(parentUI, slotIndex, slotType, player)
                     end
                     
                     if weaponSlot then
-                        local success = player.weaponSystem:equipWeapon(itemData, weaponSlot)
+                        local compName = parentUI:getCompartmentName(slotType)
+                        local success = player.inventory:transferItemBetweenCompartments(compName, slotIndex, 'weapons', weaponSlot)
                         if success then
-                            if slotType == "inventory" then
-                                shipComp.items[slotIndex] = nil
-                            elseif slotType == "eva" then
-                                local evaComp = (player.inventory.getCompartment and player.inventory:getCompartment('eva')) or nil
-                                if evaComp then
-                                    evaComp.items[slotIndex] = nil
-                                end
-                            end
+                            if not player.weaponSystem.currentWeapon then player.weaponSystem:switchToSlot(weaponSlot) end
                             local audio = getAudio()
                             if audio and audio.play then
                                 audio.play("item_equip", { pitch = 1.0, volume = 0.75 })

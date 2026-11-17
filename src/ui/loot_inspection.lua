@@ -1,6 +1,7 @@
 local Loot = require 'src.gameplay.loot'
 local Items = require 'src.item_systems.item_system'
 local Theme = require 'src.ui.combat_theme'
+local Grid = require 'src.item_systems.cargo_grid'
 
 local Inspection = {}
 Inspection.__index = Inspection
@@ -113,13 +114,27 @@ function Inspection:keypressed(key)
     return true
 end
 
-local function layout()
+local function layout(capacity)
     local sw, sh = love.graphics.getDimensions()
-    local w, h = math.min(520, sw - 24), 202
-    return math.floor((sw - w) / 2), math.max(38, math.floor((sh - h) / 2)), w, h
+    local w, h = math.min(460, sw - 24), 202
+    local cell
+    if capacity then
+        local rows = capacity / Grid.columns
+        cell = math.floor(math.min(62, (w - 36) / Grid.columns - 4, (sh - 132) / rows - 4))
+        h = rows * (cell + 4) + 93
+    end
+    return math.floor((sw - w) / 2), math.max(14, math.floor((sh - h) / 2)), w, h, cell
 end
 
-local function slotAt(x, y, width, index)
+local function slotAt(x, y, width, index, id, placement, cell)
+    if cell then
+        local anchor = placement and placement.anchor or index
+        local pitch = cell + 4
+        local w, h = 1, 1
+        if id then w, h = Grid.dimensions(Items:getItem(id) or {id = id}, placement.rotated) end
+        return x + math.floor((width - Grid.columns * pitch + 4) / 2) + (anchor - 1) % Grid.columns * pitch,
+            y + 60 + math.floor((anchor - 1) / Grid.columns) * pitch, w * pitch - 4, h * pitch - 4
+    end
     local gap = 8
     local w = math.floor((width - 32 - gap * 2) / 3)
     return x + 16 + ((index - 1) % 3) * (w + gap),
@@ -130,17 +145,33 @@ local function inside(mx, my, x, y, w, h)
     return mx >= x and mx < x + w and my >= y and my < y + h
 end
 
+local function drawItemName(name, x, y, w, h)
+    local scale = w < 65 and .85 or 1
+    local width = (w - 8) / scale
+    local _, lines = Theme.small:getWrap(name, width)
+    local lineCount = math.min(#lines, h >= 48 and 3 or h >= 31 and 2 or 1)
+    local g = love.graphics
+    for index = 1, lineCount do
+        local label = lines[index]
+        if index == lineCount and index < #lines then label = '…' end
+        g.printf(label, x + 4, y + 4 + (index - 1) * Theme.small:getHeight() * scale, width, 'center', 0, scale)
+    end
+end
+
 function Inspection:mousepressed(mx, my, button)
     if button ~= 1 or not self.inspecting then return end
-    local x, y, w = layout()
+    local box = self.inspecting
+    local items, revealed, capacity, placements = Loot.getBox(self.run, box.room, box.index)
+    local x, y, w, _, cell = layout(capacity)
     if inside(mx, my, x + w - 82, y + 10, 66, 23) then
         self.inspecting, self.message = nil, ''
         return
     end
-    local box = self.inspecting
-    local _, revealed = Loot.getBox(self.run, box.room, box.index)
     for index = 1, revealed do
-        if inside(mx, my, slotAt(x, y, w, index)) then self:take(index); return end
+        if inside(mx, my, slotAt(x, y, w, index, items[index], placements and placements[index], cell)) then
+            self:take(index)
+            return
+        end
     end
 end
 
@@ -191,8 +222,8 @@ function Inspection:drawHUD()
         return
     end
 
-    local x, y, w, h = layout()
-    local items, revealed = Loot.getBox(self.run, box.room, box.index)
+    local items, revealed, capacity, placements = Loot.getBox(self.run, box.room, box.index)
+    local x, y, w, h, cell = layout(capacity)
     local mx, my = love.mouse.getPosition()
     g.setColor(.01, .02, .035, .36)
     g.rectangle('fill', 0, 0, g.getDimensions())
@@ -209,26 +240,40 @@ function Inspection:drawHUD()
         or 'Buscando objetos…'
     g.setColor(Theme.colors.muted)
     g.print(status, x + 16, y + 38)
-    local hovered
+    if capacity then
+        g.printf(('%d celdas'):format(capacity), x + w - 106, y + 38, 90, 'right')
+        for index = 1, capacity do
+            local sx, sy, sw, sh = slotAt(x, y, w, index, nil, nil, cell)
+            g.setColor(.09, .11, .16, .8)
+            g.rectangle('fill', sx, sy, sw, sh, 4, 4)
+            g.setColor(.31, .39, .52, .32)
+            g.rectangle('line', sx, sy, sw, sh, 4, 4)
+        end
+    end
+    local hovered, hoveredShape
     for index = 1, #items do
-        local sx, sy, sw, sh = slotAt(x, y, w, index)
+        local sx, sy, sw, sh = slotAt(x, y, w, index, items[index], placements and placements[index], cell)
         local visible = index <= revealed
         local hover = visible and inside(mx, my, sx, sy, sw, sh)
-        local item = visible and Items:getItem(items[index])
+        local item = visible and (Items:getItem(items[index]) or {name = items[index]})
         local rarity = item and item.rarity
         local color = type(rarity) == 'table' and rarity.color or Theme.colors.muted
         Theme.panel(sx, sy, sw, sh, color, hover)
         if visible then
             g.setColor(Theme.colors.text)
-            g.printf(item.name, sx + 5, sy + 4, sw - 10, 'center')
-            if type(rarity) == 'table' then
+            drawItemName(item.name, sx, sy, sw, sh)
+            if type(rarity) == 'table' and sh >= 54 then
                 g.setColor(color)
                 g.printf(rarity.name, sx + 5, sy + sh - 12, sw - 10, 'center')
             end
-            if hover then hovered = item end
+            if hover then
+                hovered = item
+                local wide, tall = Grid.dimensions(item, placements and placements[index].rotated)
+                hoveredShape = ('Carga · %d×%d'):format(wide, tall)
+            end
         else
             g.setColor(Theme.colors.muted)
-            g.printf('?', sx, sy + 12, sw, 'center')
+            g.printf('?', sx, sy + math.floor((sh - 14) / 2), sw, 'center')
             if index == revealed + 1 then
                 g.setColor(box.color)
                 g.rectangle('fill', sx + 4, sy + sh - 6, (sw - 8) * math.min(1, box.search / searchTime), 2)
@@ -239,7 +284,7 @@ function Inspection:drawHUD()
     local footer = self.message ~= '' and self.message or 'Esc · Cerrar   Enter · Recoger primero   Tab · Carga'
     g.printf(footer, x + 12, y + h - 25, w - 24, 'center')
     g.pop()
-    if hovered then Theme.tooltip(self.player, hovered, mx, my) end
+    if hovered then Theme.tooltip(self.player, hovered, mx, my, hoveredShape) end
 end
 
 return Inspection

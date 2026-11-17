@@ -154,20 +154,7 @@ function InventoryEquipPanels.transferWeaponToInventory(player, weaponSlot)
         return false
     end
     
-    local targetSlot = nil
-    for i = 1, shipComp.maxSlots do
-        if not shipComp.items[i] then
-            targetSlot = i
-            break
-        end
-    end
-    
-    if not targetSlot then
-        print("[TRANSFER] Error: Inventario de nave lleno")
-        return false
-    end
-    
-    if player.inventory:transferItemBetweenCompartments('weapons', weaponSlot, 'ship', targetSlot) then
+    if player.inventory:transferItemBetweenCompartments('weapons', weaponSlot, 'ship') then
         if player.weaponSystem and player.weaponSystem.currentSlot == weaponSlot then
             player.weaponSystem:switchToNextAvailableWeapon()
         end
@@ -386,20 +373,7 @@ function InventoryEquipPanels.transferItemFromPassives(player, fromSlot)
         return false
     end
     
-    local targetSlot = nil
-    for i = 1, shipComp.maxSlots do
-        if not shipComp.items[i] then
-            targetSlot = i
-            break
-        end
-    end
-    
-    if not targetSlot then
-        print("[TRANSFER] Error: Inventario principal lleno")
-        return false
-    end
-    
-    if player.inventory:transferItemBetweenCompartments('passives', fromSlot, 'ship', targetSlot) then
+    if player.inventory:transferItemBetweenCompartments('passives', fromSlot, 'ship') then
         local audio = getAudio()
         if audio and audio.play then
             audio.play("item_equip", { pitch = 0.9, volume = 0.65 })

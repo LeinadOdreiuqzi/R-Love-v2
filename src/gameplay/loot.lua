@@ -1,5 +1,6 @@
 local Items = require 'src.item_systems.item_system'
 local Seed = require 'src.utils.seed_system'
+local Grid = require 'src.item_systems.cargo_grid'
 
 local Loot = {roomKeyId = 'salvage_room_key'}
 
@@ -18,9 +19,9 @@ local profiles = {
 }
 
 local roomProfiles = {
-    common = {profile = 'roomCommon', minBoxes = 2, extraBoxChance = .25, itemWeights = {30, 50, 20}},
-    rare = {profile = 'roomRare', minBoxes = 2, extraBoxChance = .75, itemWeights = {10, 30, 45, 15}},
-    exceptional = {profile = 'roomExceptional', minBoxes = 3, extraBoxChance = .12, itemWeights = {5, 20, 40, 27, 8}}
+    common = {profile = 'roomCommon', capacity = 8, minBoxes = 2, extraBoxChance = .25, itemWeights = {30, 50, 20}},
+    rare = {profile = 'roomRare', capacity = 16, minBoxes = 2, extraBoxChance = .75, itemWeights = {10, 30, 45, 15}},
+    exceptional = {profile = 'roomExceptional', capacity = 32, minBoxes = 3, extraBoxChance = .12, itemWeights = {5, 20, 40, 27, 8}}
 }
 
 local enemyDropChance = {enemy = 35, reinforced = 60, elite = 80, capital = 100}
@@ -96,6 +97,42 @@ function Loot.enemyDrop(profileId, rng, playerKill)
     end
 end
 
+local function packBox(items, capacity, preserve)
+    local box = {capacity = capacity, placements = {}, revealed = items.revealed or 0, gridVersion = Grid.version}
+    local cells, order, placements = {}, {}, {}
+    for index, id in ipairs(items) do
+        local item = Items:getItem(id) or {id = id}
+        local w, h = Grid.dimensions(item)
+        order[index] = {index = index, data = item, area = w * h}
+    end
+    if preserve then
+        local packed = Grid.pack(capacity, order)
+        if not packed then return nil end
+        for anchor, entry in pairs(packed) do
+            placements[entry.item.index] = {anchor = anchor, rotated = entry.rotated}
+        end
+    else
+        table.sort(order, function(a, b)
+            if a.area == b.area then return a.index < b.index end
+            return a.area > b.area
+        end)
+        for _, entry in ipairs(order) do
+            local anchor, rotated = Grid.find(cells, capacity, entry)
+            if anchor then
+                placements[entry.index] = {anchor = anchor, rotated = rotated}
+                Grid.claim(cells, anchor, entry, rotated)
+            end
+        end
+    end
+    for index, id in ipairs(items) do
+        if placements[index] then
+            box[#box + 1] = id
+            box.placements[#box] = placements[index]
+        end
+    end
+    return box
+end
+
 function Loot.registerConvoyWreck(run, convoyId, x, y, rotation, size)
     local id = convoyId .. ':wreck'
     if run.lootRooms[id] then return id end
@@ -109,7 +146,7 @@ function Loot.registerConvoyWreck(run, convoyId, x, y, rotation, size)
         cargo[index] = item
         if tier >= 4 then maxTier = 3 end
     end
-    run.lootRooms[id] = {cargo, convoyWreck = {x = x, y = y, rotation = rotation, size = size}}
+    run.lootRooms[id] = {packBox(cargo, 24), convoyWreck = {x = x, y = y, rotation = rotation, size = size}}
     return id
 end
 
@@ -129,8 +166,7 @@ function Loot.unlockRoom(run, roomId, inventory, rarity)
             if rng:random() < config.extraBoxChance then count = count + 1 end
             for index = 1, count do
                 local size = choose(rng, config.itemWeights) + 1
-                boxes[index] = Loot.roll(config.profile, rng, size)
-                boxes[index].revealed = 0
+                boxes[index] = packBox(Loot.roll(config.profile, rng, size), config.capacity)
             end
             boxes.rarity = rarity or 'common'
             local quantity = (entry.quantity or 1) - 1
@@ -160,7 +196,22 @@ end
 function Loot.getBox(run, roomId, boxIndex)
     local room = run.lootRooms[roomId]
     local box = room and room[boxIndex]
-    if box then return {unpack(box)}, box.revealed or 0 end
+    if not box then return end
+    if box.gridVersion ~= Grid.version then
+        local config = roomProfiles[room.rarity or 'rare'] or roomProfiles.rare
+        local capacity = box.capacity or (room.convoyWreck and 24 or config.capacity)
+        local migrated
+        for size = capacity, 32, 8 do
+            local packed = packBox(box, size, true)
+            if packed then
+                box, room[boxIndex] = packed, packed
+                migrated = true
+                break
+            end
+        end
+        if not migrated then box.capacity, box.placements, box.gridVersion = nil, nil, Grid.version end
+    end
+    return {unpack(box)}, box.revealed or 0, box.capacity, box.placements
 end
 
 function Loot.revealNext(run, roomId, boxIndex)
@@ -175,8 +226,9 @@ function Loot.takeFromBox(run, roomId, boxIndex, itemIndex, inventory)
     local id = box and box[itemIndex]
     local item = id and Items:getItem(id)
     if not item or itemIndex > (box.revealed or 0)
-        or not inventory:addItemToCompartment('ship', item, 1) then return false end
+        or not inventory:addItemToCompartment('ship', item, 1, true) then return false end
     table.remove(box, itemIndex)
+    if box.placements then table.remove(box.placements, itemIndex) end
     box.revealed = box.revealed - 1
     return true
 end

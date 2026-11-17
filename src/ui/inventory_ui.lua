@@ -7,6 +7,8 @@ local InventoryModal = require 'src.ui.inventory.inventory_modal'
 local InventoryEquipPanels = require 'src.ui.inventory.inventory_equip_panels'
 local PilotPanel = require 'src.ui.inventory.pilot_panel'
 local Theme = require 'src.ui.combat_theme'
+local Grid = require 'src.item_systems.cargo_grid'
+local cargoHeader = 64
 
 -- Estado de la UI
 local uiState = {
@@ -100,8 +102,15 @@ local uiState = {
 
 local function statsButton()
     local layout = uiState.layout
-    return layout.inventoryX + layout.inventoryWidth - uiState.panelPadding - 104,
-        layout.inventoryY + 5, 104, 20
+    return layout.inventoryX + layout.inventoryWidth - uiState.panelPadding - 87,
+        layout.inventoryY + 33, 87, 20
+end
+
+local function cargoCell(cell)
+    local layout, pitch = uiState.layout, uiState.slotSize + uiState.slotPadding
+    local columns = layout.cargoColumns
+    return layout.inventoryX + uiState.panelPadding + (cell - 1) % columns * pitch,
+        layout.inventoryY + cargoHeader + math.floor((cell - 1) / columns) * pitch
 end
 
 -- Inicializar UI
@@ -120,22 +129,27 @@ function InventoryUI:calculateLayout(player)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    local slotSize = uiState.slotSize
     local padding = uiState.slotPadding
     local panelPadding = uiState.panelPadding
     
     -- Configuración dinámica del inventario basada en los slots reales
-    local maxSlots = 20 -- Default conservador
+    local maxSlots, inventoryColumns = 18, 3
     if player and player.inventory then
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
-        maxSlots = shipComp.maxSlots or 20
+        maxSlots, inventoryColumns = shipComp.maxSlots, shipComp.columns or Grid.columns
     end
 
-    local inventoryColumns = 8
     local inventoryRows = math.ceil(maxSlots / inventoryColumns)
+    local slotSize = math.min(48, math.max(20, math.floor(math.min(
+        (screenHeight - cargoHeader - 48) / inventoryRows - padding,
+        (screenHeight - 236) / 6 - padding,
+        (screenWidth - 120) / (inventoryColumns + 3) - padding))))
+    uiState.slotSize = slotSize
+    uiState.layout.cargoCapacity = maxSlots
+    uiState.layout.cargoColumns = inventoryColumns
     
     uiState.layout.inventoryWidth = inventoryColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.inventoryHeight = inventoryRows * (slotSize + padding) - padding + panelPadding * 2 + 40 -- +40 para título
+    uiState.layout.inventoryHeight = inventoryRows * (slotSize + padding) - padding + cargoHeader + 32
     
     -- Configuración del panel EVA (3 slots horizontales)
     local evaColumns = 3
@@ -158,7 +172,8 @@ function InventoryUI:calculateLayout(player)
     -- Posicionamiento: Inventario a la izquierda, equipo a la derecha
     local totalUIWidth = uiState.layout.inventoryWidth + math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth) + panelPadding
     local startX = (screenWidth - totalUIWidth) / 2
-    local startY = (screenHeight - uiState.layout.inventoryHeight) / 2
+    local rightHeight = uiState.layout.evaHeight + uiState.layout.weaponHeight + uiState.layout.passiveHeight + 20
+    local startY = math.max(8, (screenHeight - math.max(uiState.layout.inventoryHeight, rightHeight)) / 2)
     
     uiState.layout.inventoryX = startX
     uiState.layout.inventoryY = startY
@@ -229,6 +244,10 @@ function InventoryUI:handleDrop(player, targetCompartment, targetSlot)
     
     -- Convertir tipos de UI a nombres de compartimentos
     local fromCompartment = self:getCompartmentName(uiState.draggedFromType)
+    if fromCompartment == 'ship' and targetCompartment == 'ship' then
+        return player.inventory:moveItemWithinCompartment('ship', uiState.draggedFromSlot, targetSlot,
+            nil, uiState.draggedOffsetX, uiState.draggedOffsetY)
+    end
     
     -- Realizar transferencia usando el sistema centralizado
     local success = player.inventory:transferItemBetweenCompartments(
@@ -274,7 +293,9 @@ function InventoryUI:update(dt, player)
     -- Recalcular layout si cambió el tamaño de pantalla
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
-    if screenWidth ~= self.lastScreenWidth or screenHeight ~= self.lastScreenHeight then
+    if screenWidth ~= self.lastScreenWidth or screenHeight ~= self.lastScreenHeight
+        or (player and player.inventory and (player.inventory.maxSlots ~= uiState.layout.cargoCapacity
+            or player.inventory.columns ~= uiState.layout.cargoColumns)) then
         self:calculateLayout(player)
         self.lastScreenWidth = screenWidth
         self.lastScreenHeight = screenHeight
@@ -283,29 +304,16 @@ end
 
 -- Nueva función para detectar el slot bajo el mouse
 function InventoryUI:updateHoverDetection(player)
-    local layout = uiState.layout
-    local slotSize = uiState.slotSize
-    local padding = uiState.slotPadding
-    local panelPadding = uiState.panelPadding
-    
-    -- 1. Verificar inventario principal
-    local invStartX = layout.inventoryX + panelPadding
-    local invStartY = layout.inventoryY + 40
-    local invCols = 8
+    if not player or not player.inventory then return end
     local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
-    
-    for i = 1, shipComp.maxSlots do
-        local col = (i - 1) % invCols
-        local row = math.floor((i - 1) / invCols)
-        local x = invStartX + col * (slotSize + padding)
-        local y = invStartY + row * (slotSize + padding)
-        
-        if self:isMouseOverSlot(x, y, slotSize) then
-            uiState.hoveredItem = shipComp.items[i]
-            uiState.hoveredSlotPos = {x = x, y = y}
-            uiState.hoveredSlotType = "inventory"
-            return
-        end
+    local cell = self:getInventorySlotAt(uiState.mouseX, uiState.mouseY, shipComp)
+    if cell then
+        local anchor = player.inventory:cargoAnchor(cell) or cell
+        local x, y = cargoCell(anchor)
+        uiState.hoveredItem = shipComp.items[anchor]
+        uiState.hoveredSlotPos = {x = x, y = y}
+        uiState.hoveredSlotType = 'inventory'
+        return
     end
     
     -- 2. Verificar EVA
@@ -401,7 +409,9 @@ end
 -- Función para dibujar el Tooltip Detallado
 function InventoryUI:drawTooltip(item)
     if item and item.data then
-        return require('src.ui.combat_theme').tooltip(uiState.currentPlayer or World.get('player'), item.data, uiState.mouseX, uiState.mouseY)
+        local w, h = Grid.dimensions(item)
+        return Theme.tooltip(uiState.currentPlayer or World.get('player'), item.data, uiState.mouseX, uiState.mouseY,
+            ('Carga · %d×%d'):format(w, h))
     end
 end
 
@@ -431,12 +441,7 @@ function InventoryUI:drawInventoryPanel(compartment, player)
     love.graphics.print(shipName, headerX, layout.inventoryY + 5)
 
     if player.stats and player.shipConfig then
-        local stats = player.stats
         love.graphics.setFont(uiState.smallFont)
-        love.graphics.setColor(colors.textSecondary)
-        love.graphics.print(string.format("Casco %d  |  Escudo %d  |  Comb. %d",
-            stats.health.maxHealth, stats.shield.maxShield, stats.fuel.maxFuel),
-            headerX, layout.inventoryY + 25)
         local x, y, w, h = statsButton()
         local mx, my = uiState.mouseX, uiState.mouseY
         Theme.panel(x, y, w, h, Theme.colors.active, mx >= x and mx < x + w and my >= y and my < y + h)
@@ -444,19 +449,56 @@ function InventoryUI:drawInventoryPanel(compartment, player)
         love.graphics.printf("Estadísticas", x, y + 2, w, "center")
     end
 
-    -- Slots del inventario (8 columnas)
-    local startX = layout.inventoryX + panelPadding
-    local startY = layout.inventoryY + 40
-    local columns = 8
-    
+    local used = 0
+    for _ in pairs(Grid.occupancy(compartment.items, nil, nil, compartment.columns)) do used = used + 1 end
+    love.graphics.setFont(uiState.smallFont)
+    love.graphics.setColor(colors.textSecondary)
+    local capacityLabel = layout.inventoryWidth >= 205 and '%d/%d celdas' or '%d/%d'
+    love.graphics.print(capacityLabel:format(used, compartment.maxSlots), headerX, layout.inventoryY + 37)
     for i = 1, compartment.maxSlots do
-        local col = (i - 1) % columns
-        local row = math.floor((i - 1) / columns)
-        local x = startX + col * (slotSize + padding)
-        local y = startY + row * (slotSize + padding)
-        
-        self:drawInventorySlot(x, y, i, compartment.items[i])
+        local x, y = cargoCell(i)
+        self:drawInventorySlot(x, y)
     end
+    for anchor, item in pairs(compartment.items) do
+        local x, y = cargoCell(anchor)
+        local w, h = Grid.dimensions(item)
+        local width, height = w * (slotSize + padding) - padding, h * (slotSize + padding) - padding
+        local rarity = item.data.rarity
+        local tint = type(rarity) == 'table' and rarity.color or colors.accent
+        Theme.panel(x, y, width, height, tint, uiState.hoveredItem == item)
+        self:drawItem(x + (width - slotSize) / 2 + 4, y + (height - slotSize) / 2 + 4, slotSize - 8, item)
+    end
+    local dragged = uiState.draggedItem
+    local hovered = dragged and self:getInventorySlotAt(uiState.mouseX, uiState.mouseY, compartment)
+    if hovered then
+        local move
+        if uiState.draggedFromType == 'inventory' then
+            move = player.inventory:previewCargoMove(uiState.draggedFromSlot, hovered,
+                nil, uiState.draggedOffsetX, uiState.draggedOffsetY)
+        else
+            local cells = Grid.occupancy(compartment.items, nil, nil, compartment.columns)
+            if Grid.fits(cells, compartment.maxSlots, hovered, dragged, nil, compartment.columns) then
+                move = {target = hovered}
+            end
+        end
+        local x, y = cargoCell(move and move.target or hovered)
+        local w, h = 1, 1
+        if move then w, h = Grid.dimensions(dragged, move.rotated) end
+        local pitch = slotSize + padding
+        love.graphics.setColor(move and {.37,.88,.70,.9} or {1,.28,.30,.72})
+        love.graphics.rectangle('line', x, y, w * pitch - padding, h * pitch - padding, 4, 4)
+        if move and move.swap then
+            local sx, sy = cargoCell(move.swapTarget)
+            local sw, sh = Grid.dimensions(move.swap, move.swapRotated)
+            love.graphics.setColor(.37, .88, .70, .50)
+            love.graphics.rectangle('line', sx, sy, sw * pitch - padding, sh * pitch - padding, 4, 4)
+        end
+    end
+    love.graphics.setFont(uiState.smallFont)
+    love.graphics.setColor(colors.textSecondary)
+    local recovery = #player.inventory.recoveryCargo
+    local hint = recovery > 0 and ('O · Recuperar carga (%d)'):format(recovery) or 'R · Girar objeto 2×3'
+    love.graphics.print(hint, headerX, layout.inventoryY + layout.inventoryHeight - 22)
 end
 
 
@@ -500,45 +542,13 @@ function InventoryUI:drawWeaponPanel(weaponCompartment)
     return InventoryEquipPanels.drawWeaponPanel(self, uiState, weaponCompartment)
 end
 
--- Dibujar slot de inventario
-function InventoryUI:drawInventorySlot(x, y, slotIndex, item)
+function InventoryUI:drawInventorySlot(x, y)
     local colors = uiState.colors
-    local slotSize = uiState.slotSize
-    local borderRadius = uiState.borderRadius
-    
-    -- Determinar color del slot
-    local slotColor = colors.slotEmpty
-    if item then
-        slotColor = colors.slotFilled
-    end
-    
-    -- Feedback visual para drag and drop
-    if uiState.draggedItem then
-        if self:isMouseOverSlot(x, y, slotSize) then
-            if self:isValidDropTarget("inventory", slotIndex) then
-                slotColor = colors.slotDragTarget
-            else
-                slotColor = {0.4, 0.1, 0.1, 0.8} -- Rojo para indicar que no es válido
-            end
-        elseif self:isValidDropTarget("inventory", slotIndex) then
-            -- Resaltado suave para todos los slots válidos
-            slotColor = {colors.slotDragTarget[1], colors.slotDragTarget[2], colors.slotDragTarget[3], 0.3}
-        end
-    elseif self:isMouseOverSlot(x, y, slotSize) then
-        slotColor = colors.slotHover
-    end
-    
-    -- Dibujar slot redondeado
-    love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
-    
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
-    
-    -- Dibujar item si existe
-    if item then
-        self:drawItem(x + 4, y + 4, slotSize - 8, item)
-    end
+    local size, radius = uiState.slotSize, uiState.borderRadius
+    love.graphics.setColor(self:isMouseOverSlot(x, y, size) and colors.slotHover or colors.slotEmpty)
+    love.graphics.rectangle('fill', x, y, size, size, radius, radius)
+    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], .3)
+    love.graphics.rectangle('line', x, y, size, size, radius, radius)
 end
 
 -- Dibujar slot EVA
@@ -727,9 +737,11 @@ function InventoryUI:mousepressed(x, y, button, player)
         end
         -- Verificar click en inventario (compartimento 'ship')
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
-        local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
+        local clickedCell = self:getInventorySlotAt(x, y, shipComp)
+        local inventorySlot = clickedCell
         
         if inventorySlot then
+            inventorySlot = player.inventory:cargoAnchor(inventorySlot) or inventorySlot
             local item = shipComp.items[inventorySlot]
             if item then
                 -- Si se presiona Shift, transferencia inteligente
@@ -754,6 +766,9 @@ function InventoryUI:mousepressed(x, y, button, player)
                 uiState.draggedItem = item
                 uiState.draggedFromSlot = inventorySlot
                 uiState.draggedFromType = "inventory"
+                local columns = shipComp.columns
+                uiState.draggedOffsetX = (clickedCell - 1) % columns - (inventorySlot - 1) % columns
+                uiState.draggedOffsetY = math.floor((clickedCell - 1) / columns) - math.floor((inventorySlot - 1) / columns)
             end
             return
         end
@@ -829,6 +844,7 @@ function InventoryUI:mousepressed(x, y, button, player)
         -- Verificar clic derecho en inventario (compartimento 'ship')
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
         local inventorySlot = self:getInventorySlotAt(x, y, shipComp)
+        inventorySlot = inventorySlot and player.inventory:cargoAnchor(inventorySlot)
         if inventorySlot and shipComp.items[inventorySlot] then
             self:openModal(x, y, inventorySlot, "inventory")
             return
@@ -950,13 +966,6 @@ function InventoryUI:mousereleased(x, y, button, player)
         if isOutsidePanel then
             self:dropItemToWorld(uiState.draggedItem, player, x, y)
             dropped = true
-        else
-            -- Devolver item a su lugar original directamente para evitar doble anidación
-            local fromCompartmentName = self:getCompartmentName(uiState.draggedFromType)
-            local comp = player.inventory:getCompartment(fromCompartmentName)
-            if comp and uiState.draggedFromSlot then
-                comp.items[uiState.draggedFromSlot] = uiState.draggedItem
-            end
         end
     end
     
@@ -971,6 +980,19 @@ end
 -- Manejar input de teclado
 function InventoryUI:keypressed(key, player)
     if not uiState.isOpen then return end
+    if key == 'r' or key == 'o' then
+        if player and player.inventory and not uiState.modal.isOpen and not uiState.showPilotStats then
+            if key == 'o' then player.inventory:recoverCargo()
+            elseif not uiState.draggedItem then
+                local ship = player.inventory:getCompartment('ship')
+                local mx, my = love.mouse.getPosition()
+                local cell = self:getInventorySlotAt(mx, my, ship)
+                local anchor = cell and player.inventory:cargoAnchor(cell)
+                if anchor then player.inventory:rotateCargo(anchor) end
+            end
+        end
+        return true
+    end
     
     -- Cerrar modal si está abierto
     if uiState.modal.isOpen and key == "escape" then
@@ -1007,27 +1029,16 @@ end
 
 -- Obtener slot de inventario en posición
 function InventoryUI:getInventorySlotAt(x, y, inventory)
-    local layout = uiState.layout
-    local slotSize = uiState.slotSize
-    local padding = uiState.slotPadding
-    local panelPadding = uiState.panelPadding
-    
-    local startX = layout.inventoryX + panelPadding
-    local startY = layout.inventoryY + 40 -- Consistente con drawInventoryPanel
-    local columns = 8 -- Nuevo layout de 8 columnas
-    
-    for i = 1, inventory.maxSlots do
-        local col = (i - 1) % columns
-        local row = math.floor((i - 1) / columns)
-        local slotX = startX + col * (slotSize + padding)
-        local slotY = startY + row * (slotSize + padding)
-        
-        if x >= slotX and x <= slotX + slotSize and y >= slotY and y <= slotY + slotSize then
-            return i
-        end
+    local pitch = uiState.slotSize + uiState.slotPadding
+    local startX, startY = cargoCell(1)
+    local columns = inventory.columns or uiState.layout.cargoColumns
+    local rows = math.ceil(inventory.maxSlots / columns)
+    x, y = x - startX, y - startY
+    if x >= 0 and x < columns * pitch - uiState.slotPadding
+        and y >= 0 and y < rows * pitch - uiState.slotPadding then
+        local cell = math.floor(y / pitch) * columns + math.floor(x / pitch) + 1
+        if cell <= inventory.maxSlots then return cell end
     end
-    
-    return nil
 end
 
 -- Obtener slot EVA en posición
@@ -1128,11 +1139,8 @@ end
 function InventoryUI:createTestInventory(player)
     local ItemSystem = require 'src.item_systems.items.init'
     
-    -- Limpiar inventario actual del compartimento 'ship'
-    local shipComp = (player and player.inventory and player.inventory.getCompartment) and player.inventory:getCompartment('ship') or player.inventory
-    shipComp.items = {}
-    player.inventory.items = shipComp.items
-    
+    player.inventory:restoreCargo({}, player.inventory.recoveryCargo, false)
+
     -- Items de ejemplo - Armas y Pasivas del Catálogo Fase 3 para testear Sinergias (Reglas 1, 2 y 3)
     local testItems = {
         -- Armas listas para probar arquetipos y fusiones Regla 1
@@ -1171,27 +1179,12 @@ function InventoryUI:createTestInventory(player)
         end
     end
 
-    local slotIndex = 1
+    local added = 0
     for _, itemId in ipairs(testItems) do
-        if slotIndex <= (shipComp.maxSlots or 20) then
-            local itemData = ItemSystem.getItem(itemId)
-            if itemData then
-                local fullData = {}
-                for k, v in pairs(itemData) do
-                    fullData[k] = v
-                end
-                fullData.id = itemId
-                shipComp.items[slotIndex] = {
-                    data = fullData,
-                    quantity = itemData.category == "material" and 5 or 1
-                }
-                slotIndex = slotIndex + 1
-            else
-                print("[WARNING] Item no encontrado: " .. itemId)
-            end
-        end
+        local item = ItemSystem.getItem(itemId)
+        if item and player.inventory:addItem(item) then added = added + 1 end
     end
-    
+
     -- Agregar items pasivos de prueba al compartimento de pasivos
     local passiveTestItems = {
         "enhanced_thrusters",       -- +5% velocidad base
@@ -1218,7 +1211,7 @@ function InventoryUI:createTestInventory(player)
     
     print("[INVENTORY] Items pasivos de prueba procesados: " .. (passiveSlotIndex - 1) .. " items")
     
-    print("[INVENTORY] Inventario de prueba creado con " .. (slotIndex - 1) .. " armas para testear weapon_system")
+    print("[INVENTORY] Inventario de prueba creado con " .. added .. " objetos para pruebas")
 end
 
 -- Lanzar item al mundo
@@ -1369,21 +1362,7 @@ function InventoryUI:transferItemToShip(player, fromSlot)
     end
     
     -- Buscar slot vacío en nave
-    local targetSlot = nil
-    for i = 1, shipComp.maxSlots do
-        if not shipComp.items[i] then
-            targetSlot = i
-            break
-        end
-    end
-    
-    if not targetSlot then
-        print("[TRANSFER] Error: Inventario de nave lleno")
-        return false
-    end
-    
-    -- Realizar transferencia
-    if player.inventory:transferItemBetweenCompartments('eva', fromSlot, 'ship', targetSlot) then
+    if player.inventory:transferItemBetweenCompartments('eva', fromSlot, 'ship') then
         print("[TRANSFER] Item transferido de EVA a nave: " .. (item.data.name or "item desconocido"))
         return true
     else

@@ -383,6 +383,9 @@ function Naves:new(x, y, shipType, options)
         damageState = player.damageState,
         inventory = {
             items = player.inventory.items,
+            gridVersion = InventorySystem.gridVersion,
+            columns = player.inventory.columns,
+            recoveryCargo = player.inventory.recoveryCargo,
             shipType = player.inventory.shipType,
             compartments = player.inventory.compartments and {
                 eva = player.inventory.compartments.eva and {
@@ -469,10 +472,8 @@ function Naves:debugChangeShipType(shipType)
         stats[current] = math.min(stats[maximum], stats[maximum] * ratio)
     end
     self.inventory.shipType = shipType
-    local capacity = self.inventory:getShipConfig().inventorySlots
-    for slot in pairs(self.inventory.items) do capacity = math.max(capacity, slot) end
-    self.inventory.maxSlots = capacity
-    self.inventory:getCompartment('ship').maxSlots = capacity
+    self.inventory:restoreCargo(self.inventory.items, self.inventory.recoveryCargo, true)
+    self.inventory:evaluateSynergies()
     if self.weaponSystem then self.weaponSystem.activeMuzzleFlashes = {} end
     local registry = shipRegistry[self.shipId]
     if registry then registry.type, registry.name = shipType, self.shipName end
@@ -1386,6 +1387,9 @@ function Naves:updateShipRegistry()
         -- Actualizar inventario en el registro
         shipRegistry[self.shipId].inventory = self.inventory and {
             items = self.inventory.items,
+            gridVersion = InventorySystem.gridVersion,
+            columns = self.inventory.columns,
+            recoveryCargo = self.inventory.recoveryCargo,
             shipType = self.inventory.shipType,
             compartments = self.inventory.compartments and {
                 eva = self.inventory.compartments.eva and {
@@ -1423,17 +1427,7 @@ function Naves:saveShipState()
         },
         settings = self.shipSettings,
         damageState = self.damageState,
-        -- Guardar inventario específico de la nave
-        inventory = self.inventory and {
-            items = self.inventory.items,
-            shipType = self.inventory.shipType,
-            compartments = self.inventory.compartments and {
-                eva = self.inventory.compartments.eva and {
-                    maxSlots = self.inventory.compartments.eva.maxSlots,
-                    items = self.inventory.compartments.eva.items
-                } or { maxSlots = 3, items = { nil, nil, nil } }
-            } or nil
-        } or nil,
+        inventory = self.inventory and self.inventory:saveState() or nil,
         timestamp = love.timer.getTime()
     }
     return state
@@ -1448,6 +1442,15 @@ function Naves:loadShipState(state)
     self.dy = state.velocity.dy or 0
     self.rotation = state.rotation or 0
     
+    if state.inventory then
+        if not self.inventory then
+            local InventorySystem = require 'src.maps.systems.inventory_system'
+            self.inventory = InventorySystem:new(state.inventory.shipType or self.shipType)
+        end
+        self.inventory.player = self
+        self.inventory:loadState(state.inventory)
+    end
+
     -- Restaurar estadísticas
     if state.stats then
         if state.stats.health then
@@ -1470,46 +1473,6 @@ function Naves:loadShipState(state)
     end
     if state.damageState then
         self.damageState = state.damageState
-    end
-    
-    -- Restaurar inventario específico de la nave
-    if state.inventory then
-        -- Si ya existe un inventario, restaurar su estado
-        if self.inventory then
-            self.inventory.items = state.inventory.items or {}
-            self.inventory.shipType = state.inventory.shipType or self.shipType
-            self.inventory.player = self  -- Asegurar referencia del jugador
-        else
-            -- Crear nuevo inventario con el estado guardado
-            local InventorySystem = require 'src.maps.systems.inventory_system'
-            self.inventory = InventorySystem:new(state.inventory.shipType or self.shipType)
-            self.inventory.items = state.inventory.items or {}
-            self.inventory.player = self  -- Asignar referencia del jugador al inventario
-        end
-        -- Restaurar compartimentos si existen (especialmente EVA)
-        if state.inventory.compartments and state.inventory.compartments.eva then
-            if self.inventory.compartments and self.inventory.compartments.eva then
-                self.inventory.compartments.eva.maxSlots = state.inventory.compartments.eva.maxSlots or self.inventory.compartments.eva.maxSlots or 3
-                self.inventory.compartments.eva.items = state.inventory.compartments.eva.items or self.inventory.compartments.eva.items or { nil, nil, nil }
-            end
-        end
-        
-        -- Restaurar efectos pasivos después de cargar el inventario
-        if self.inventory and self.inventory.compartments and self.inventory.compartments.passives then
-            local PassiveManager = require 'src.item_systems.passive_manager'
-            PassiveManager.initialize()
-            
-            local passiveComp = self.inventory.compartments.passives
-            if passiveComp and passiveComp.items then
-                for slotIndex, item in pairs(passiveComp.items) do
-                    if item and item.data then
-                        -- Aplicar efecto pasivo con ID único basado en slot
-                        local uniqueId = "passive_slot_" .. slotIndex
-                        PassiveManager.applyPassiveEffect(self, item.data, uniqueId)
-                    end
-                end
-            end
-        end
     end
     
     self:updateShipRegistry()

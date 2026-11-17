@@ -472,21 +472,7 @@ function EVAInventoryUI:transferItemToShip(evaPlayer, fromSlot)
     end
     
     -- Buscar slot vacío en la nave
-    local targetSlot = nil
-    for i = 1, shipComp.maxSlots do
-        if not shipComp.items[i] then
-            targetSlot = i
-            break
-        end
-    end
-    
-    if not targetSlot then
-        print("[TRANSFER] Error: Inventario de nave lleno")
-        return false
-    end
-    
-    -- Realizar transferencia
-    if evaPlayer.ship.inventory:transferItemBetweenCompartments('eva', fromSlot, 'ship', targetSlot) then
+    if evaPlayer.ship.inventory:transferItemBetweenCompartments('eva', fromSlot, 'ship') then
         print("[TRANSFER] Item transferido de EVA a nave: " .. (item.data.name or "item desconocido"))
         return true
     else

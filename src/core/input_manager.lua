@@ -119,7 +119,7 @@ function InputManager.keypressed(key)
         EVAInventoryUI:keypressed(key, player.evaPlayer)
     end
     if InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen() and player and not player.isInEVA then
-        InventoryUI:keypressed(key, player)
+        if InventoryUI:keypressed(key, player) then return end
     end
 
     -- 6. CONTROLES DE DEBUG / HUD (F1 - F12)

@@ -1061,10 +1061,8 @@ function WeaponSystem:autoEquipFromInventory()
             -- Buscar slot libre en el compartimento weapons (empezar desde slot 2)
             for slot = 2, WEAPON_CONFIG.MAX_WEAPON_SLOTS do
                 if not self.player.inventory:getWeaponInSlot(slot) then
-                    -- Equipar el arma
-                    if self:equipWeapon(item.data, slot) then
-                        -- Remover del inventario principal
-                        shipComp.items[i] = nil
+                    if self.player.inventory:transferItemToWeaponSlot(i, slot) then
+                        if not self.currentWeapon then self:switchToSlot(slot) end
                         return true
                     end
                 end
