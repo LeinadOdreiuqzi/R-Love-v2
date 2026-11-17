@@ -8,6 +8,7 @@ GameDirector.__index = GameDirector
 
 local World = require 'src.core.world'
 local Loot = require 'src.gameplay.loot'
+local ArmoredConvoy = require 'src.gameplay.armored_convoy'
 local SeedSystem = require 'src.utils.seed_system'
 local AIController = require 'src.entities.ai_controller'
 
@@ -86,6 +87,7 @@ function GameDirector:spawnEcologicalShip(x, y, shipType, role, rng, extraOpts)
     local ai = AIController:new(ship, {
         role = role,
         lootProfile = extraOpts.lootProfile,
+        suppressLoot = extraOpts.suppressLoot,
         faction = extraOpts.faction,
         rng = rng,
         homeX = extraOpts.homeX or x,
@@ -895,6 +897,7 @@ function GameDirector:tick(dt)
     -- 2. Evaluar el sector actual del jugador para generar tráfico y vida ecológica
     local pcx = math.floor(px / strideScaled)
     local pcy = math.floor(py / strideScaled)
+    ArmoredConvoy.trySpawn(self, pcx, pcy, strideScaled, px, py, World.getMap() or package.loaded['src.maps.map'])
     self:populateChunkDeterministically(pcx, pcy, strideScaled, px, py)
 
     -- Si el jugador está cerca del borde con un chunk vecino (< 2600px del centro contiguo), evaluarlo también
@@ -1010,6 +1013,7 @@ function GameDirector:processEventQueue()
 end
 
 function GameDirector:reset()
+    if self.convoy then self.convoy:finish(true) end
     self.time = 0
     self.threat = 0
     self.accumulator = 0

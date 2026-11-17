@@ -248,6 +248,10 @@ function GameLoop.draw()
     
     if state.showHUD then HUD.draw(inventoryOpen) end
     if not inventoryOpen then SalvageSites.drawHUD(player, camera) end
+    local director = World.get('director')
+    if state.showHUD and not inventoryOpen and director and director.convoy and player and camera then
+        director.convoy:drawHUD(player, camera)
+    end
     
     if InventoryUI and InventoryUI.draw and InventoryUI.isOpen and InventoryUI:isOpen() then
         InventoryUI:draw(player)

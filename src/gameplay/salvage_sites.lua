@@ -3,6 +3,7 @@ local Biomes = require 'src.maps.biome_system'
 local Seed = require 'src.utils.seed_system'
 local Loot = require 'src.gameplay.loot'
 local Inspection = require 'src.ui.loot_inspection'
+local ConvoyArt = require 'src.rendering.ships.convoy_art'
 
 local Sites = {}
 local BT = Biomes.BiomeType
@@ -21,6 +22,28 @@ local stride = (MapConfig.chunk.size * MapConfig.chunk.tileSize + MapConfig.chun
 local scanRange = 1300
 local inspection, activeRun, activePlayer
 local currentX, currentY, candidates, loaded
+
+function Sites.addConvoyBox(run, id, settled)
+    if not inspection or run ~= activeRun or loaded[id] then return end
+    local cargo = run.lootRooms[id].convoyCargo
+    if math.abs(math.floor(cargo.x / stride) - currentX) > 1
+        or math.abs(math.floor(cargo.y / stride) - currentY) > 1 then return end
+    inspection:spawnBoxes({id = id, x = cargo.x, y = cargo.y,
+        name = 'Convoy blindado', color = {1, .73, .35}}, settled)
+    loaded[id] = true
+end
+
+function Sites.addConvoyWreck(run, id)
+    if not inspection or run ~= activeRun or loaded[id] then return end
+    local wreck = run.lootRooms[id].convoyWreck
+    if math.abs(math.floor(wreck.x / stride) - currentX) > 1
+        or math.abs(math.floor(wreck.y / stride) - currentY) > 1 then return end
+    inspection.targets[#inspection.targets + 1] = {
+        room = id, index = 1, x = wreck.x, y = wreck.y, rotation = wreck.rotation, size = wreck.size,
+        name = 'Pecio del convoy', color = {1, .66, .35}, search = 0, drawWorld = ConvoyArt.drawWreck
+    }
+    loaded[id] = true
+end
 
 function Sites.candidate(seed, cx, cy, biome)
     if cx == 0 and cy == 0 then return nil end
@@ -67,6 +90,10 @@ function Sites.update(run, player, map, dt)
         activeRun, activePlayer, currentX, currentY = run, player, cx, cy
         candidates, loaded = {}, {}
         inspection = Inspection.new(player, run, {})
+        for id, room in pairs(run.lootRooms) do
+            if room.convoyCargo then Sites.addConvoyBox(run, id, true) end
+            if room.convoyWreck then Sites.addConvoyWreck(run, id) end
+        end
         for y = cy - 1, cy + 1 do
             for x = cx - 1, cx + 1 do
                 local site = Sites.candidate(run.seed, x, y, Biomes.getBiomeForChunk(x, y))
@@ -128,7 +155,19 @@ function Sites.drawHUD(player, camera)
     local closest, distance = nil, scanRange^2
     for _, target in ipairs(inspection.targets) do
         local d = (target.x - player.x)^2 + (target.y - player.y)^2
-        if d < distance then closest, distance = target, d end
+        local room = target.room and activeRun.lootRooms[target.room]
+        if d < distance and (not target.room or (room and #room[target.index] > 0)) then
+            closest, distance = target, d
+        end
+    end
+    for _, box in ipairs(inspection.boxes) do
+        local room = activeRun.lootRooms[box.room]
+        if room and room.convoyCargo then
+            local d = (box.x - player.x)^2 + (box.y - player.y)^2
+            if d < distance and #Loot.getBox(activeRun, box.room, box.index) > 0 then
+                closest, distance = box, d
+            end
+        end
     end
     if not closest then return end
     local g = love.graphics

@@ -466,6 +466,7 @@ end
 function Projectile:damageTarget(target, amount)
     if not target.takeDamage then return end
     local killed = target:takeDamage(amount, self.owner or self)
+    if target.projectileBarrier then return end
     if not killed and self.statusEffect == "burn" and target.applyBurn then
         target:applyBurn(self.owner)
     end
@@ -494,16 +495,29 @@ function Projectile:checkSpatialCollisions()
         for i = 1, #ships do
             local ship = ships[i]
             if ship and ship ~= self.owner and ship.combatContext == ownerCtx and ship.x and ship.y and not ship.isDestroyed and not (self.hitTargets and self.hitTargets[ship]) then
-                local shipRadius = math.max(15, (ship.size or 14) * 1.15)
-                local hitDist = shipRadius + projRadius
+                local barrier = ship.projectileBarrier
+                local hitDist = barrier and (barrier.radius * barrier.scale(ship) + projRadius * 1.5)
+                    or (math.max(15, (ship.size or 14) * 1.15) + projRadius)
                 local intersects, hitX, hitY
                 if ship.x >= left - hitDist and ship.x <= right + hitDist
                     and ship.y >= top - hitDist and ship.y <= bottom + hitDist then
-                    local distSq
-                    distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
-                    intersects = distSq <= hitDist * hitDist
+                    if barrier then
+                        intersects, hitX, hitY = barrier.intersect(ship, x1, y1, px, py, projRadius)
+                    else
+                        local distSq
+                        distSq, hitX, hitY = distSqPointToSegment(ship.x, ship.y, x1, y1, px, py)
+                        intersects = distSq <= hitDist * hitDist
+                    end
                 end
                 if intersects then
+                    if barrier then
+                        ship:takeDamage(self.damage, self.owner or self, hitX, hitY)
+                        self.x, self.y = hitX, hitY
+                        if self.body then self.body:setPosition(hitX, hitY) end
+                        if (self.explosion_radius or 0) <= 0 then ProjectileVFX.impact(self, hitX, hitY) end
+                        self:destroy('force_field')
+                        return
+                    end
                     if self.config.anchorDistance then self:anchor(hitX, hitY); return end
                     self:damageTarget(ship, self.damage)
                     local angle = self.angle or self:getAngle()

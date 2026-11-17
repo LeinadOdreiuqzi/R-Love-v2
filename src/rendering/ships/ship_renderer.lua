@@ -5,6 +5,7 @@
 
 local ShipArt = require 'src.rendering.ships.ship_art'
 local InterceptorPixelArt = require 'src.rendering.ships.interceptor_pixel_art'
+local ConvoyArt = require 'src.rendering.ships.convoy_art'
 local ShipRenderer = {}
 
 function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color)
@@ -726,6 +727,10 @@ end
 
 function ShipRenderer.drawGeometricShip(self, isAbandoned, classic)
     local size = self.size * (self.worldScale or 1)
+    if self.convoy then
+        ConvoyArt.draw(self, size)
+        return
+    end
     if not classic and self.shipType == 'INTERCEPTOR' then
         InterceptorPixelArt.draw(self, size, isAbandoned)
         return
@@ -1028,6 +1033,10 @@ function ShipRenderer.drawAIShip(self)
 end
 
 function ShipRenderer.drawShip(self)
+    if self.convoy then
+        if not self.isDestroyed then ShipRenderer.drawAIShip(self) end
+        return
+    end
     local World = package.loaded['src.core.world']
     local isPlayer = (self.isPiloted or (World and World.getPlayer and World.getPlayer() == self))
 

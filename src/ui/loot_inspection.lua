@@ -148,14 +148,18 @@ function Inspection:draw()
     local g = love.graphics
     g.push('all')
     for _, target in ipairs(self.targets) do
-        local x, y = target.x, target.y
-        local opened = target.id and Loot.getRoomRarity(self.run, target.id)
-        local w = target.id and 148 or 116
-        Theme.panel(x - w / 2, y - 42, w, 60, target.color, not not opened)
-        g.setColor(target.color)
-        g.printf(target.name, x - w / 2, y - 33, w, 'center')
-        if target.id then
-            g.printf(opened and 'Abierto' or 'Sellado', x - w / 2, y - 13, w, 'center')
+        if target.drawWorld then
+            target.drawWorld(target)
+        else
+            local x, y = target.x, target.y
+            local opened = target.id and Loot.getRoomRarity(self.run, target.id)
+            local w = target.id and 148 or 116
+            Theme.panel(x - w / 2, y - 42, w, 60, target.color, not not opened)
+            g.setColor(target.color)
+            g.printf(target.name, x - w / 2, y - 33, w, 'center')
+            if target.id then
+                g.printf(opened and 'Abierto' or 'Sellado', x - w / 2, y - 13, w, 'center')
+            end
         end
     end
     for _, box in ipairs(self.boxes) do
@@ -200,8 +204,8 @@ function Inspection:drawHUD()
     g.setFont(Theme.small)
     g.setColor(Theme.colors.text)
     g.printf('Cerrar', x + w - 82, y + 15, 66, 'center')
-    local status = #items == 0 and 'Caja vacía'
-        or revealed == #items and 'Caja registrada · Clic para recoger'
+    local status = #items == 0 and (box.drawWorld and 'Pecio vacío' or 'Caja vacía')
+        or revealed == #items and 'Registro completo · Clic para recoger'
         or 'Buscando objetos…'
     g.setColor(Theme.colors.muted)
     g.print(status, x + 16, y + 38)

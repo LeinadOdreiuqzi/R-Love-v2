@@ -122,6 +122,7 @@ function AIController:new(ship, opts)
         role = role,
         config = cfg,
         lootProfile = opts.lootProfile or Loot.enemyProfile(ship),
+        suppressLoot = opts.suppressLoot,
         state = AIController.STATES.WORLD_GOAL,
         active = true,
 
@@ -1888,7 +1889,7 @@ end
 -- El botín generado y la carga existente tienen orígenes independientes.
 function AIController:dropLoot(defeated, playerKill)
     local ship = self.ship
-    if not ship then return 0 end
+    if not ship or self.suppressLoot then return 0 end
     local WorldItems = package.loaded['src.item_systems.world_items'] or require('src.item_systems.world_items')
     local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
     local count = 0
@@ -1990,7 +1991,7 @@ function AIController:onKilled(attacker)
         local drops = self:dropLoot(true, playerKill)
 
         local director = World and (World.get('director') or World.get('gameDirector'))
-        if director and director.notifyDebrisSite then
+        if director and not self.suppressLoot and director.notifyDebrisSite then
             director:notifyDebrisSite(ship.x, ship.y, drops, ship)
         end
 

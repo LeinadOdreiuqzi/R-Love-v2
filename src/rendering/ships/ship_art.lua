@@ -92,6 +92,46 @@ designs.INTERCEPTOR = function(f, s)
     s(0xe0a0ff,.092,-.12,.98,.12,.98)
 end
 
+local function convoyHull(f, s, box, exposed)
+    -- One concave silhouette that steps inward behind the swept shoulder plates.
+    f(0x191923, 0,-2.26, 1.48,-1.21, 1.70,-.75, 1.31,-.35, .69,-.25, .49,.13,
+        .58,1.56, .38,1.84, -.38,1.84, -.58,1.56, -.49,.13, -.69,-.25, -1.31,-.35,
+        -1.70,-.75, -1.48,-1.21)
+    for _, side in ipairs({-1,1}) do
+        f(side < 0 and 0x5b494b or 0x3c313a, 0,-2.13, side*1.39,-1.13, side*1.57,-.76,
+            side*1.25,-.45, side*.63,-.37, side*.30,-.68)
+        f(0x691f28, side*.24,-1.66, side*1.35,-1.09, side*1.47,-.80,
+            side*.98,-.91, side*.53,-1.17)
+        f(side < 0 and 0xb6493e or 0x943630, side*.36,-1.56, side*1.35,-1.07,
+            side*1.45,-.86, side*.98,-1.00)
+        f(0x292630, side*.55,-.88, side*1.07,-.83, side*1.32,-.67,
+            side*1.13,-.54, side*.66,-.47)
+        s(0xd29373,.062,side*1.13,-.58,side*1.36,-.69)
+        s(0x99807a,.055,side*.17,-1.98,side*.60,-1.66)
+        f(0x423843, side*.10,-.72, side*.43,-.55, side*.41,.16,
+            side*.51,1.43, side*.35,1.66, side*.10,1.45)
+        f(0x1b1823, side*.22,.08, side*.39,.15, side*.45,1.22, side*.30,1.37, side*.20,1.17)
+        for i=0,2 do
+            local y = .24 + i * .29
+            s(exposed and 0xffae65 or 0x76534e,.071,side*.27,y,side*.40,y+.07)
+        end
+        s(0xdb5e44,.088,side*.19,1.71,side*.33,1.71)
+    end
+    f(0x746367, 0,-2.17, .18,-1.79, .24,-1.26, .33,-.76, .21,-.48,
+        -.21,-.48, -.33,-.76, -.24,-1.26, -.18,-1.79)
+    f(0x2d232b, 0,-1.97, .14,-1.57, .19,-1.03, 0,-.91, -.19,-1.03, -.14,-1.57)
+    s(0xffbb83,.063,-.13,-1.28,0,-1.10)
+    s(0xff8c5f,.063,0,-1.10,.13,-1.28)
+    box(0x191923,-.21,-.40,.42,.68)
+    box(0x513238,-.15,-.30,.30,.44)
+    s(0xc44d3f,.071,-.13,-.20,.13,-.20)
+    f(0x605758, -.25,.52, .25,.52, .24,1.28, 0,1.47, -.24,1.28)
+    f(0x332a31, -.16,.59, .16,.59, .15,1.18, 0,1.29, -.15,1.18)
+end
+
+designs.ARMORED_CONVOY = convoyHull
+designs.ARMORED_CONVOY_EXPOSED = function(f, s, box) convoyHull(f, s, box, true) end
+
 designs.CARGO = function(f, s, box)
     -- A pressure cabin ahead of the two separate industrial freight racks.
     f(graphite, -.64,-1.26, .61,-1.26, 1.01,-.72, .92,1.10, .46,1.40, -.52,1.40, -1.03,.93, -1.06,-.68)
@@ -285,7 +325,7 @@ function Art.draw(ship, size, abandoned, hullOnly)
         design(face, stroke, band)
         meshes[id] = g.newMesh(vertices, 'triangles', 'static')
     end
-    if not abandoned and (ship.engineGlow or 0) > 0 and (not ship.stats or ship.stats:canMove()) then
+    if not hullOnly and not abandoned and (ship.engineGlow or 0) > 0 and (not ship.stats or ship.stats:canMove()) then
         for _, nozzle in ipairs(engines[id]) do
             ship:drawThrusterFlame(nozzle[1]*size, nozzle[2]*size, nozzle[3]*size, drive[id] or defaultDrive)
         end

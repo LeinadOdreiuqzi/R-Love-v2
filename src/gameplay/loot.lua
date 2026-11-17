@@ -11,6 +11,7 @@ local profiles = {
     standard = {22, 22, {44, 36, 15, 4, 1}, 2},
     elite = {12, 13, {35, 36, 20, 7, 2}, 1},
     capital = {20, 20, {25, 33, 28, 11, 3}, 1},
+    convoyWreck = {14, 14, {28, 35, 27, 8, 2}},
     roomCommon = {8, 8, {52, 32, 12, 3.5, .5}},
     roomRare = {12, 12, {32, 38, 22, 7, 1}},
     roomExceptional = {16, 16, {20, 30, 34, 13, 3}}
@@ -63,12 +64,12 @@ local function choose(rng, weights)
     end
 end
 
-local function pickItem(profile, rng, category)
+local function pickItem(profile, rng, category, maxTier)
     local pool = pools[category]
     if not pool then return nil end
-    local tier = choose(rng, {unpack(profile[3], 1, #pool)})
+    local tier = choose(rng, {unpack(profile[3], 1, math.min(maxTier or #pool, #pool))})
     local ids = pool[tier]
-    return ids[1 + math.floor(rng:random() * #ids)]
+    return ids[1 + math.floor(rng:random() * #ids)], tier
 end
 
 function Loot.roll(profileId, rng, count)
@@ -87,12 +88,29 @@ function Loot.enemyDrop(profileId, rng, playerKill)
     if playerKill then
         local category = choose(rng, {profile[1], profile[2],
             chance - profile[1] - profile[2], 100 - chance})
-        return pickItem(profile, rng, category)
+        return (pickItem(profile, rng, category))
     end
     -- Ambient skirmishes can leave supplies. The ship's actual cargo is recovered separately.
     if rng:random() * 100 < chance * .5 then
-        return pickItem(profile, rng, 3)
+        return (pickItem(profile, rng, 3))
     end
+end
+
+function Loot.registerConvoyWreck(run, convoyId, x, y, rotation, size)
+    local id = convoyId .. ':wreck'
+    if run.lootRooms[id] then return id end
+    local rng = love.math.newRandomGenerator(Seed.toNumeric(tostring(run.seed) .. ':' .. id))
+    local profile = profiles.convoyWreck
+    local cargo, maxTier = {revealed = 0}, 5
+    local count = 3 + choose(rng, {40, 45, 15})
+    for index = 1, count do
+        local category = choose(rng, {profile[1], profile[2], 100 - profile[1] - profile[2]})
+        local item, tier = pickItem(profile, rng, category, maxTier)
+        cargo[index] = item
+        if tier >= 4 then maxTier = 3 end
+    end
+    run.lootRooms[id] = {cargo, convoyWreck = {x = x, y = y, rotation = rotation, size = size}}
+    return id
 end
 
 function Loot.unlockRoom(run, roomId, inventory, rarity)
