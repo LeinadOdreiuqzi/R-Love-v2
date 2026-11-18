@@ -87,6 +87,7 @@ local SUBWORLDS = {
 }
 
 local function launchSublevel(levelDef, subworldDef)
+    if World.get('frontierEncounter') then return end
     PauseMenu.close()
 
     local ok, err = pcall(function()
@@ -301,7 +302,8 @@ function PauseMenu.drawMainView(sw, sh, alpha)
             id = "sublevels",
             label = "Submundos",
             color = {0.78, 0.42, 0.95},
-            enabled = true
+            enabled = not World.get('frontierEncounter'),
+            badge = World.get('frontierEncounter') and 'Combate activo' or nil
         },
         {
             id = "quit",
@@ -769,6 +771,7 @@ function PauseMenu.mousepressed(x, y, button)
         -- 4. Submundos
         local b4y = startY + 3 * (btnH + gap)
         if x >= px + 30 and x <= px + 30 + btnW and y >= b4y and y <= b4y + btnH then
+            if World.get('frontierEncounter') then return true end
             PauseMenu.setView("sublevels")
             return true
         end

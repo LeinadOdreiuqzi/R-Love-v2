@@ -129,6 +129,7 @@ end
 --- Limpia todos los datos del World (útil al regenerar el mundo con nueva seed).
 --- Mantiene la estructura pero vacía los datos de juego.
 function World.reset()
+    if _data.frontierEncounter then _data.frontierEncounter:dispose() end
     if _data.audio and _data.audio.reset then
         pcall(_data.audio.reset)
     end
@@ -139,6 +140,7 @@ function World.reset()
     _data.physics  = nil
     _data.runState = nil
     _data.director = nil
+    _data.frontierEncounter = nil
     _data.seed     = nil
     _data.entities = {}
     _data._entityIndex = {}

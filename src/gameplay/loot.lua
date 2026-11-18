@@ -150,6 +150,17 @@ function Loot.registerConvoyWreck(run, convoyId, x, y, rotation, size)
     return id
 end
 
+function Loot.registerFrontierWreck(run, x, y, rotation)
+    local id = 'frontier:1:wreck'
+    if run.lootRooms[id] then return id end
+    local rng = love.math.newRandomGenerator(Seed.toNumeric(tostring(run.seed)..':'..id))
+    local cargo = Loot.roll('roomRare', rng, 4)
+    local rareCargo = Loot.roll('roomExceptional', rng, 2)
+    for _, item in ipairs(rareCargo) do cargo[#cargo+1] = item end
+    run.lootRooms[id] = {packBox(cargo,32),frontierWreck={x=x,y=y,rotation=rotation}}
+    return id
+end
+
 function Loot.unlockRoom(run, roomId, inventory, rarity)
     local config = roomProfiles[rarity or 'common']
     if not config then return false end

@@ -86,6 +86,7 @@ local function loadWorld(updateProgress)
         updateProgress("renderer", "Preparing renderer and shaders...")
         local rendererSuccess, rendererErr = pcall(function() OptimizedRenderer.init() end)
         if not rendererSuccess then print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr)) end
+        require('src.rendering.ships.frontier_boss_art').preload()
         return true
     end)
     
@@ -236,6 +237,8 @@ function GameLoader.changeSeedWithLoading(newSeed)
         end
     end
 
+    local frontier=World.get('frontierEncounter')
+    if frontier then frontier:dispose() end
     local stateManager = World.get('stateManager')
     if stateManager and stateManager.clear then
         stateManager:clear()

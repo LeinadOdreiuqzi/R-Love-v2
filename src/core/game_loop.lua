@@ -95,7 +95,8 @@ function GameLoop.update(dt)
             runState:update(physics.fixed_dt, pSpeed)
         end
         
-        if gameDirector then gameDirector:update(physics.fixed_dt) end
+        local frontier=World.get('frontierEncounter')
+        if gameDirector and not frontier then gameDirector:update(physics.fixed_dt) end
 
         if physMgr then physMgr:update(physics.fixed_dt) end
 
@@ -109,9 +110,11 @@ function GameLoop.update(dt)
             end
         end
 
-        -- Actualizar entidades secundarias del mundo (naves abandonadas, derelicts, etc.)
+        if frontier and not (runState and runState.defeat) then frontier:update(physics.fixed_dt) end
+
+        -- El encuentro controla sus escoltas mientras el tráfico ambiental espera.
         local entities = World.getEntities()
-        if entities then
+        if entities and not frontier then
             for i = 1, #entities do
                 local ent = entities[i]
                 if ent and ent ~= player and type(ent.update) == "function" then
@@ -238,6 +241,8 @@ function GameLoop.draw()
         WorldItems.draw(camera, playerX, playerY)
     end
     SalvageSites.draw()
+    local frontier=World.get('frontierEncounter')
+    if frontier then frontier:draw() end
     
     local physMgr = World.get('physics')
     if physMgr then physMgr:drawDebug() end
@@ -250,8 +255,9 @@ function GameLoop.draw()
     if not inventoryOpen then SalvageSites.drawHUD(player, camera) end
     local director = World.get('director')
     if state.showHUD and not inventoryOpen and director and director.convoy and player and camera then
-        director.convoy:drawHUD(player, camera)
+        if not frontier then director.convoy:drawHUD(player, camera) end
     end
+    if frontier and not inventoryOpen then frontier:drawHUD() end
     
     if InventoryUI and InventoryUI.draw and InventoryUI.isOpen and InventoryUI:isOpen() then
         InventoryUI:draw(player)

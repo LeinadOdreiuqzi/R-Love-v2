@@ -54,7 +54,10 @@ function Ability:triggerTactical()
     for i = 1, 30 do
         local x, y = p.x, p.y
         p.x, p.y = x + vx, y + vy
-        if status and status.active then
+        local frontier = package.loaded['src.core.world'].get('frontierEncounter')
+        if frontier then
+            p.x, p.y = frontier:constrain(p, p.x, p.y)
+        elseif status and status.active then
             p.x, p.y = sub.constrainShipMovement(p, x, y, p.x, p.y)
         elseif phase and phase.config.restrictMovement and phase.clampPlayerToCurrentPhase then
             p.x, p.y = phase.clampPlayerToCurrentPhase(p.x, p.y)

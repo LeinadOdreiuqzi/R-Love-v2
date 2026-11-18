@@ -46,6 +46,16 @@ function Sites.addConvoyWreck(run, id)
     loaded[id] = true
 end
 
+local function addFrontierWreck(run,id)
+    if loaded[id] then return end
+    local wreck=run.lootRooms[id].frontierWreck
+    if math.abs(math.floor(wreck.x/stride)-currentX)>1 or math.abs(math.floor(wreck.y/stride)-currentY)>1 then return end
+    inspection.targets[#inspection.targets+1]={room=id,index=1,x=wreck.x,y=wreck.y,rotation=wreck.rotation,
+        name='Pecio de El Portero',color={.97,.65,.36},search=0,
+        drawWorld=require('src.rendering.ships.frontier_boss_art').drawWreck}
+    loaded[id]=true
+end
+
 function Sites.candidate(seed, cx, cy, biome, phase, legacy)
     if cx == 0 and cy == 0 then return nil end
     local id = ('salvage:%d:%d'):format(cx, cy)
@@ -91,6 +101,8 @@ end
 
 function Sites.update(run, player, map, dt)
     if not run or not player then inspection, activeRun, activePlayer = nil, nil, nil; return end
+    local frontier=require('src.core.world').get('frontierEncounter')
+    if frontier and not frontier.victory then return end
     local cx, cy = math.floor(player.x / stride), math.floor(player.y / stride)
     if run ~= activeRun or player ~= activePlayer or cx ~= currentX or cy ~= currentY then
         activeRun, activePlayer, currentX, currentY = run, player, cx, cy
@@ -99,6 +111,7 @@ function Sites.update(run, player, map, dt)
         for id, room in pairs(run.lootRooms) do
             if room.convoyCargo then Sites.addConvoyBox(run, id, true) end
             if room.convoyWreck then Sites.addConvoyWreck(run, id) end
+            if room.frontierWreck then addFrontierWreck(run,id) end
         end
         for y = cy - 1, cy + 1 do
             for x = cx - 1, cx + 1 do
@@ -109,6 +122,7 @@ function Sites.update(run, player, map, dt)
             end
         end
     end
+    if run.lootRooms['frontier:1:wreck'] then addFrontierWreck(run,'frontier:1:wreck') end
     for _, site in ipairs(candidates) do
         if not loaded[site.id] and (player.x - site.x)^2 + (player.y - site.y)^2 <= (scanRange + 700)^2 then
             local chunk = map.getChunkNonBlocking(site.cx, site.cy)
@@ -131,6 +145,8 @@ function Sites.update(run, player, map, dt)
 end
 
 function Sites.keypressed(player, key)
+    local frontier=require('src.core.world').get('frontierEncounter')
+    if frontier and not frontier.victory then return false end
     if not inspection or activePlayer ~= player or player.isInEVA then return false end
     local target = key == 'e' and not inspection.inspecting and inspection:nearby()
     local handled = inspection:keypressed(key)
@@ -154,6 +170,8 @@ function Sites.draw()
 end
 
 function Sites.drawHUD(player, camera)
+    local frontier=require('src.core.world').get('frontierEncounter')
+    if frontier and not frontier.victory then return end
     if not inspection or activePlayer ~= player or player.isInEVA then return end
     if inspection.inspecting or inspection:nearby() then
         inspection:drawHUD()

@@ -2,6 +2,7 @@ local HUD = require('src.ui.hud.core')
 
 -- Feedback visual del sistema de fases (idéntico al original)
 function HUD.drawPhaseVisualFeedback()
+    if require('src.core.world').get('frontierEncounter') then return end
     local phaseInfo = nil
     pcall(function()
         local PhaseSystem = require 'src.gameplay.phase_system'
@@ -14,6 +15,24 @@ function HUD.drawPhaseVisualFeedback()
     
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
     local t = love.timer.getTime()
+    if phaseInfo.currentPhase == 1 and phaseInfo.canExpand then
+        local Theme = require 'src.ui.combat_theme'
+        Theme.init()
+        local width = math.min(480,w-24)
+        local x = (w-width)/2
+        love.graphics.push('all')
+        Theme.panel(x,34,width,68,{.98,.65,.35},true)
+        love.graphics.setFont(Theme.font)
+        love.graphics.setColor(1,.78,.49)
+        love.graphics.printf('E · Desafiar a El Portero',x+10,45,width-20,'center')
+        love.graphics.setFont(Theme.small)
+        love.graphics.setColor(.84,.87,.92)
+        local message=require('src.gameplay.phase_system').state.frontierMessage
+            or 'Interdicción activa · combate en este sector'
+        love.graphics.printf(message,x+10,73,width-20,'center')
+        love.graphics.pop()
+        return
+    end
     
     if phaseInfo.status == "Near boundary" or phaseInfo.status == "At boundary" then
         local pulseSpeed = phaseInfo.status == "At boundary" and 6 or 3

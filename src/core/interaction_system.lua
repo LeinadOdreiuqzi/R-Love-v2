@@ -14,6 +14,7 @@ local StationScene = require 'src.states.station_scene'
 local GameState = require 'src.core.game_state'
 
 function InteractionSystem.tryEnterStationOrSublevel()
+    if World.get('frontierEncounter') then return false end
     local player = World.get('player')
     if not player then return end
 

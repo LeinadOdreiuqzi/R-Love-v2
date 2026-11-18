@@ -83,6 +83,10 @@ end
 -- Expandir a una fase objetivo específica
 function PhaseSystem.expandToPhase(targetPhase)
     if not targetPhase or targetPhase <= PhaseSystem.state.currentPhase then return false end
+    if PhaseSystem.state.currentPhase == 1 then
+        local run = require('src.core.world').getRunState()
+        if not run or not run.frontierVictories or not run.frontierVictories[1] then return false end
+    end
     targetPhase = math.min(targetPhase, PhaseSystem.config.totalPhases)
     local oldPhase = PhaseSystem.state.currentPhase
     PhaseSystem.state.currentPhase = targetPhase
@@ -131,6 +135,9 @@ end
 -- Manejar input para expansión de fase y liberación del mapa
 function PhaseSystem.handleInput(key)
     if key == "e" then
+        local World = require 'src.core.world'
+        local encounter=World.get('frontierEncounter')
+        if encounter then return not encounter.victory end
         -- Si el mapa ya está completamente desbloqueado, no hacer nada
         if PhaseSystem.state.mapFullyUnlocked then
             return false
@@ -141,6 +148,15 @@ function PhaseSystem.handleInput(key)
             return PhaseSystem.handleUnlockInput(key)
         -- Prioridad 2: Expandir a la siguiente fase si es posible
         elseif PhaseSystem.state.playerCanExpand or PhaseSystem.state.expansionAvailable then
+            if PhaseSystem.state.currentPhase == 1 then
+                local player, manager, run = World.getPlayer(), World.get('stateManager'), World.getRunState()
+                if not player or player.isInEVA or not run or run.defeat or not manager or manager:top() then return false end
+                if require('src.core.inventory_manager').isAnyInventoryOpen() then return true end
+                if not PhaseSystem.isPlayerNearBoundary(player.x,player.y) then return false end
+                if player.stats.health.currentHealth <= 0 then return false end
+                if run.frontierVictories and run.frontierVictories[1] then return PhaseSystem.expandToPhase(2) end
+                return require('src.gameplay.frontier_encounter').start()
+            end
             return PhaseSystem.expandToNextPhase()
         end
     end

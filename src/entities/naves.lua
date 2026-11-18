@@ -950,7 +950,10 @@ function Naves:update(dt)
     -- Check phase system restrictions
     local PhaseSystem = require 'src.gameplay.phase_system'
     local sublevel = package.loaded['src.maps.systems.sublevel_manager']
-    if sublevel and sublevel.state.active then
+    local frontier = World.get('frontierEncounter')
+    if frontier then
+        self.x, self.y = frontier:constrain(self, newX, newY)
+    elseif sublevel and sublevel.state.active then
         self.x, self.y = sublevel.constrainShipMovement(self, self.x, self.y, newX, newY)
     elseif PhaseSystem and PhaseSystem.config.restrictMovement then
         local success, result = pcall(function()
@@ -1348,6 +1351,7 @@ end
 ShipRenderer.install(Naves)
 
 function Naves:toggleHyperTravel(targetMaxSpeed)
+    if getWorld().get('frontierEncounter') then return false end
     self.hyperTravelEnabled = not self.hyperTravelEnabled
     
     if self.hyperTravelEnabled then
@@ -1518,6 +1522,7 @@ end
 
 -- EVA System Methods
 function Naves:enterEVA()
+    if getWorld().get('frontierEncounter') then return false end
     if self.weaponAuditActive then return false end
     if self.abilitySystem then self.abilitySystem:cancel() end
     if self.isInEVA then return false end

@@ -94,8 +94,10 @@ function HUD.drawPlayerHUD()
         g.print("COMB.", startX, subY)
         HUD.drawBar(startX + 33, subY + 2, 72, 7, fuelPct, {1.0, 0.78, 0.22, 0.95}, {0.12, 0.14, 0.18, 0.85}, false)
 
-        g.setColor(0.55, 0.66, 0.76, 0.72)
-        g.printf("S+E: EVA", startX, subY, shieldEndX - startX, "right")
+        if not require('src.core.world').get('frontierEncounter') then
+            g.setColor(0.55, 0.66, 0.76, 0.72)
+            g.printf("S+E: EVA", startX, subY, shieldEndX - startX, "right")
+        end
     else
         if HUD.hudState.smallFont then g.setFont(HUD.hudState.smallFont) end
         g.setColor(1.0, 0.58, 0.18, 0.95)

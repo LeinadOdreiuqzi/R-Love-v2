@@ -74,6 +74,9 @@ function InputManager.keypressed(key)
         return
     end
 
+    local frontier=World.get('frontierEncounter')
+    if frontier and frontier:keypressed(key) then return end
+
     -- 3. DELEGAR AL STATE MANAGER (Escenas activas: estaciones, subniveles)
     if stateManager and stateManager.keypressed and stateManager:keypressed(key) then
         return
@@ -290,7 +293,7 @@ function InputManager.handleInteraction(World, HUD, Map)
     -- 1. Manejo de expansión de fases (PhaseSystem)
     local PhaseSystem = package.loaded['src.gameplay.phase_system']
     if PhaseSystem and PhaseSystem.handleInput then
-        pcall(function() PhaseSystem.handleInput("e") end)
+        if PhaseSystem.handleInput('e') then return end
     end
 
     -- 2. Recolección de items
