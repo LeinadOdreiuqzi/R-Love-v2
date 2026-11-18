@@ -4,9 +4,9 @@ return function(model,projection,size,unit,capacity,configure)
     local models,cache={},{}
     local slots,serial=0,0
     local shader
-    return function(state,frame,tilt)
+    return function(state,frame,tilt,ix,iy)
         serial=serial+1
-        local key=state..':'..frame..':'..(tilt or 0)
+        local key=state..':'..frame..':'..(tilt or 0)..':'..ix..':'..iy
         if cache[key] then
             cache[key].used=serial
             return cache[key].canvas
@@ -35,7 +35,7 @@ return function(model,projection,size,unit,capacity,configure)
         g.translate(size/2,size/2)
         g.scale(unit)
         g.setShader(shader)
-        configure(shader,state,frame,tilt)
+        configure(shader,state,frame,tilt,ix,iy)
         g.draw(models[state])
         g.pop()
         cache[key]={canvas=canvas,used=serial}

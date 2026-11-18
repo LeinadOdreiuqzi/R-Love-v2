@@ -1,12 +1,15 @@
+local depthColor=require 'src.maps.systems.renderers.station_depth_color'
+local View=require 'src.maps.systems.renderers.station_parallax'
 local Model = require 'src.maps.systems.renderers.final_weapon_model'
 local Renderer = {}
 local g = love.graphics
-local size, unit, frames = 256, 86, 120
+local size, unit, frames = 384, 86, 120
 local makePoseCache = require 'src.maps.systems.renderers.station_pose_cache'
 local displayShader
 
-local projection = [[
+local projection = depthColor..[[
 extern vec2 roll;
+]]..View.shader..[[
 extern float wear;
 varying vec3 surface;
 varying vec3 normal;
@@ -24,7 +27,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
     location = orient(vertex_position.xyz);
     surface = Material;
     normal = orient(FaceNormal);
-    vec4 clip = transform_projection * vec4(location.xy,0.,1.);
+    vec4 clip = projectStation(transform_projection,location);
     clip.z = -location.z*.4*clip.w;
     return clip;
 }
@@ -48,6 +51,7 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 pixel) {
         rgb = surface + vec3(.16,.28,.15)*exp(-dot(core,core)*1200.);
         tag = .5;
     }
+    rgb=depthColor(rgb,recession(location.z/1.05)*(tag<.65 ? .18 : 1.));
     return vec4(floor(clamp(rgb,0.,1.)*31.+.5)/31.,tag);
 }
 #endif
@@ -63,7 +67,9 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
 }
 ]]
 
-local pose = makePoseCache(Model, projection, size, unit, 18, function(shader,state,frame)
+local pose = makePoseCache(Model, projection, size, unit, 18, function(shader,state,frame,tilt,ix,iy)
+    shader:send('cameraOffset',{View.offset(ix,iy,1/1.95)})
+    shader:send('focalDistance',3.8)
     local roll = frame*2*math.pi/frames
     shader:send('roll',{math.cos(roll),math.sin(roll)})
     shader:send('wear',state=='ruins' and 2 or state=='damaged' and 1 or 0)
@@ -73,7 +79,8 @@ function Renderer.render(station,camera,x,y,finalSize,alpha,rotation,state)
     if alpha<=0 or finalSize<=0 then return end
     state = state or 'operational'
     local frame = math.floor((rotation or 0)*frames/(2*math.pi)+.5)%frames
-    local sprite = pose(state,frame)
+    local ix,iy=View.sample(station,camera,finalSize)
+    local sprite = pose(state,frame,nil,ix,iy)
     local scale = finalSize*1.95/unit
     local time = love.timer.getTime() + (station.seed or 0)%17
     local power = .93+.07*math.sin(time*3)
@@ -81,11 +88,6 @@ function Renderer.render(station,camera,x,y,finalSize,alpha,rotation,state)
     displayShader = displayShader or g.newShader(emission)
     g.push('all')
     g.translate(x,y)
-    if camera then
-        local dx = math.max(-1,math.min(1,(station.x-camera.x)/3200))
-        local dy = math.max(-1,math.min(1,(station.y-camera.y)/3200))
-        g.shear(dx*.055,dy*.04)
-    end
     g.setShader(displayShader)
     displayShader:send('power',power)
     g.setColor(1,1,1,alpha)

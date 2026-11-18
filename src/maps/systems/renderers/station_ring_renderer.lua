@@ -1,11 +1,14 @@
+local depthColor=require 'src.maps.systems.renderers.station_depth_color'
+local View=require 'src.maps.systems.renderers.station_parallax'
 local Model = require 'src.maps.systems.renderers.station_ring_model'
 local makePoseCache = require 'src.maps.systems.renderers.station_pose_cache'
 local g = love.graphics
 local Renderer = {}
-local size, unit, frames = 256, 1.19, 120
+local size, unit, frames = 384, 1.19, 120
 
-local projection = [[
+local projection = depthColor..[[
 extern vec2 yaw;
+]]..View.shader..[[
 extern vec2 carrierYaw;
 extern vec2 pitch;
 extern float wear;
@@ -28,7 +31,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
     normal=orient(FaceNormal);
     surface=Material;
     track=Route.xyz;
-    vec4 clip=transform_projection*vec4(location.xy,0.,1.);
+    vec4 clip=projectStation(transform_projection,location);
     clip.z=-location.z*.006*clip.w;
     return clip;
 }
@@ -40,25 +43,33 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 pixel) {
     vec3 light=normalize(vec3(-.48,-.69,.65));
     float diffuse=max(dot(n,light),0.);
     // Store cylindrical coordinates and stationary illumination in the pose.
-    if(track.z>.5) return vec4(track.xy,track.z*.2,.2+.4*diffuse);
+    float farTone=recession(location.z/85.);
+    if(track.z>.5) {
+        // Four lanes share the blue byte with six bits of depth tone.
+        float encoded=(track.z-1.)*64.+floor(farTone*63.+.5);
+        return vec4(track.xy,encoded/255.,.2+.4*diffuse);
+    }
     vec2 d=(location.xy-vec2(-38.,-40.))/80.;
     vec3 rgb=surface*(.39+.65*diffuse+.14*exp(-dot(d,d)));
     rgb+=vec3(.10,.13,.15)*pow(max(dot(n,normalize(light+vec3(0.,0.,1.))),0.),18.);
     if(surface.g>.87 || surface.r>.97) rgb=surface;
     rgb=mix(rgb,vec3(dot(rgb,vec3(.28,.54,.18))),wear*.17);
+    rgb=depthColor(rgb,farTone*(surface.g>.87 || surface.r>.97 ? .28 : 1.));
     return vec4(floor(clamp(rgb,0.,1.)*31.+.5)/31.,1.);
 }
 #endif
 ]]
 local cabinShader
-local display = [[
+local display = depthColor..[[
 extern float clockPhase;
 extern float damaged;
 vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
     vec4 p=Texel(tex,uv);
     if(p.a<.01) return vec4(0.);
     if(p.a<.65) {
-        float lane=floor(p.b*5.+.5);
+        float code=floor(p.b*255.+.5);
+        float lane=1.+floor(code/64.);
+        float tone=mod(code,64.)/63.;
         float phase=fract(clockPhase+lane*.23);
         // Dwell behind each terminal before the return journey.
         float car=clamp(1.-abs(phase*2.-1.)*1.34,-.12,1.);
@@ -72,14 +83,16 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
                 rgb=mix(vec3(.26,.95,.96),vec3(1.,.67,.24),damaged);
         }
         rgb=floor(rgb*(.49+1.36*(p.a-.2))*31.+.5)/31.;
-        p.rgb=rgb;
+        p.rgb=depthColor(rgb,tone*(along<.047 ? .28 : 1.));
     }
     return vec4(p.rgb*tint.rgb,tint.a);
 }
 ]]
 local orbitFrames=240
 local orbitPeriod={operational=24,damaged=36}
-local pose = makePoseCache(Model,projection,size,unit,12,function(shader,state,frame,tilt)
+local pose = makePoseCache(Model,projection,size,unit,12,function(shader,state,frame,tilt,ix,iy)
+    shader:send('cameraOffset',{View.offset(ix,iy,100)})
+    shader:send('focalDistance',340)
     local angle=math.floor(frame/orbitFrames)*math.pi*2/frames
     local orbit=(frame%orbitFrames)*math.pi*2/orbitFrames
     shader:send('carrierYaw',{math.cos(orbit),math.sin(orbit)})
@@ -98,15 +111,11 @@ function Renderer.render(station,camera,x,y,radius,alpha,rotation,state)
     local time=love.timer.getTime()+seed%13
     local period=orbitPeriod[state]
     local orbit=period and math.floor((time/period%1)*orbitFrames+.5)%orbitFrames or 0
-    local sprite=pose(state,frame*orbitFrames+orbit,seed%5)
+    local ix,iy=View.sample(station,camera,radius)
+    local sprite=pose(state,frame*orbitFrames+orbit,seed%5,ix,iy)
     cabinShader=cabinShader or g.newShader(display)
     g.push('all')
     g.translate(x,y)
-    if camera then
-        local dx=math.max(-1,math.min(1,(station.x-camera.x)/3000))
-        local dy=math.max(-1,math.min(1,(station.y-camera.y)/3000))
-        g.shear(dx*.035,dy*.025)
-    end
     g.setColor(1,1,1,alpha)
     g.setShader(cabinShader)
     cabinShader:send('clockPhase',(time/9)%1)

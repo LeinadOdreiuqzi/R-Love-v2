@@ -61,7 +61,7 @@ local MASTER_STATIONS = {
         badgeText = "OPERACIONAL",
         size = 230,
         seed = 40404,
-        desc = "5 brazos radiales con ciudadelas habitacionales, tambor ventral y halo de reactor."
+        desc = "Ciudad suspendida de Ancient. Una galería se bifurca hacia dos barrios y un arco abierto sostiene la cúpula mayor."
     },
     modular_damaged = {
         id = "mod_dmg",
@@ -73,7 +73,7 @@ local MASTER_STATIONS = {
         badgeText = "DAÑADA",
         size = 230,
         seed = 50505,
-        desc = "Fallo en reactor central, brazo 3 parcialmente despresurizado y balizas ámbar."
+        desc = "La galería exterior está doblada. Dos cúpulas tienen brechas con costillas expuestas y grietas en el cristal."
     },
     modular_ruins = {
         id = "mod_rui",
@@ -85,7 +85,7 @@ local MASTER_STATIONS = {
         badgeText = "EN RUINAS",
         size = 230,
         seed = 60606,
-        desc = "Brazos 2 y 4 cercenados con ciudadelas a la deriva, rescoldos térmicos y blindaje flotante."
+        desc = "El arco se ha partido. Faltan sectores de las cúpulas y quedan costillas y tirantes al descubierto en el barrio desprendido."
     },
 
     -- 3. NAVES ALARGADAS (FINAL WEAPON - MEGA MAN X4)

@@ -1106,6 +1106,7 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
     elseif baseType == "modular" then
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationModularRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+        return
     elseif baseType == "axiom" then
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationAxiomRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
