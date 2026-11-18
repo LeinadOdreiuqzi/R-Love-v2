@@ -1109,79 +1109,9 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationAxiomRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
     elseif baseType == "elongated" then
-        -- Nave alargada (como las naves espaciales de las imágenes)
-        love.graphics.push()
-        love.graphics.translate(screenX, screenY)
-        love.graphics.rotate(rotation)
-        love.graphics.scale(1.0, perspectiveData.scaleY)
-        love.graphics.shear(perspectiveData.skewX, 0)
-        
-        -- Resplandor específico para nave alargada (LOD 0-2 y LOD 4)
-        if glowColor and (lod <= 2 or lod == 4) then
-            local baseIntensity = (lod == 4) and 0.35 or 0.5
-            love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowColor[4] * alpha * baseIntensity)
-            love.graphics.ellipse("fill", 0, 0, finalSize * 1.8, finalSize * 0.6)
-        end
-        
-        -- Casco principal alargado (más detallado)
-        love.graphics.ellipse("fill", 0, 0, finalSize * 1.4, finalSize * 0.35)
-        
-        -- Sección de comando frontal (más compleja)
-        love.graphics.ellipse("fill", finalSize * 0.9, 0, finalSize * 0.3, finalSize * 0.25)
-        love.graphics.circle("fill", finalSize * 1.05, 0, finalSize * 0.12, segments)
-        
-        -- Torre de comando
-        love.graphics.rectangle("fill", finalSize * 0.7, -finalSize * 0.08, finalSize * 0.2, finalSize * 0.16)
-        love.graphics.circle("fill", finalSize * 0.8, 0, finalSize * 0.06, 8)
-        
-        -- Motores principales (más grandes y detallados)
-        love.graphics.circle("fill", -finalSize * 1.1, -finalSize * 0.18, finalSize * 0.15, segments)
-        love.graphics.circle("fill", -finalSize * 1.1, finalSize * 0.18, finalSize * 0.15, segments)
-        love.graphics.circle("fill", -finalSize * 1.2, 0, finalSize * 0.12, segments)
-        
-        -- Toberas de los motores
-        love.graphics.setColor(0.3, 0.3, 0.3, alpha)
-        love.graphics.circle("fill", -finalSize * 1.1, -finalSize * 0.18, finalSize * 0.08, segments)
-        love.graphics.circle("fill", -finalSize * 1.1, finalSize * 0.18, finalSize * 0.08, segments)
-        love.graphics.circle("fill", -finalSize * 1.2, 0, finalSize * 0.06, segments)
-        
-        -- Estructuras laterales (alas/estabilizadores)
-        love.graphics.polygon("fill", 
-            -finalSize * 0.3, -finalSize * 0.7,
-            finalSize * 0.2, -finalSize * 0.45,
-            finalSize * 0.4, -finalSize * 0.35,
-            -finalSize * 0.1, -finalSize * 0.55
-        )
-        love.graphics.polygon("fill", 
-            -finalSize * 0.3, finalSize * 0.7,
-            finalSize * 0.2, finalSize * 0.45,
-            finalSize * 0.4, finalSize * 0.35,
-            -finalSize * 0.1, finalSize * 0.55
-        )
-        
-        -- Detalles estructurales del casco
-        love.graphics.setLineWidth(2)
-        love.graphics.line(-finalSize * 0.6, -finalSize * 0.15, finalSize * 0.6, -finalSize * 0.15)
-        love.graphics.line(-finalSize * 0.6, finalSize * 0.15, finalSize * 0.6, finalSize * 0.15)
-        love.graphics.line(-finalSize * 0.3, -finalSize * 0.25, -finalSize * 0.3, finalSize * 0.25)
-        love.graphics.line(finalSize * 0.3, -finalSize * 0.25, finalSize * 0.3, finalSize * 0.25)
-        
-        -- Antenas y sensores
-        love.graphics.setLineWidth(1)
-        for i = 1, 4 do
-            local x = -finalSize * 0.4 + (i-1) * finalSize * 0.3
-            love.graphics.line(x, -finalSize * 0.35, x, -finalSize * 0.45)
-            love.graphics.circle("fill", x, -finalSize * 0.45, finalSize * 0.02, 6)
-        end
-        
-        -- Luces de navegación
-        love.graphics.setColor(0.8, 0.2, 0.2, alpha)
-        love.graphics.circle("fill", -finalSize * 0.6, -finalSize * 0.7, finalSize * 0.03, 6)
-        love.graphics.setColor(0.2, 0.8, 0.2, alpha)
-        love.graphics.circle("fill", -finalSize * 0.6, finalSize * 0.7, finalSize * 0.03, 6)
-        
-        love.graphics.pop()
-        
+        local station = {seed = seed, x = screenX, y = screenY}
+        StationElongatedRenderer.render(station, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+        return
     elseif baseType == "modular_station" then
         -- Alias para compatibilidad
         baseType = "modular"

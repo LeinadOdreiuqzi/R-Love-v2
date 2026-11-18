@@ -111,7 +111,7 @@ local MASTER_STATIONS = {
         badgeText = "DAÑADA",
         size = 230,
         seed = 80808,
-        desc = "Pétalos agrietados con fallos térmicos, núcleo inestable con arcos voltaicos y fugas de energía."
+        desc = "Dos pétalos fracturados dejan ver las costillas del blindaje. El iris conserva un pulso ámbar irregular."
     },
     elongated_ruins = {
         id = "elo_rui",
