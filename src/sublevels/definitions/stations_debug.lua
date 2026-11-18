@@ -23,7 +23,7 @@ local MASTER_STATIONS = {
         badgeText = "OPERACIONAL",
         size = 230,
         seed = 10101,
-        desc = "Toroide presurizado íntegro con puentes radiales, blindaje flotante y bahía activa."
+        desc = "Cuatro elevadores radiales enlazan la terminal central con los barrios del anillo."
     },
     ring_damaged = {
         id = "ring_dmg",
@@ -35,7 +35,7 @@ local MASTER_STATIONS = {
         badgeText = "DAÑADA",
         size = 230,
         seed = 20202,
-        desc = "Brechas en el casco, blindaje desprendido, conductos rotos y bengalas de emergencia."
+        desc = "Una brecha interrumpe una vía. Las cabinas con luz ámbar siguen atendiendo los otros tres radios."
     },
     ring_ruins = {
         id = "ring_rui",
@@ -47,7 +47,7 @@ local MASTER_STATIONS = {
         badgeText = "EN RUINAS",
         size = 230,
         seed = 30303,
-        desc = "Toroide seccionado a la deriva, blackout total, vigas retorcidas y campo de escombros."
+        desc = "El anillo se ha partido en varios arcos. La terminal y los elevadores están apagados."
     },
 
     -- 2. ESTACIONES MODULARES (BRUTALIST CITADEL / EL ARCA)

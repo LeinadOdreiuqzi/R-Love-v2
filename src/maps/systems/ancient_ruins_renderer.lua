@@ -1102,6 +1102,7 @@ function AncientRuinsRenderer.renderComplexShape(shape, screenX, screenY, finalS
     if baseType == "ring" then
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY }
         StationRingRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)
+        return
     elseif baseType == "modular" then
         local dummyPlaceholder = { seed = seed, x = screenX, y = screenY, rotation = rotation }
         StationModularRenderer.render(dummyPlaceholder, nil, screenX, screenY, finalSize, alpha, rotation, damageState, lod)

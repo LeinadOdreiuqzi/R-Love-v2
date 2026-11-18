@@ -2,9 +2,8 @@ local Model = require 'src.maps.systems.renderers.final_weapon_model'
 local Renderer = {}
 local g = love.graphics
 local size, unit, frames = 256, 86, 120
-local models, cache = {}, {}
-local slots, serial = 0, 0
-local bakeShader, displayShader
+local makePoseCache = require 'src.maps.systems.renderers.station_pose_cache'
+local displayShader
 
 local projection = [[
 extern vec2 roll;
@@ -64,47 +63,11 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
 }
 ]]
 
--- Share poses across instances and bound GPU memory, including debug auto-rotation.
-local function pose(state, frame)
-    serial = serial+1
-    local key = state..frame
-    local entry = cache[key]
-    if entry then
-        entry.used = serial
-        return entry.canvas
-    end
-    local canvas
-    if slots == 18 then
-        local oldest
-        for k,v in pairs(cache) do
-            if not oldest or v.used < cache[oldest].used then oldest = k end
-        end
-        canvas = cache[oldest].canvas
-        cache[oldest] = nil
-    else
-        canvas = g.newCanvas(size,size,{dpiscale=1})
-        canvas:setFilter('nearest','nearest')
-        slots = slots+1
-    end
-    models[state] = models[state] or Model.build(state)
-    bakeShader = bakeShader or g.newShader(projection)
+local pose = makePoseCache(Model, projection, size, unit, 18, function(shader,state,frame)
     local roll = frame*2*math.pi/frames
-    g.push('all')
-    g.reset()
-    g.setCanvas({canvas,depth=true})
-    g.clear(0,0,0,0,0,1)
-    g.setDepthMode('less',true)
-    g.setBlendMode('replace','premultiplied')
-    g.translate(size/2,size/2)
-    g.scale(unit)
-    g.setShader(bakeShader)
-    bakeShader:send('roll',{math.cos(roll),math.sin(roll)})
-    bakeShader:send('wear',state=='ruins' and 2 or state=='damaged' and 1 or 0)
-    g.draw(models[state])
-    g.pop()
-    cache[key] = {canvas=canvas,used=serial}
-    return canvas
-end
+    shader:send('roll',{math.cos(roll),math.sin(roll)})
+    shader:send('wear',state=='ruins' and 2 or state=='damaged' and 1 or 0)
+end)
 
 function Renderer.render(station,camera,x,y,finalSize,alpha,rotation,state)
     if alpha<=0 or finalSize<=0 then return end
