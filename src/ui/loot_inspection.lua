@@ -3,6 +3,8 @@ local Items = require 'src.item_systems.item_system'
 local Theme = require 'src.ui.combat_theme'
 local Grid = require 'src.item_systems.cargo_grid'
 
+local Art = require 'src.rendering.loot_art'
+
 local Inspection = {}
 Inspection.__index = Inspection
 
@@ -20,11 +22,17 @@ local offsets = {-108, -36, 36, 108}
 local searchTime = .48
 
 function Inspection:spawnBoxes(target, settled)
+    local room = self.run.lootRooms[target.id]
+    -- Older saves ejected from the fixed site centre.
+    local x = room.releaseX or target.anchorX or target.x
+    local y = room.releaseY or target.anchorY or target.y
     for index = 1, Loot.getBoxCount(self.run, target.id) do
+        local items,revealed,capacity = Loot.getBox(self.run,target.id,index)
         local box = {
-            room = target.id, index = index, x = target.x, y = target.y,
-            originX = target.x, originY = target.y,
-            endX = target.x + offsets[index], endY = target.y - 120,
+            room = target.id, index = index, x = x, y = y, capacity = capacity,
+            opening = (room[index].opened or revealed > 0 or #items == 0) and 1 or 0,
+            originX = x, originY = y,
+            endX = x + offsets[index], endY = y - 120,
             color = target.color, name = 'Caja ' .. index .. ' · ' .. target.name,
             age = settled and .65 or 0, search = 0
         }
@@ -51,7 +59,21 @@ function Inspection:nearby()
 end
 
 function Inspection:update(dt)
+    for _,target in ipairs(self.targets) do
+        if target.id and not target.drawWorld then
+            target.anchorX = target.anchorX or target.x
+            target.anchorY = target.anchorY or target.y
+            local phase = love.timer.getTime()*.14 + target.anchorX*.011 + target.anchorY*.019
+            target.x = target.anchorX + 12*math.sin(phase)
+            target.y = target.anchorY + 7*math.cos(phase*.8)
+            target.roll = .065*math.sin(phase*.7)
+            if target.unsealing then target.unsealing = math.min(1,target.unsealing+dt/.35) end
+        end
+    end
     for _, box in ipairs(self.boxes) do
+        if self.run.lootRooms[box.room][box.index].opened then
+            box.opening = math.min(1,box.opening+dt/.42)
+        end
         if box.age < .65 then
             box.age = math.min(.65, box.age + dt)
             local t = 1 - (1 - box.age / .65)^3
@@ -101,13 +123,17 @@ function Inspection:keypressed(key)
         return false
     elseif target.room then
         self.inspecting, self.message = target, ''
+        if not target.drawWorld then self.run.lootRooms[target.room][target.index].opened = true end
     elseif not target.id then
         self.keyCollected = self:collectKey(target)
     elseif Loot.getRoomRarity(self.run, target.id) then
-        self.message = 'Sala abierta. Acércate a una de sus cajas.'
+        self.message = 'Cápsula abierta. Acércate a una de sus cajas.'
     elseif Loot.unlockRoom(self.run, target.id, self.player.inventory, target.rarity or target.id) then
+        local room = self.run.lootRooms[target.id]
+        room.releaseX,room.releaseY = target.x,target.y
+        target.unsealing = 0
         self:spawnBoxes(target)
-        self.message = 'Sala abierta. Cajas liberadas: ' .. Loot.getBoxCount(self.run, target.id)
+        self.message = 'Cápsula abierta. Cajas liberadas: ' .. Loot.getBoxCount(self.run, target.id)
     else
         self.message = 'Necesitas una llave en la carga.'
     end
@@ -181,23 +207,19 @@ function Inspection:draw()
     for _, target in ipairs(self.targets) do
         if target.drawWorld then
             target.drawWorld(target)
+        elseif target.id then
+            local opened = Loot.getRoomRarity(self.run,target.id)
+            Art.draw('capsule',target.x,target.y,target.unsealing or (opened and 1 or 0),
+                false,target.rarity or target.id,target.roll,1.4)
         else
-            local x, y = target.x, target.y
-            local opened = target.id and Loot.getRoomRarity(self.run, target.id)
-            local w = target.id and 148 or 116
-            Theme.panel(x - w / 2, y - 42, w, 60, target.color, not not opened)
+            Theme.panel(target.x-58,target.y-42,116,60,target.color)
             g.setColor(target.color)
-            g.printf(target.name, x - w / 2, y - 33, w, 'center')
-            if target.id then
-                g.printf(opened and 'Abierto' or 'Sellado', x - w / 2, y - 13, w, 'center')
-            end
+            g.printf(target.name,target.x-58,target.y-33,116,'center')
         end
     end
-    for _, box in ipairs(self.boxes) do
-        local remaining = Loot.getBox(self.run, box.room, box.index)
-        Theme.panel(box.x - 26, box.y - 17, 52, 34, box.color, box == self.inspecting)
-        g.setColor(#remaining > 0 and box.color or Theme.colors.muted)
-        g.printf(#remaining > 0 and ('Caja ' .. box.index) or 'Vacía', box.x - 28, box.y - 6, 56, 'center')
+    for _,box in ipairs(self.boxes) do
+        local empty = #self.run.lootRooms[box.room][box.index]==0
+        Art.draw(box.capacity or 16,box.x,box.y,box.opening,empty)
     end
     g.pop()
 end
@@ -214,7 +236,7 @@ function Inspection:drawHUD()
         local x = (g.getWidth() - w) / 2
         Theme.panel(x, 42, w, 61)
         g.setColor(Theme.colors.active)
-        local action = target and ('[E] ' .. target.name) or 'Acércate a una sala o caja'
+        local action = target and ('[E] ' .. target.name) or 'Acércate a una cápsula o caja'
         g.printf(action .. (self.debugHint or ''), x + 8, 50, w - 16, 'center')
         g.setColor(Theme.colors.text)
         g.printf(self.message, x + 8, 75, w - 16, 'center')
@@ -230,7 +252,13 @@ function Inspection:drawHUD()
     Theme.panel(x, y, w, h, box.color, true)
     g.setFont(Theme.title)
     g.setColor(box.color)
-    g.print(box.name, x + 16, y + 12)
+    local titleX=x+16
+    if not box.drawWorld then
+        Art.draw(box.capacity or 16,x+31,y+26,box.opening,#items==0,nil,0,.76)
+        titleX=x+57
+    end
+    g.setColor(box.color)
+    g.print(box.name, titleX, y + 12)
     Theme.panel(x + w - 82, y + 10, 66, 23, box.color, inside(mx, my, x + w - 82, y + 10, 66, 23))
     g.setFont(Theme.small)
     g.setColor(Theme.colors.text)

@@ -17,7 +17,7 @@ local rates = {
     [BT.ANCIENT_RUINS] = {8, 32, 8}
 }
 local colors = {common = {.55, .78, .87}, rare = {.38, .65, 1}, exceptional = {1, .69, .28}}
-local names = {common = 'Contenedor común', rare = 'Contenedor raro', exceptional = 'Contenedor excepcional'}
+local names = {common = 'Cápsula común', rare = 'Cápsula rara', exceptional = 'Cápsula excepcional'}
 local tileSize = MapConfig.chunk.tileSize * MapConfig.chunk.worldScale
 local stride = (MapConfig.chunk.size * MapConfig.chunk.tileSize + MapConfig.chunk.spacing) * MapConfig.chunk.worldScale
 local scanRange = 1300

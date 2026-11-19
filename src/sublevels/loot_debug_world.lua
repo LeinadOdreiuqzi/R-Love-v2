@@ -18,7 +18,7 @@ local keys = {'inventory', 'weaponSystem', 'stats', 'passiveModifiers', 'resista
     'boostDuration', 'isBoostActive', 'isDrifting', 'phantomPulseCooldown'}
 
 function Lab.new(player, seed)
-    local self = setmetatable({player = player, seed = tostring(seed), round = 0, saved = {}, targets = targets,
+    local self = setmetatable({player = player, seed = tostring(seed), round = 0, saved = {}, targets = {},
         debugHint = '   [F6] Reiniciar prueba'}, Lab)
     for _, key in ipairs(keys) do self.saved[key] = player[key] end
     self:reset()
@@ -38,8 +38,14 @@ function Lab:reset()
     if self.round > 0 then removeTestPassives(player) end
     self.round = self.round + 1
     self.run = {seed = self.seed .. ':loot-lab:' .. self.round, lootRooms = {}}
-    self.inspecting, self.boxes = nil, {}
-    self.message = 'Recoge una llave en el dispensador y acércate a un contenedor.'
+    self.inspecting, self.boxes, self.targets = nil, {}, {}
+    for i,template in ipairs(targets) do
+        local target = {}
+        for k,v in pairs(template) do target[k] = v end
+        if target.id then target.name = 'Cápsula · ' .. target.name end
+        self.targets[i] = target
+    end
+    self.message = 'Recoge una llave en el dispensador y acércate a una cápsula.'
     player.weaponAuditActive, player.lootLabActive = true, true
     if player.hyperTravelEnabled then player:toggleHyperTravel() end
     player.dx, player.dy, player.boostDuration = 0, 0, 0
