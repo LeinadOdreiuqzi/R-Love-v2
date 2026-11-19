@@ -10,13 +10,15 @@ local colors = {
 local function polar(radius,angle,height)
     return {radius*math.cos(angle),radius*math.sin(angle),height}
 end
-function Model.build(state)
+function Model.build(state,part)
     local vertices={}
+    local carrierPart=part=='carriers'
     local ruins=state=='ruins'
     local worn=state~='operational'
     local blank={0,0,0}
     local onCarrier=0
     local function triangle(a,b,c,color,ma,mb,mc)
+        if (onCarrier==1)~=carrierPart then return end
         local ux,uy,uz=b[1]-a[1],b[2]-a[2],b[3]-a[3]
         local vx,vy,vz=c[1]-a[1],c[2]-a[2],c[3]-a[3]
         local nx,ny,nz=uy*vz-uz*vy,uz*vx-ux*vz,ux*vy-uy*vx

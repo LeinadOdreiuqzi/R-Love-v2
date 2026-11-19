@@ -40,6 +40,11 @@ local function fracture(x,y,r,ry,seed,wreck)
         seam('41494a',{.50,.29,.64,.53,.76,.58,.84,.52})
         seam('b0a88a',{.05,-.34,.24,-.47,.33,-.53})
     else
+        -- A missing outer pane breaks the contour even at approach zoom.
+        g.setBlendMode('replace','premultiplied')
+        g.setColor(0,0,0,0)
+        g.polygon('fill',trace({.68,-.26,1.24,-.38,1.26,.32,.79,.21,.86,.04,.70,-.03}))
+        g.setBlendMode('alpha','alphamultiply')
         patch('465956',{.03,-.46,.44,-.56,.83,-.24,.76,.15,.85,.32,.51,.56,.20,.31,.31,.10})
         patch('29383b',{.12,-.37,.43,-.46,.74,-.21,.64,.10,.73,.24,.51,.42,.31,.24,.39,.04})
         for j=0,2 do

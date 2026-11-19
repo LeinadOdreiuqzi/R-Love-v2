@@ -315,6 +315,17 @@ local beacons = {
 }
 beacons.DREADNOUGHT = beacons.ECLIPSE
 
+-- The lit tips are the visible emitters on these hulls.
+function Art.getEffectSocket(ship,industrial)
+    local id=ship.shipType
+    if (industrial and id=='SALVAGER') or id=='GUNSHIP' or id=='SENTINEL' then
+        local tip=beacons[id][id=='GUNSHIP' and 2 or 1]
+        local size=ship.size*(ship.worldScale or 1)
+        return tip[1]*size,tip[2]*size
+    end
+    return ship:getHardpointLocalPosition('NOSE_CENTER')
+end
+
 function Art.drawEngines(ship,size,abandoned,project)
     local id=ship.shipType
     if not abandoned and (ship.engineGlow or 0) > 0 and (not ship.stats or ship.stats:canMove()) then

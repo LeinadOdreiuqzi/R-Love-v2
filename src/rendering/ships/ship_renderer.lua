@@ -836,6 +836,14 @@ function ShipRenderer.drawAbandonedShip(self)
     end
 end
 
+-- Project a surface attachment into the same interpolated frame as the hull.
+local function effectOrigin(ship,rx,ry,angle,industrial)
+    local x,y=ShipArt.getEffectSocket(ship,industrial)
+    x,y=TacticalPixelArt.project(ship,x,y)
+    local c,s=math.cos(angle),math.sin(angle)
+    return rx+c*x-s*y,ry+s*x+c*y
+end
+
 function ShipRenderer.drawAIShip(self)
     local World = package.loaded['src.core.world']
     local alpha = World and World.get('interpolationAlpha') or 1.0
@@ -851,8 +859,7 @@ function ShipRenderer.drawAIShip(self)
     -- 1. Si el agente está extrayendo recursos o desmantelando un pecio, dibujar haz industrial diegético
     if ai and ai.worldGoal and ai.worldGoal.isWorking and ai.worldGoal.targetX and ai.worldGoal.targetY then
         local pulse = 0.55 + 0.45 * math.sin(love.timer.getTime() * 18)
-        local prowX = renderX + math.sin(renderRot) * (self.size or 14) * 1.1
-        local prowY = renderY - math.cos(renderRot) * (self.size or 14) * 1.1
+        local prowX,prowY = effectOrigin(self,renderX,renderY,renderRot,true)
         love.graphics.setColor(1.0, 0.78, 0.22, 0.35 * pulse)
         love.graphics.setLineWidth(4)
         love.graphics.line(prowX, prowY, ai.worldGoal.targetX, ai.worldGoal.targetY)
@@ -871,19 +878,6 @@ function ShipRenderer.drawAIShip(self)
         local bCol = isWarn and {1.0, 0.72, 0.15} or ((ai.config and ai.config.beaconColor) or {0.25, 0.88, 1.0})
         love.graphics.setColor(bCol[1], bCol[2], bCol[3], (isWarn and 0.28 or 0.14) + 0.12 * scanPulse)
         love.graphics.circle("line", renderX, renderY, (self.size or 14) * (isWarn and 2.3 or 2.8), 28)
-    end
-
-    -- 2.5. Telegrafía de Ataque Pesado (Laser Lock / Carga antes de disparar en GUNSHIP o SENTINEL)
-    if ai and ai.telegraphTimer and ai.telegraphTimer > 0 and ai.telegraphAimX and ai.telegraphAimY then
-        local chargeRatio = 1.0 - math.min(1.0, ai.telegraphTimer / (ai.telegraphDuration or 0.55))
-        local prowX = renderX + math.sin(renderRot) * (self.size or 14) * 1.25
-        local prowY = renderY - math.cos(renderRot) * (self.size or 14) * 1.25
-        love.graphics.setColor(1.0, 0.25, 0.15, 0.25 + 0.60 * chargeRatio)
-        love.graphics.setLineWidth(1.5 + 2.0 * chargeRatio)
-        love.graphics.line(prowX, prowY, ai.telegraphAimX, ai.telegraphAimY)
-        love.graphics.setColor(1.0, 0.85, 0.35, 0.90)
-        love.graphics.circle("fill", prowX, prowY, 2.5 + 4.5 * chargeRatio)
-        love.graphics.setLineWidth(1)
     end
 
     -- 2.6. Enlace de Recarga de Escudo desde Nodriza (Carrier Shield Tether)
@@ -935,8 +929,7 @@ function ShipRenderer.drawAIShip(self)
         local tTime = love.timer and love.timer.getTime and love.timer.getTime() or 0
         local tx = ai.tractorTargetX
         local ty = ai.tractorTargetY
-        local prowX = renderX + math.sin(renderRot) * (self.size or 14) * 1.15
-        local prowY = renderY - math.cos(renderRot) * (self.size or 14) * 1.15
+        local prowX,prowY = effectOrigin(self,renderX,renderY,renderRot,true)
 
         local pulse = 0.65 + 0.35 * math.sin(tTime * 16.0)
 
@@ -1002,6 +995,18 @@ function ShipRenderer.drawAIShip(self)
     end
 
     love.graphics.pop()
+
+    -- 2.5. Telegrafía de Ataque Pesado (Laser Lock / Carga antes de disparar en GUNSHIP o SENTINEL)
+    if ai and ai.telegraphTimer and ai.telegraphTimer > 0 and ai.telegraphAimX and ai.telegraphAimY then
+        local chargeRatio = 1.0 - math.min(1.0, ai.telegraphTimer / (ai.telegraphDuration or 0.55))
+        local prowX,prowY = effectOrigin(self,renderX,renderY,renderRot,false)
+        love.graphics.setColor(1.0, 0.25, 0.15, 0.25 + 0.60 * chargeRatio)
+        love.graphics.setLineWidth(1.5 + 2.0 * chargeRatio)
+        love.graphics.line(prowX, prowY, ai.telegraphAimX, ai.telegraphAimY)
+        love.graphics.setColor(1.0, 0.85, 0.35, 0.90)
+        love.graphics.circle("fill", prowX, prowY, 2.5 + 4.5 * chargeRatio)
+        love.graphics.setLineWidth(1)
+    end
 
     -- Una lectura de defensa cuando hay combate o un impacto reciente.
     local stats = self.stats

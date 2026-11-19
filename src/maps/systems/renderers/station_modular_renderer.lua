@@ -84,7 +84,7 @@ local function bake(canvas,state,angle,ix,iy)
             paletteShader:send('domeRadius',0)
             -- A shallow socket follows the glass rather than widening its outline.
             g.setColor(.19,.28,.30,1)
-            local base=damage==2 and .74 or .94
+            local base=damage==2 and .74 or damage==1 and .80 or .94
             local socket=r*base*magnification
             g.ellipse('fill',px,py+2.4*magnification,socket,socket*.34,48)
             g.setColor(1,1,1,1)
@@ -135,7 +135,7 @@ local function bake(canvas,state,angle,ix,iy)
     end
     local wear=ruins and 2 or 0
     district(-66,3,22,3,67,wear)
-    district(-3,-6,33,12,23,wear)
+    district(-3,-6,33,12,23,damaged and 1 or wear)
     district(56,-51,14,12,11,damaged and 1 or wear)
     district(ruins and 72 or 68,ruins and 44 or 37,20,ruins and -6 or 3,80,
         ruins and 2 or damaged and 1 or 0)

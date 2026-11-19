@@ -1,5 +1,6 @@
 local Art=require 'src.rendering.ships.ship_art'
 local Baker=require 'src.rendering.ships.pixel_pose_baker'
+local Interceptor=require 'src.rendering.ships.interceptor_pixel_art'
 local Tactical={}
 local designs={
     FIGHTER={width=76,height=88,scale=64/3.10,amplitude=1,thickness=.15,
@@ -79,6 +80,7 @@ local function prepare(id,d)
     d.poses=poses[0][1]
 end
 function Tactical.preload()
+    Interceptor.preload()
     for id,d in pairs(designs) do prepare(id,d) end
 end
 function Tactical.update(ship,dt,previousRotation)
@@ -94,7 +96,7 @@ end
 -- In the stationary hangar exhibit the existing rotation control also
 -- sweeps through the baked poses. Flight uses the measured turn rate.
 function Tactical.previewBank(ship,phase)
-    if designFor(ship) then ship.visualBank=phase and math.sin(phase) or 0 end
+    if designFor(ship) or ship.shipType=='INTERCEPTOR' then ship.visualBank=phase and math.sin(phase) or 0 end
 end
 local function indexOf(ship)
     return math.max(-2,math.min(2,math.floor((ship.visualBank or 0)*2+.5)))
@@ -102,6 +104,7 @@ end
 -- Local display coordinates only. Physics and weapon trajectories use their original sockets.
 function Tactical.project(ship,x,y,engine)
     local d=designFor(ship)
+    if ship.shipType=='INTERCEPTOR' and not ship.convoy then return Interceptor.project(ship,x,y) end
     if not d or ship.convoy or (ship.useStarterSprite and ship.sprite and ship.shipType=='EXPLORER') then
         return x,y
     end

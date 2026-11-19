@@ -71,6 +71,7 @@ local function buildPoses()
     local hull = {shipType = 'INTERCEPTOR'}
     local result = {}
     g.push('all')
+    g.reset()
     for index = -2, 2 do
         local bank = index / 2
         g.setCanvas(source)
@@ -115,10 +116,28 @@ function PixelArt.update(ship, dt, previousRotation)
     ship.visualBank = bank + (target - bank) * (1 - math.exp(-dt * response))
 end
 
-function PixelArt.draw(ship, size, abandoned)
+local function poseIndex(ship)
+    return math.max(-2,math.min(2,math.floor((ship.visualBank or 0)*2+.5)))
+end
+
+-- Same dorsal-surface projection as the vertex shader, in display units.
+function PixelArt.project(ship,x,y)
+    local size=ship.size*(ship.worldScale or 1)
+    local bank=poseIndex(ship)*.5
+    local t=math.max(0,math.min(1,(math.abs(x)/size-.14)/(.53-.14)))
+    local spine=1-t*t*(3-2*t)
+    return x*(1-.21*math.abs(bank)+.16*bank*(x<0 and -1 or 1))
+        +size*bank*(.10+.15*spine), y+bank*x*.43
+end
+
+function PixelArt.preload()
     if not poses then poses = buildPoses() end
+end
+
+function PixelArt.draw(ship, size, abandoned)
+    PixelArt.preload()
     local g = love.graphics
-    local index = abandoned and 0 or math.floor((ship.visualBank or 0) * 2 + .5)
+    local index = abandoned and 0 or poseIndex(ship)
     if not abandoned and (ship.engineGlow or 0) > 0 and (not ship.stats or ship.stats:canMove()) then
         g.push()
         g.translate(index * size * .11, size * 1.07)

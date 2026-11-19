@@ -37,7 +37,15 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 }
 #endif
 #ifdef PIXEL
+#ifdef DRAW_CARRIERS
+extern Image staticHull;
+#endif
 vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 pixel) {
+    // The static pose carries its nearest surface depth in the alpha byte.
+    float hullDepth=.5+location.z/256.;
+#ifdef DRAW_CARRIERS
+    if(Texel(staticHull,pixel/love_ScreenSize.xy).a>hullDepth+.5/255.) discard;
+#endif
     vec3 n=normalize(normal);
     if(n.z<0.) n=-n;
     vec3 light=normalize(vec3(-.48,-.69,.65));
@@ -55,17 +63,24 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 pixel) {
     if(surface.g>.87 || surface.r>.97) rgb=surface;
     rgb=mix(rgb,vec3(dot(rgb,vec3(.28,.54,.18))),wear*.17);
     rgb=depthColor(rgb,farTone*(surface.g>.87 || surface.r>.97 ? .28 : 1.));
-    return vec4(floor(clamp(rgb,0.,1.)*31.+.5)/31.,1.);
+    #ifdef DRAW_CARRIERS
+    hullDepth=1.;
+#endif
+    return vec4(floor(clamp(rgb,0.,1.)*31.+.5)/31.,hullDepth);
 }
 #endif
 ]]
 local cabinShader
 local display = depthColor..[[
+extern Image elevators;
 extern float clockPhase;
 extern float damaged;
 vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
-    vec4 p=Texel(tex,uv);
-    if(p.a<.01) return vec4(0.);
+    vec4 p=Texel(elevators,uv);
+    if(p.a<.01) {
+        vec4 hull=Texel(tex,uv);
+        return hull.a>0. ? vec4(hull.rgb*tint.rgb,tint.a) : vec4(0.);
+    }
     if(p.a<.65) {
         float code=floor(p.b*255.+.5);
         float lane=1.+floor(code/64.);
@@ -90,17 +105,26 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
 ]]
 local orbitFrames=240
 local orbitPeriod={operational=24,damaged=36}
-local pose = makePoseCache(Model,projection,size,unit,12,function(shader,state,frame,tilt,ix,iy)
+local function configure(shader,state,frame,tilt,ix,iy,orbit)
     shader:send('cameraOffset',{View.offset(ix,iy,100)})
     shader:send('focalDistance',340)
-    local angle=math.floor(frame/orbitFrames)*math.pi*2/frames
-    local orbit=(frame%orbitFrames)*math.pi*2/orbitFrames
+    local angle=frame*math.pi*2/frames
     shader:send('carrierYaw',{math.cos(orbit),math.sin(orbit)})
     local elevation=math.rad(38+tilt*2)
     shader:send('yaw',{math.cos(angle),math.sin(angle)})
     shader:send('pitch',{math.sin(elevation),math.cos(elevation)})
     shader:send('wear',state=='ruins' and 2 or state=='damaged' and 1 or 0)
+end
+local hullPose=makePoseCache(Model,projection,size,unit,12,function(shader,state,frame,tilt,ix,iy)
+    configure(shader,state,frame,tilt,ix,iy,0)
 end)
+local carriers={build=function(state) return Model.build(state,'carriers') end}
+local elevatorPose=makePoseCache(carriers,'#define DRAW_CARRIERS\n'..projection,size,unit,3,
+    function(shader,state,key,tilt,ix,iy)
+        local frame=math.floor(key/orbitFrames)
+        configure(shader,state,frame,tilt,ix,iy,key%orbitFrames*2*math.pi/orbitFrames)
+        shader:send('staticHull',hullPose(state,frame,tilt,ix,iy))
+    end)
 
 function Renderer.render(station,camera,x,y,radius,alpha,rotation,state)
     if alpha<=0 or radius<=0 then return end
@@ -112,12 +136,14 @@ function Renderer.render(station,camera,x,y,radius,alpha,rotation,state)
     local period=orbitPeriod[state]
     local orbit=period and math.floor((time/period%1)*orbitFrames+.5)%orbitFrames or 0
     local ix,iy=View.sample(station,camera,radius)
-    local sprite=pose(state,frame*orbitFrames+orbit,seed%5,ix,iy)
+    local sprite=hullPose(state,frame,seed%5,ix,iy)
+    local elevators=elevatorPose(state,frame*orbitFrames+orbit,seed%5,ix,iy)
     cabinShader=cabinShader or g.newShader(display)
     g.push('all')
     g.translate(x,y)
     g.setColor(1,1,1,alpha)
     g.setShader(cabinShader)
+    cabinShader:send('elevators',elevators)
     cabinShader:send('clockPhase',(time/9)%1)
     cabinShader:send('damaged',state=='damaged' and 1 or 0)
     local scale=radius/(100*unit)

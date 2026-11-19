@@ -13,7 +13,7 @@ Trial.chassis = {'EXPLORER', 'INTERCEPTOR', 'CARGO'}
 local chassisKeys = {'shipType', 'shipConfig', 'shipName', 'useStarterSprite', 'sprite',
     'hardpoints', 'size', 'hyperTravelEnabled', 'baseParams', 'shipSettings', 'damageState',
     'maxSpeed', 'forwardAccel', 'strafeAccel', 'backwardAccel', 'drag', 'boostMultiplier',
-    'isBoostActive', 'isDrifting', 'boostDuration', 'rotation', 'prevRotation', 'takeDamage'}
+    'isBoostActive', 'isDrifting', 'boostDuration', 'rotation', 'prevRotation', 'visualBank', 'takeDamage'}
 
 local function copy(source)
     local result = {}
