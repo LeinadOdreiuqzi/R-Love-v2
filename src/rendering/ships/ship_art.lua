@@ -315,6 +315,35 @@ local beacons = {
 }
 beacons.DREADNOUGHT = beacons.ECLIPSE
 
+function Art.drawEngines(ship,size,abandoned,project)
+    local id=ship.shipType
+    if not abandoned and (ship.engineGlow or 0) > 0 and (not ship.stats or ship.stats:canMove()) then
+        for _, nozzle in ipairs(engines[id]) do
+            local x,y=nozzle[1]*size,nozzle[2]*size
+            local tilt
+            if project then x,y,tilt=project(ship,x,y,true) end
+            ship:drawThrusterFlame(x,y,nozzle[3]*size,drive[id] or defaultDrive,tilt)
+        end
+    end
+end
+
+function Art.drawLights(ship,size,abandoned,project)
+    local g,id=love.graphics,ship.shipType
+    if abandoned then
+        g.setColor(1,.24,.20,.42 + .40 * math.sin(love.timer.getTime() * 4)^2)
+        g.circle('fill',0,-size*.25,math.max(1,size*.095),8)
+    else
+        local phase = love.timer.getTime() * 3 + (ship.shipId or 0)
+        local intensity = .62 + .31 * math.sin(phase)^2
+        for _, beacon in ipairs(beacons[id]) do
+            g.setColor(beacon[3], beacon[4], beacon[5], intensity)
+            local x,y=beacon[1]*size,beacon[2]*size
+            if project then x,y=project(ship,x,y) end
+            g.circle('fill', x,y, math.max(.55,size*.074), 8)
+        end
+    end
+end
+
 function Art.draw(ship, size, abandoned, hullOnly)
     local id = ship.shipType
     local design = designs[id]
@@ -325,26 +354,12 @@ function Art.draw(ship, size, abandoned, hullOnly)
         design(face, stroke, band)
         meshes[id] = g.newMesh(vertices, 'triangles', 'static')
     end
-    if not hullOnly and not abandoned and (ship.engineGlow or 0) > 0 and (not ship.stats or ship.stats:canMove()) then
-        for _, nozzle in ipairs(engines[id]) do
-            ship:drawThrusterFlame(nozzle[1]*size, nozzle[2]*size, nozzle[3]*size, drive[id] or defaultDrive)
-        end
-    end
+    if not hullOnly then Art.drawEngines(ship,size,abandoned) end
     local light = abandoned and .60 or 1
     g.setColor(light, light, light, 1)
     g.draw(meshes[id], 0, 0, 0, size, size)
     if hullOnly then return true end
-    if abandoned then
-        g.setColor(1,.24,.20,.42 + .40 * math.sin(love.timer.getTime() * 4)^2)
-        g.circle('fill',0,-size*.25,math.max(1,size*.095),8)
-    else
-        local phase = love.timer.getTime() * 3 + (ship.shipId or 0)
-        local intensity = .62 + .31 * math.sin(phase)^2
-        for _, beacon in ipairs(beacons[id]) do
-            g.setColor(beacon[3], beacon[4], beacon[5], intensity)
-            g.circle('fill', beacon[1]*size, beacon[2]*size, math.max(.55,size*.074), 8)
-        end
-    end
+    Art.drawLights(ship,size,abandoned)
     return true
 end
 

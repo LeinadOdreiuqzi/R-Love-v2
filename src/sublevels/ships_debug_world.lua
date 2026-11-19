@@ -3,6 +3,7 @@
 -- Permite apreciar los 10 arquetipos de naves (7 tácticas + 3 Nodrizas con sus escoltas),
 -- inspeccionar su geometría, probar sus efectos diegéticos, activar vuelo IA o abordarlas en EVA.
 
+local TacticalArt = require 'src.rendering.ships.tactical_pixel_art'
 local Naves = require 'src.entities.naves'
 local AIController = require 'src.entities.ai_controller'
 local World = require 'src.core.world'
@@ -442,6 +443,7 @@ function ShipsDebugWorld.update(dt, player)
 
         local ship = pad.mainShip
         if ship and not ship.isPiloted and not ShipsDebugWorld.liveAIMode then
+            TacticalArt.previewBank(ship, ShipsDebugWorld.autoRotate and t * 1.5)
             ship.engineGlow = 0.75 + 0.25 * math.sin(t * 4.0 + pad.index)
             if ShipsDebugWorld.autoRotate then
                 ship.rotation = (ship.rotation + 0.55 * dt) % (math.pi * 2)
@@ -456,6 +458,7 @@ function ShipsDebugWorld.update(dt, player)
         for _, ed in ipairs(pad.escortShips or {}) do
             local es = ed.ship
             if es and not es.isPiloted and not ShipsDebugWorld.liveAIMode then
+                TacticalArt.previewBank(es, ShipsDebugWorld.autoRotate and (t * 1.5 + ed.slot))
                 es.engineGlow = 0.85
                 if ShipsDebugWorld.autoRotate then
                     local angle = t * 0.75 + ed.slot * math.pi

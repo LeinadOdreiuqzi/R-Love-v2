@@ -3,6 +3,7 @@ local Baker={}
 local projection=[[
 extern float bank;
 extern float layer;
+extern float layerStep;
 extern float rootX;
 vec2 projectHull(vec2 p) {
     float factor=1.0-.14*abs(bank)+.10*bank*sign(p.x);
@@ -10,7 +11,7 @@ vec2 projectHull(vec2 p) {
 }
 vec4 position(mat4 transform_projection,vec4 vertex_position) {
     vec2 p=projectHull(vertex_position.xy+vec2(rootX,0.0))-projectHull(vec2(rootX,0.0));
-    p+=vec2(-bank*.62,.74+.20*abs(bank))*layer;
+    p+=vec2(-bank*.62,.74+.20*abs(bank))*layer*layerStep;
     return transform_projection*vec4(p,vertex_position.zw);
 }
 vec4 effect(vec4 tint,Image source,vec2 uv,vec2 screen) {
@@ -31,13 +32,15 @@ function Baker.build(config)
     local result,count={},0
     local started=love.timer.getTime()
     g.push('all')
+    g.reset()
+    project:send('layerStep',config.layerStep or 1)
     g.setScissor();g.setBlendMode('alpha','alphamultiply')
     for variant=0,config.variants-1 do
         result[variant]={}
         for part=1,config.parts do
             local poses={};result[variant][part]=poses
             for index=-2,2 do
-                local bank=index/2
+                local bank=index/2*(config.bankAmplitude or 1)
                 g.setCanvas(source);g.origin();g.clear(0,0,0,0)
                 g.translate(config.width/2,config.height/2)
                 g.setShader(project)
@@ -51,8 +54,10 @@ function Baker.build(config)
                 sprite:setFilter('nearest','nearest')
                 g.setCanvas(sprite);g.origin();g.clear(0,0,0,0)
                 g.setColor(1,1,1);g.setShader(light)
-                light:send('bank',bank);light:send('wear',variant)
-                light:send('part',part)
+                light:send('bank',bank)
+                if light:hasUniform('wear') then light:send('wear',variant) end
+                if light:hasUniform('part') then light:send('part',part) end
+                if config.setLights then config.setLights(light) end
                 g.draw(source)
                 poses[index]=sprite;count=count+1
             end

@@ -11,6 +11,7 @@ local InventoryUI = require 'src.ui.inventory_ui'
 local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local WeaponSystem = require 'src.entities.weapon_system'
 local ShipRenderer = require 'src.rendering.ships.ship_renderer'
+local TacticalPixelArt = require 'src.rendering.ships.tactical_pixel_art'
 local InterceptorPixelArt = require 'src.rendering.ships.interceptor_pixel_art'
 
 -- Getter perezoso del World context para evitar require circular en el 
@@ -667,6 +668,7 @@ function Naves:update(dt)
         else
             self:updatePassivePhysics(dt)
         end
+        TacticalPixelArt.update(self, dt, previousRotation)
         return
     end
     
@@ -724,6 +726,7 @@ function Naves:update(dt)
     end
     self.rotation = self.rotation + angleDiff * (self.rotationSpeed * rotMult) * dt
     InterceptorPixelArt.update(self, dt, previousRotation)
+    TacticalPixelArt.update(self, dt, previousRotation)
 
     -- Regeneración pasiva de casco (Colonia de Nanobots de Reparación)
     if self.abilities and self.abilities.passive_hull_regen and self.stats and self.stats.health then

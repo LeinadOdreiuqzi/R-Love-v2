@@ -87,6 +87,7 @@ local function loadWorld(updateProgress)
         local rendererSuccess, rendererErr = pcall(function() OptimizedRenderer.init() end)
         if not rendererSuccess then print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr)) end
         require('src.rendering.ships.frontier_boss_art').preload()
+        require('src.rendering.ships.tactical_pixel_art').preload()
         return true
     end)
     

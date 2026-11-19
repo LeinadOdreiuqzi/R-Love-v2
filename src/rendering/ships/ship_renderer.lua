@@ -3,12 +3,13 @@
 -- Separado de naves.lua para desacoplar estado/física de la presentación visual.
 -- Todas las funciones reciben la nave como primer argumento (self) y no mutan estado de simulación.
 
+local TacticalPixelArt = require 'src.rendering.ships.tactical_pixel_art'
 local ShipArt = require 'src.rendering.ships.ship_art'
 local InterceptorPixelArt = require 'src.rendering.ships.interceptor_pixel_art'
 local ConvoyArt = require 'src.rendering.ships.convoy_art'
 local ShipRenderer = {}
 
-function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color)
+function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color, tilt)
     local intensity = self.engineGlow or 1.0
     local time = love.timer.getTime()
     local pulse = 0.85 + 0.15 * math.sin(time * 16)
@@ -17,7 +18,7 @@ function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color)
 
     love.graphics.push()
     love.graphics.translate(offsetX, offsetY)
-    love.graphics.rotate(wiggle)
+    love.graphics.rotate(wiggle + (tilt or 0))
 
     -- Capa exterior de fuego
     love.graphics.setColor(color[1], color[2], color[3], 0.45 * intensity * pulse)
@@ -731,6 +732,7 @@ function ShipRenderer.drawGeometricShip(self, isAbandoned, classic)
         ConvoyArt.draw(self, size)
         return
     end
+    if TacticalPixelArt.draw(self, size, isAbandoned, classic) then return end
     if not classic and self.shipType == 'INTERCEPTOR' then
         InterceptorPixelArt.draw(self, size, isAbandoned)
         return
@@ -980,11 +982,10 @@ function ShipRenderer.drawAIShip(self)
         love.graphics.setColor(0.65, 0.90, 1.0, rcsAlpha)
         -- El chorro sale del flanco opuesto al empuje lateral
         local nozzleX = -rcsSide * sz * 0.85
-        love.graphics.polygon("fill",
-            nozzleX, -sz * 0.25,
-            nozzleX - rcsSide * sz * 0.75, 0,
-            nozzleX, sz * 0.25
-        )
+        local ax, ay = TacticalPixelArt.project(self, nozzleX, -sz * 0.25)
+        local bx, by = TacticalPixelArt.project(self, nozzleX - rcsSide * sz * 0.75, 0)
+        local cx, cy = TacticalPixelArt.project(self, nozzleX, sz * 0.25)
+        love.graphics.polygon("fill", ax, ay, bx, by, cx, cy)
     end
 
     self:drawShieldEffect()
@@ -1149,6 +1150,7 @@ function ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
             for _, em in ipairs(emitters) do
                 local lx, ly = self:getHardpointLocalPosition(em.name)
                 if lx and ly then
+                    lx, ly = TacticalPixelArt.project(self, lx, ly)
                     love.graphics.setColor(0.14, 0.18, 0.24, 0.90)
                     love.graphics.rectangle("fill", lx - 1.6, ly - 3.6, 3.2, 5.2, 1, 1)
                     if hpLevel >= 4 then
@@ -1168,6 +1170,7 @@ function ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
         for i = 1, #flashes do
             local mf = flashes[i]
             if mf and mf.lx and mf.ly then
+                local lx, ly = TacticalPixelArt.project(self, mf.lx, mf.ly)
                 local progress = math.min(1.0, (mf.timer or 0) / math.max(0.01, mf.duration or 0.09))
                 local fade = 1.0 - progress
                 local radius = (mf.overcharged and 6.2 or 4.2) * (0.7 + 0.5 * fade)
@@ -1177,10 +1180,10 @@ function ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
                 else
                     love.graphics.setColor(0.35, 0.88, 1.0, 0.50 * fade)
                 end
-                love.graphics.circle("fill", mf.lx, mf.ly - 2.0, radius)
+                love.graphics.circle("fill", lx, ly - 2.0, radius)
 
                 love.graphics.setColor(1.0, 1.0, 1.0, 0.92 * fade)
-                love.graphics.circle("fill", mf.lx, mf.ly - 2.5, radius * 0.48)
+                love.graphics.circle("fill", lx, ly - 2.5, radius * 0.48)
             end
         end
     end
