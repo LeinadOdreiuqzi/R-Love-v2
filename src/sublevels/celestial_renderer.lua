@@ -772,6 +772,12 @@ end
 
 -- ─── TRIBUTO UESC MARATHON (NAVE INCRUSTADA EN LA LUNA DE DEIMOS) ───────────
 
+-- UESC hull stencil, drawn in ship coordinates so it scales with the scenic layer.
+local marathonStencil = {
+    "101011101110111", "101010001000100", "101011101110100",
+    "101010000010100", "111011101110111",
+}
+
 function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale, t, lightDir)
     local orbSpeed = (shipDef and shipDef.orbitSpeed) or 0.03
     -- Posicionada en el limbo izquierdo de la luna, con la aguja apuntando al centro (idéntica a Marathon referencia)
@@ -821,70 +827,62 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
         love.graphics.setShader()
     end
 
-    -- ========================================================================
-    -- 2. EL ESPINAZO CONTINUO DE LA NAVE MARATHON (PRESERVADO INTACTO)
-    -- ========================================================================
+    -- The spine crosses the excavation. Its service deck sits above the
+    -- cobalt side plating, with a recessed keel visible along the near edge.
+    local g = love.graphics
+    local daylight = 0.58 + 0.42 * math.max(0, lightDir[3])
+    local function paint(r, green, b)
+        g.setColor(r * daylight, green * daylight, b * daylight, 1)
+    end
 
-    -- 2.1 Popa / cola rectangular trasera (sale por la parte izquierda de Deimos)
-    love.graphics.setColor(0.16, 0.38, 0.80, 1.0) -- Azul UESC
-    love.graphics.rectangle("fill", -48, -2.2, 34, 4.4)
-    -- Extremo plano de la popa (tapa de motores oscura)
-    love.graphics.setColor(0.12, 0.14, 0.18, 1.0)
-    love.graphics.rectangle("fill", -51, -2.6, 3.2, 5.2)
+    -- Far-side suspension blades disappear behind the deck.
+    paint(0.13, 0.17, 0.29)
+    for x = -34, -6, 14 do
+        g.polygon("fill", x,-15, x+2,-15, x+4,12, x+2,12)
+    end
 
-    -- 2.2 Aguja delantera principal (sale por la parte derecha de Deimos)
-    -- Quilla ventral oscura
-    love.graphics.setColor(0.10, 0.12, 0.16, 1.0)
-    love.graphics.polygon("fill", 0, 2.0, 74, 1.0, 74, 2.5, 0, 3.5)
+    paint(0.09, 0.10, 0.16)
+    g.polygon("fill", -51,-3, -46,-6, 71,-6, 77,-4, 77,2, 72,4, -51,5)
+    paint(0.29, 0.33, 0.52)
+    g.polygon("fill", -51,-2, -46,-6, 71,-6, 76,-4, 73,-2)
+    paint(0.41, 0.43, 0.77)
+    g.polygon("fill", -50,-2, 73,-2, 73,2, -50,3)
+    paint(0.20, 0.23, 0.42)
+    g.polygon("fill", 73,-2, 77,-4, 77,1, 73,3)
 
-    -- Viga inferior (haz azul cobalto)
-    love.graphics.setColor(0.18, 0.42, 0.84, 1.0)
-    love.graphics.polygon("fill", 0, 0.3, 74, 0.2, 74, 2.0, 0, 2.0)
+    -- Graphite service trench, ochre access hatch and pale radiator bank.
+    paint(0.19, 0.20, 0.24)
+    g.rectangle("fill", -28,-5, 59,3)
+    paint(0.74, 0.69, 0.38)
+    g.polygon("fill", -5,-3, -2,-5, 10,-5, 8,-3)
+    paint(0.55, 0.64, 0.74)
+    g.rectangle("fill", 9,-2, 11,5)
+    paint(0.21, 0.26, 0.37)
+    for y = -1, 1, 2 do g.rectangle("fill", 11,y, 8,1) end
+    for x = 30, 69, 13 do
+        g.rectangle("fill", x,-2, 1,4)
+        g.polygon("fill", x,-2, x+3,-5, x+4,-5, x+1,-2)
+    end
+    paint(0.53, 0.55, 0.85)
+    g.rectangle("fill", 46,-2, 10,1)
+    g.rectangle("fill", -48,-2, 7,1)
+    paint(1, 1, 1)
+    for row, pixels in ipairs(marathonStencil) do
+        for column = 1, #pixels do
+            if pixels:byte(column) == 49 then
+                g.rectangle("fill", 48 + column * 0.65, -2 + row * 0.65, 0.65, 0.65)
+            end
+        end
+    end
+    -- Shadow cast by the upper lip of the excavated rock.
+    g.setColor(0.04, 0.05, 0.09, 0.58)
+    g.polygon("fill", -38,-6, -10,-6, -16,4, -42,4)
 
-    -- Canal central longitudinal oscuro
-    love.graphics.setColor(0.08, 0.10, 0.14, 1.0)
-    love.graphics.polygon("fill", 0, -0.3, 74, -0.2, 74, 0.3, 0, 0.3)
+    -- Near suspension bands span the opening and tuck into the outer crust.
+    paint(0.30, 0.36, 0.66)
+    g.polygon("fill", -29,-13, -27,-13, -25,7, -27,13, -28,13, -27,7)
+    g.polygon("fill", -7,-12, -5,-12, -4,10, -6,14, -6,8)
 
-    -- Viga superior (haz azul cobalto con reflejo dorsal)
-    love.graphics.setColor(0.24, 0.50, 0.92, 1.0)
-    love.graphics.polygon("fill", 0, -2.0, 74, -2.0, 74, -0.3, 0, -0.3)
-
-    -- Placas celestes modulares en la superficie dorsal
-    love.graphics.setColor(0.38, 0.70, 0.95, 0.95)
-    love.graphics.rectangle("fill", 48, -2.0, 18, 0.8)
-    love.graphics.rectangle("fill", 14, -2.0, 12, 0.8)
-
-    -- Tapa frontal de la proa (punta biselada de grafito)
-    love.graphics.setColor(0.12, 0.14, 0.18, 1.0)
-    love.graphics.polygon("fill", 74, -2.0, 77, -1.4, 77, 1.4, 74, 2.0)
-
-    -- Letrero auténtico "UESC" en blanco sobre la aguja azul
-    love.graphics.setColor(0.98, 0.98, 1.0, 0.98)
-    love.graphics.setLineWidth(1.3)
-    -- 'U' (x = 26 a 29)
-    love.graphics.line(26.0, -1.5, 26.0, 0.2)
-    love.graphics.line(26.0, 0.2, 29.0, 0.2)
-    love.graphics.line(29.0, 0.2, 29.0, -1.5)
-    -- 'E' (x = 31 a 34)
-    love.graphics.line(31.0, -1.5, 31.0, 0.2)
-    love.graphics.line(31.0, -1.5, 34.0, -1.5)
-    love.graphics.line(31.0, -0.65, 33.2, -0.65)
-    love.graphics.line(31.0, 0.2, 34.0, 0.2)
-    -- 'S' (x = 36 a 39)
-    love.graphics.line(39.0, -1.5, 36.0, -1.5)
-    love.graphics.line(36.0, -1.5, 36.0, -0.65)
-    love.graphics.line(36.0, -0.65, 39.0, -0.65)
-    love.graphics.line(39.0, -0.65, 39.0, 0.2)
-    love.graphics.line(39.0, 0.2, 36.0, 0.2)
-    -- 'C' (x = 41 a 44)
-    love.graphics.line(44.0, -1.5, 41.0, -1.5)
-    love.graphics.line(41.0, -1.5, 41.0, 0.2)
-    love.graphics.line(41.0, 0.2, 44.0, 0.2)
-    love.graphics.setLineWidth(1.0)
-
-    -- ========================================================================
-    -- 3. CAPARAZÓN EXTERIOR DE DEIMOS (PRIMER PLANO)
-    -- ========================================================================
     if dShader and whiteImg then
         love.graphics.setShader(dShader)
         sendDeimosUniforms(2.0)
@@ -893,58 +891,6 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
         love.graphics.setShader()
     end
 
-    -- ========================================================================
-    -- 5. INCRUSTACIÓN SENCILLA Y ELEGANTE (SIN CAJAS TOLETERAS)
-    -- ========================================================================
-
-    -- Franja de seguridad naranja en la salida de la aguja hacia el espacio
-    love.graphics.setColor(0.98, 0.65, 0.12, 1.0)
-    love.graphics.rectangle("fill", 1.8, -2.2, 2.0, 4.4)
-
-    -- Sombra de contacto natural en la boca derecha
-    love.graphics.setColor(0.06, 0.07, 0.09, 0.85)
-    love.graphics.rectangle("fill", 0.6, -2.0, 1.2, 4.0)
-
-    -- Sutil resalte de roca solar en el brocal superior derecho
-    love.graphics.setColor(0.85, 0.82, 0.75, 0.80)
-    love.graphics.line(0.4, -2.4, 1.8, -2.2)
-
-    -- Sombra de contacto en la entrada de la popa izquierda
-    love.graphics.setColor(0.05, 0.05, 0.07, 0.90)
-    love.graphics.rectangle("fill", -35.2, -2.2, 1.4, 4.4)
-
-    -- ========================================================================
-    -- 6. ESCOMBROS ROCOSOS Y PARTÍCULAS FLOTANTES (REFERENCIA 3D)
-    -- ========================================================================
-    local debris = {
-        { x = 5,   y = 11,  w = 2.4, h = 1.7, rot = 0.4 },
-        { x = 12,  y = 15,  w = 2.8, h = 2.1, rot = -0.3 },
-        { x = 20,  y = 13,  w = 2.0, h = 1.5, rot = 0.8 },
-        { x = 28,  y = 17,  w = 2.5, h = 1.9, rot = -0.2 },
-        { x = 36,  y = 14,  w = 1.8, h = 1.4, rot = 0.5 },
-        { x = 46,  y = 18,  w = 2.2, h = 1.6, rot = -0.6 },
-        { x = -4,  y = 23,  w = 2.7, h = 2.0, rot = 0.2 },
-        { x = -15, y = 26,  w = 2.3, h = 1.7, rot = -0.5 },
-        { x = -29, y = 22,  w = 2.5, h = 1.9, rot = 0.6 },
-        { x = -11, y = -27, w = 3.0, h = 2.2, rot = 0.3 },
-        { x = 6,   y = -23, w = 2.4, h = 1.8, rot = -0.4 },
-        { x = -34, y = -17, w = 2.6, h = 2.0, rot = 0.7 }
-    }
-
-    for _, rf in ipairs(debris) do
-        love.graphics.push()
-        love.graphics.translate(rf.x, rf.y)
-        love.graphics.rotate(rf.rot)
-        love.graphics.setColor(0.46, 0.46, 0.52, 0.95)
-        love.graphics.polygon("fill", -rf.w * 0.4, -rf.h * 0.5, rf.w * 0.5, -rf.h * 0.3, rf.w * 0.3, rf.h * 0.2, 0, 0)
-        love.graphics.setColor(0.24, 0.24, 0.28, 0.95)
-        love.graphics.polygon("fill", -rf.w * 0.5, 0, -rf.w * 0.4, -rf.h * 0.5, 0, 0, -rf.w * 0.3, rf.h * 0.4)
-        love.graphics.setColor(0.10, 0.10, 0.13, 0.95)
-        love.graphics.polygon("fill", -rf.w * 0.3, rf.h * 0.4, 0, 0, rf.w * 0.3, rf.h * 0.2, rf.w * 0.1, rf.h * 0.5)
-        love.graphics.pop()
-    end
-
-    love.graphics.setLineWidth(1.0)
     love.graphics.pop()
 end
 

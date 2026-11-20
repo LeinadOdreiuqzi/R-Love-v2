@@ -121,16 +121,14 @@ local shaderCode = [[
         rockDist += (vEdge.x - 0.5) * 0.035;
 
         // 5. CAVIDAD VENTRAL MINERA (CÁMARA DE EXTRACCIÓN INDUSTRIAL)
-        vec2 pCav = vec2((p.x + 0.02) / 0.44, (p.y - 0.24) / 0.36);
-        float rCav = length(pCav);
-        float nCav = (fbm(p * 4.0 + vec2(3.1, 7.8)) - 0.5) * 0.10;
-        bool isCavity = (rCav < (0.95 + nCav)) && (p.y > -0.06);
-
-        // Nicho de extracción entre el espolón y la quilla
-        vec2 pMineNiche = vec2((p.x + 0.48) / 0.18, (p.y - 0.25) / 0.18);
-        if (length(pMineNiche) < 0.90 && p.y > 0.02) {
-            isCavity = true;
-        }
+        // A broad equatorial cut exposes the continuous colony deck. Broken
+        // basalt lips interrupt its edge, with open space at the right exit.
+        float fracture = (noise(p * 12.0) - 0.5) * 0.11;
+        float cutCenter = 0.01 - 0.08 * p.x;
+        float cutHeight = 0.28 + 0.08 * p.x + fracture;
+        float rCav = abs(p.y - cutCenter) / cutHeight;
+        bool isCavity = rCav < 1.0;
+        if (isCavity && p.x > 0.25 + fracture * 2.0) rockDist = 1.0;
 
         if (rockDist > 0.0) isCavity = false;
 
@@ -138,7 +136,8 @@ local shaderCode = [[
     }
 
     vec4 effect(vec4 color, Image tex, vec2 texcoord, vec2 screen_coords) {
-        vec2 p = (texcoord - vec2(0.5)) * 2.30;
+        vec2 grid = vec2(58.0, 52.0);
+        vec2 p = ((floor(texcoord * grid) + 0.5) / grid - vec2(0.5)) * 2.30;
 
         vec4 info = evaluateDeimosTopDown(p);
         float rockDist = info.x;
