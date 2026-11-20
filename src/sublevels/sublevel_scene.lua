@@ -700,6 +700,10 @@ function SubLevelScene:mousereleased(x, y, button)
         InventoryUI:mousereleased(x, y, button, player)
         return true
     end
+    if self.lootLab and self.lootLab.inspecting then
+        self.lootLab:mousereleased(x, y, button)
+        return true
+    end
     return false
 end
 

@@ -208,7 +208,7 @@ function Loot.getBox(run, roomId, boxIndex)
     local room = run.lootRooms[roomId]
     local box = room and room[boxIndex]
     if not box then return end
-    if box.gridVersion ~= Grid.version then
+    if box.gridVersion ~= Grid.version or not box.placements then
         local config = roomProfiles[room.rarity or 'rare'] or roomProfiles.rare
         local capacity = box.capacity or (room.convoyWreck and 24 or config.capacity)
         local migrated
@@ -220,7 +220,21 @@ function Loot.getBox(run, roomId, boxIndex)
                 break
             end
         end
-        if not migrated then box.capacity, box.placements, box.gridVersion = nil, nil, Grid.version end
+        if not migrated then
+            -- Oversized legacy boxes keep every item, even if they need extra rows.
+            local cells = {}
+            box.capacity, box.placements, box.gridVersion = 32, {}, Grid.version
+            for i, id in ipairs(box) do
+                local data = Items:getItem(id) or {id = id}
+                local anchor, rotated = Grid.find(cells, box.capacity, data)
+                while not anchor do
+                    box.capacity = box.capacity + Grid.columns
+                    anchor, rotated = Grid.find(cells, box.capacity, data)
+                end
+                box.placements[i] = {anchor = anchor, rotated = rotated}
+                Grid.claim(cells, anchor, data, rotated)
+            end
+        end
     end
     return {unpack(box)}, box.revealed or 0, box.capacity, box.placements
 end
@@ -231,16 +245,51 @@ function Loot.revealNext(run, roomId, boxIndex)
     if box then box.revealed = math.min(#box, (box.revealed or 0) + 1) end
 end
 
-function Loot.takeFromBox(run, roomId, boxIndex, itemIndex, inventory)
+function Loot.boxEntry(box, index)
+    local place = box.placements[index]
+    return place and (place.entry or Items:getItem(box[index]))
+end
+
+function Loot.boxCells(box, skip)
+    local cells = {}
+    for i, place in ipairs(box.placements) do
+        if i ~= skip then
+            Grid.claim(cells, place.anchor, Loot.boxEntry(box, i) or {id = box[i]}, place.rotated)
+        end
+    end
+    return cells
+end
+
+function Loot.takeFromBox(run, roomId, boxIndex, index, inventory, anchor, rotated, equipment)
     local room = run.lootRooms[roomId]
     local box = room and room[boxIndex]
-    local id = box and box[itemIndex]
-    local item = id and Items:getItem(id)
-    if not item or itemIndex > (box.revealed or 0)
-        or not inventory:addItemToCompartment('ship', item, 1, true) then return false end
-    table.remove(box, itemIndex)
-    if box.placements then table.remove(box.placements, itemIndex) end
+    if not box or not box[index] or index > (box.revealed or 0) then return false end
+    local entry = Loot.boxEntry(box, index)
+    if not entry then return false end
+    local added
+    if equipment then added = inventory:equipLoot(entry, equipment, anchor)
+    elseif anchor then added = inventory:placeCargo(entry, anchor, rotated)
+    else added = inventory:addItemToCompartment('ship', entry, entry.quantity or 1, true) end
+    if not added then return false end
+    table.remove(box, index)
+    table.remove(box.placements, index)
     box.revealed = box.revealed - 1
+    return true
+end
+
+function Loot.storeInBox(box, inventory, source, anchor, rotated, compartment)
+    compartment = compartment or 'ship'
+    if compartment == 'weapons' and source == 1 then return false end
+    local entry = inventory:getCompartment(compartment).items[source]
+    if not entry then return false end
+    local cells = Loot.boxCells(box)
+    if not anchor then anchor, rotated = Grid.find(cells, box.capacity, entry) end
+    if not Grid.fits(cells, box.capacity, anchor, entry, rotated) then return false end
+    local index = (box.revealed or 0) + 1
+    inventory:removeItemFromCompartment(compartment, source)
+    table.insert(box, index, entry.data.id)
+    table.insert(box.placements, index, {anchor = anchor, rotated = rotated, entry = entry})
+    box.revealed = index
     return true
 end
 

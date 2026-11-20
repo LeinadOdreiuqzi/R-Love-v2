@@ -72,13 +72,13 @@ end
 
 -- Configuración de slots por tipo de nave
 local SHIP_INVENTORY_CONFIG = {
-    EXPLORER = {columns = 3, inventorySlots = 18},
-    FIGHTER = {columns = 3, inventorySlots = 12},
+    EXPLORER = {columns = 4, inventorySlots = 24},
+    FIGHTER = {columns = 4, inventorySlots = 16},
     CARGO = {columns = 4, inventorySlots = 32},
-    INTERCEPTOR = {columns = 3, inventorySlots = 12},
-    GUNSHIP = {columns = 3, inventorySlots = 18},
+    INTERCEPTOR = {columns = 4, inventorySlots = 16},
+    GUNSHIP = {columns = 4, inventorySlots = 24},
     SALVAGER = {columns = 4, inventorySlots = 32},
-    SENTINEL = {columns = 3, inventorySlots = 12},
+    SENTINEL = {columns = 4, inventorySlots = 16},
     TITAN_EXCAVATOR = {columns = 4, inventorySlots = 32},
     ECLIPSE = {columns = 4, inventorySlots = 24},
     DREADNOUGHT = {columns = 4, inventorySlots = 24},
@@ -350,6 +350,44 @@ local function copyStack(itemData, quantity)
     for k, v in pairs(itemData.data or itemData) do data[k] = v end
     data.quantity, entry.data, entry.quantity = quantity, data, quantity
     return entry
+end
+
+-- Manual drops respect the chosen cell. Only quick transfers may repack cargo.
+function InventorySystem:placeCargo(entry, anchor, rotated)
+    local existing = self.items[self:cargoAnchor(anchor)]
+    local data = entry.data or entry
+    local amount = entry.quantity or 1
+    if existing then
+        local total = (existing.quantity or 1) + amount
+        if not data.stackable or existing.data.id ~= data.id or total > (data.maxStack or 99) then return false end
+        existing.quantity, existing.data.quantity = total, total
+    else
+        if not Grid.fits(Grid.occupancy(self.items), self.maxSlots, anchor, entry, rotated) then return false end
+        local stack = copyStack(entry, amount)
+        stack.rotated = rotated
+        self.items[anchor] = stack
+    end
+    self:evaluateSynergies()
+    return true
+end
+
+function InventorySystem:equipLoot(entry, name, slot)
+    local comp = self:getCompartment(name)
+    local data = entry.data or entry
+    if not comp or slot < 1 or slot > comp.maxSlots or comp.items[slot] then return false end
+    if name == 'weapons' then
+        if slot == 1 or data.category ~= 'equipable' or data.equipType ~= 'weapon' then return false end
+        comp.items[slot] = copyStack(entry, entry.quantity or 1)
+        self:evaluateSynergies()
+        return true
+    end
+    if name ~= 'eva' and name ~= 'passives' then return false end
+    if not allowedIn(comp, data) or (name == 'passives' and data.category ~= 'passive') then return false end
+    local item = copyStack(entry, entry.quantity or 1)
+    comp.items[slot] = item
+    if name == 'passives' then handlePassiveEffects(item, self.player, 'apply') end
+    self:evaluateSynergies()
+    return true
 end
 
 local function copyEntries(items)

@@ -5,6 +5,8 @@ local Grid = require 'src.item_systems.cargo_grid'
 
 local Art = require 'src.rendering.loot_art'
 
+local Exchange = require 'src.ui.loot_exchange'
+
 local Inspection = {}
 Inspection.__index = Inspection
 
@@ -83,7 +85,7 @@ function Inspection:update(dt)
     end
     local box = self.inspecting
     if not box then return end
-    if distanceSquared(self.player, box) > 110^2 then self.inspecting = nil; return end
+    if distanceSquared(self.player, box) > 110^2 then self.inspecting, self.drag = nil, nil; return end
     local items, revealed = Loot.getBox(self.run, box.room, box.index)
     if revealed < #items then
         box.search = box.search + dt
@@ -110,19 +112,20 @@ function Inspection:keypressed(key)
     if require('src.ui.inventory_ui'):isOpen() then return false end
     if self.inspecting then
         if key == 'e' or key == 'escape' or key == 'tab' then
-            self.inspecting = nil
+            self.inspecting, self.drag = nil, nil
             self.message = ''
-            return key ~= 'tab'
+            return true
         end
-        if key == 'return' or key == 'kpenter' then self:take(1); return true end
-        return false
+        if key == 'r' then Exchange.rotate(self) end
+        return key ~= 'f11' and key ~= 'p'
     end
     if key ~= 'e' then return false end
     local target = self:nearby()
     if not target then
         return false
     elseif target.room then
-        self.inspecting, self.message = target, ''
+        Loot.getBox(self.run, target.room, target.index)
+        self.inspecting, self.message, self.drag = target, '', nil
         if not target.drawWorld then self.run.lootRooms[target.room][target.index].opened = true end
     elseif not target.id then
         self.keyCollected = self:collectKey(target)
@@ -140,65 +143,12 @@ function Inspection:keypressed(key)
     return true
 end
 
-local function layout(capacity)
-    local sw, sh = love.graphics.getDimensions()
-    local w, h = math.min(460, sw - 24), 202
-    local cell
-    if capacity then
-        local rows = capacity / Grid.columns
-        cell = math.floor(math.min(62, (w - 36) / Grid.columns - 4, (sh - 132) / rows - 4))
-        h = rows * (cell + 4) + 93
-    end
-    return math.floor((sw - w) / 2), math.max(14, math.floor((sh - h) / 2)), w, h, cell
+function Inspection:mousepressed(x, y, button)
+    if self.inspecting then Exchange.press(self, x, y, button) end
 end
 
-local function slotAt(x, y, width, index, id, placement, cell)
-    if cell then
-        local anchor = placement and placement.anchor or index
-        local pitch = cell + 4
-        local w, h = 1, 1
-        if id then w, h = Grid.dimensions(Items:getItem(id) or {id = id}, placement.rotated) end
-        return x + math.floor((width - Grid.columns * pitch + 4) / 2) + (anchor - 1) % Grid.columns * pitch,
-            y + 60 + math.floor((anchor - 1) / Grid.columns) * pitch, w * pitch - 4, h * pitch - 4
-    end
-    local gap = 8
-    local w = math.floor((width - 32 - gap * 2) / 3)
-    return x + 16 + ((index - 1) % 3) * (w + gap),
-        y + 57 + math.floor((index - 1) / 3) * 50, w, 43
-end
-
-local function inside(mx, my, x, y, w, h)
-    return mx >= x and mx < x + w and my >= y and my < y + h
-end
-
-local function drawItemName(name, x, y, w, h)
-    local scale = w < 65 and .85 or 1
-    local width = (w - 8) / scale
-    local _, lines = Theme.small:getWrap(name, width)
-    local lineCount = math.min(#lines, h >= 48 and 3 or h >= 31 and 2 or 1)
-    local g = love.graphics
-    for index = 1, lineCount do
-        local label = lines[index]
-        if index == lineCount and index < #lines then label = '…' end
-        g.printf(label, x + 4, y + 4 + (index - 1) * Theme.small:getHeight() * scale, width, 'center', 0, scale)
-    end
-end
-
-function Inspection:mousepressed(mx, my, button)
-    if button ~= 1 or not self.inspecting then return end
-    local box = self.inspecting
-    local items, revealed, capacity, placements = Loot.getBox(self.run, box.room, box.index)
-    local x, y, w, _, cell = layout(capacity)
-    if inside(mx, my, x + w - 82, y + 10, 66, 23) then
-        self.inspecting, self.message = nil, ''
-        return
-    end
-    for index = 1, revealed do
-        if inside(mx, my, slotAt(x, y, w, index, items[index], placements and placements[index], cell)) then
-            self:take(index)
-            return
-        end
-    end
+function Inspection:mousereleased(x, y, button)
+    if self.inspecting then Exchange.release(self, x, y, button) end
 end
 
 function Inspection:draw()
@@ -244,75 +194,8 @@ function Inspection:drawHUD()
         return
     end
 
-    local items, revealed, capacity, placements = Loot.getBox(self.run, box.room, box.index)
-    local x, y, w, h, cell = layout(capacity)
-    local mx, my = love.mouse.getPosition()
-    g.setColor(.01, .02, .035, .36)
-    g.rectangle('fill', 0, 0, g.getDimensions())
-    Theme.panel(x, y, w, h, box.color, true)
-    g.setFont(Theme.title)
-    g.setColor(box.color)
-    local titleX=x+16
-    if not box.drawWorld then
-        Art.draw(box.capacity or 16,x+31,y+26,box.opening,#items==0,nil,0,.76)
-        titleX=x+57
-    end
-    g.setColor(box.color)
-    g.print(box.name, titleX, y + 12)
-    Theme.panel(x + w - 82, y + 10, 66, 23, box.color, inside(mx, my, x + w - 82, y + 10, 66, 23))
-    g.setFont(Theme.small)
-    g.setColor(Theme.colors.text)
-    g.printf('Cerrar', x + w - 82, y + 15, 66, 'center')
-    local status = #items == 0 and (box.drawWorld and 'Pecio vacío' or 'Caja vacía')
-        or revealed == #items and 'Registro completo · Clic para recoger'
-        or 'Buscando objetos…'
-    g.setColor(Theme.colors.muted)
-    g.print(status, x + 16, y + 38)
-    if capacity then
-        g.printf(('%d celdas'):format(capacity), x + w - 106, y + 38, 90, 'right')
-        for index = 1, capacity do
-            local sx, sy, sw, sh = slotAt(x, y, w, index, nil, nil, cell)
-            g.setColor(.09, .11, .16, .8)
-            g.rectangle('fill', sx, sy, sw, sh, 4, 4)
-            g.setColor(.31, .39, .52, .32)
-            g.rectangle('line', sx, sy, sw, sh, 4, 4)
-        end
-    end
-    local hovered, hoveredShape
-    for index = 1, #items do
-        local sx, sy, sw, sh = slotAt(x, y, w, index, items[index], placements and placements[index], cell)
-        local visible = index <= revealed
-        local hover = visible and inside(mx, my, sx, sy, sw, sh)
-        local item = visible and (Items:getItem(items[index]) or {name = items[index]})
-        local rarity = item and item.rarity
-        local color = type(rarity) == 'table' and rarity.color or Theme.colors.muted
-        Theme.panel(sx, sy, sw, sh, color, hover)
-        if visible then
-            g.setColor(Theme.colors.text)
-            drawItemName(item.name, sx, sy, sw, sh)
-            if type(rarity) == 'table' and sh >= 54 then
-                g.setColor(color)
-                g.printf(rarity.name, sx + 5, sy + sh - 12, sw - 10, 'center')
-            end
-            if hover then
-                hovered = item
-                local wide, tall = Grid.dimensions(item, placements and placements[index].rotated)
-                hoveredShape = ('Carga · %d×%d'):format(wide, tall)
-            end
-        else
-            g.setColor(Theme.colors.muted)
-            g.printf('?', sx, sy + math.floor((sh - 14) / 2), sw, 'center')
-            if index == revealed + 1 then
-                g.setColor(box.color)
-                g.rectangle('fill', sx + 4, sy + sh - 6, (sw - 8) * math.min(1, box.search / searchTime), 2)
-            end
-        end
-    end
-    g.setColor(Theme.colors.text)
-    local footer = self.message ~= '' and self.message or 'Esc · Cerrar   Enter · Recoger primero   Tab · Carga'
-    g.printf(footer, x + 12, y + h - 25, w - 24, 'center')
+    Exchange.draw(self)
     g.pop()
-    if hovered then Theme.tooltip(self.player, hovered, mx, my, hoveredShape) end
 end
 
 return Inspection

@@ -8,7 +8,8 @@ local InventoryEquipPanels = require 'src.ui.inventory.inventory_equip_panels'
 local PilotPanel = require 'src.ui.inventory.pilot_panel'
 local Theme = require 'src.ui.combat_theme'
 local Grid = require 'src.item_systems.cargo_grid'
-local cargoHeader = 64
+local CargoPanel = require 'src.ui.inventory.cargo_panel'
+local cargoHeader = CargoPanel.header
 
 -- Estado de la UI
 local uiState = {
@@ -43,8 +44,8 @@ local uiState = {
     
     -- Configuración visual (Smarter & Smaller)
     slotSize = 40,
-    slotPadding = 4,
-    panelPadding = 15,
+    slotPadding = CargoPanel.padding,
+    panelPadding = CargoPanel.inset,
     borderRadius = 6,
     
     -- Colores Premium
@@ -109,8 +110,8 @@ end
 local function cargoCell(cell)
     local layout, pitch = uiState.layout, uiState.slotSize + uiState.slotPadding
     local columns = layout.cargoColumns
-    return layout.inventoryX + uiState.panelPadding + (cell - 1) % columns * pitch,
-        layout.inventoryY + cargoHeader + math.floor((cell - 1) / columns) * pitch
+    return CargoPanel.rect(layout.inventoryX + uiState.panelPadding, layout.inventoryY + cargoHeader,
+        pitch, columns, cell)
 end
 
 -- Inicializar UI
@@ -125,7 +126,7 @@ function InventoryUI:init()
 end
 
 -- Calcular layout de la UI
-function InventoryUI:calculateLayout(player)
+function InventoryUI:calculateLayout(player, equipmentX, pitch)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
@@ -133,17 +134,14 @@ function InventoryUI:calculateLayout(player)
     local panelPadding = uiState.panelPadding
     
     -- Configuración dinámica del inventario basada en los slots reales
-    local maxSlots, inventoryColumns = 18, 3
+    local maxSlots, inventoryColumns = 24, Grid.columns
     if player and player.inventory then
         local shipComp = (player.inventory.getCompartment and player.inventory:getCompartment('ship')) or player.inventory
         maxSlots, inventoryColumns = shipComp.maxSlots, shipComp.columns or Grid.columns
     end
 
     local inventoryRows = math.ceil(maxSlots / inventoryColumns)
-    local slotSize = math.min(48, math.max(20, math.floor(math.min(
-        (screenHeight - cargoHeader - 48) / inventoryRows - padding,
-        (screenHeight - 236) / 6 - padding,
-        (screenWidth - 120) / (inventoryColumns + 3) - padding))))
+    local slotSize = (pitch or CargoPanel.pitch(screenWidth, screenHeight, inventoryRows)) - padding
     uiState.slotSize = slotSize
     uiState.layout.cargoCapacity = maxSlots
     uiState.layout.cargoColumns = inventoryColumns
@@ -178,7 +176,7 @@ function InventoryUI:calculateLayout(player)
     uiState.layout.inventoryX = startX
     uiState.layout.inventoryY = startY
     
-    local rightColumnX = startX + uiState.layout.inventoryWidth + panelPadding
+    local rightColumnX = equipmentX or startX + uiState.layout.inventoryWidth + panelPadding
     
     uiState.layout.evaX = rightColumnX
     uiState.layout.evaY = startY
@@ -421,25 +419,11 @@ function InventoryUI:drawInventoryPanel(compartment, player)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
     local padding = uiState.slotPadding
-    local panelPadding = uiState.panelPadding
-    
-    -- Fondo del panel (Glassmorphism)
-    love.graphics.setColor(colors.panelBackground)
-    love.graphics.rectangle("fill", layout.inventoryX, layout.inventoryY, 
-                           layout.inventoryWidth, layout.inventoryHeight, uiState.borderRadius, uiState.borderRadius)
-    
-    -- Borde sutil
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
-    love.graphics.rectangle("line", layout.inventoryX, layout.inventoryY, 
-                           layout.inventoryWidth, layout.inventoryHeight, uiState.borderRadius, uiState.borderRadius)
-    
-    -- Título con fuente más grande
-    love.graphics.setColor(colors.accent)
-    love.graphics.setFont(uiState.titleFont)
-    local shipName = player.shipConfig and player.shipConfig.name or player.inventory.shipType or "Carga"
-    local headerX = layout.inventoryX + panelPadding
-    love.graphics.print(shipName, headerX, layout.inventoryY + 5)
-
+    local recovery = #player.inventory.recoveryCargo
+    local hint = recovery > 0 and ('O · Recuperar carga (%d)'):format(recovery) or 'R · Girar objeto 2×3'
+    local x,y = cargoCell(1)
+    self:drawCargoPanel({x=x, y=y, pitch=slotSize+padding, columns=layout.cargoColumns,
+        capacity=compartment.maxSlots, items=compartment.items, title=CargoPanel.shipTitle(player), hint=hint}, player)
     if player.stats and player.shipConfig then
         love.graphics.setFont(uiState.smallFont)
         local x, y, w, h = statsButton()
@@ -449,25 +433,6 @@ function InventoryUI:drawInventoryPanel(compartment, player)
         love.graphics.printf("Estadísticas", x, y + 2, w, "center")
     end
 
-    local used = 0
-    for _ in pairs(Grid.occupancy(compartment.items, nil, nil, compartment.columns)) do used = used + 1 end
-    love.graphics.setFont(uiState.smallFont)
-    love.graphics.setColor(colors.textSecondary)
-    local capacityLabel = layout.inventoryWidth >= 205 and '%d/%d celdas' or '%d/%d'
-    love.graphics.print(capacityLabel:format(used, compartment.maxSlots), headerX, layout.inventoryY + 37)
-    for i = 1, compartment.maxSlots do
-        local x, y = cargoCell(i)
-        self:drawInventorySlot(x, y)
-    end
-    for anchor, item in pairs(compartment.items) do
-        local x, y = cargoCell(anchor)
-        local w, h = Grid.dimensions(item)
-        local width, height = w * (slotSize + padding) - padding, h * (slotSize + padding) - padding
-        local rarity = item.data.rarity
-        local tint = type(rarity) == 'table' and rarity.color or colors.accent
-        Theme.panel(x, y, width, height, tint, uiState.hoveredItem == item)
-        self:drawItem(x + (width - slotSize) / 2 + 4, y + (height - slotSize) / 2 + 4, slotSize - 8, item)
-    end
     local dragged = uiState.draggedItem
     local hovered = dragged and self:getInventorySlotAt(uiState.mouseX, uiState.mouseY, compartment)
     if hovered then
@@ -494,11 +459,7 @@ function InventoryUI:drawInventoryPanel(compartment, player)
             love.graphics.rectangle('line', sx, sy, sw * pitch - padding, sh * pitch - padding, 4, 4)
         end
     end
-    love.graphics.setFont(uiState.smallFont)
-    love.graphics.setColor(colors.textSecondary)
-    local recovery = #player.inventory.recoveryCargo
-    local hint = recovery > 0 and ('O · Recuperar carga (%d)'):format(recovery) or 'R · Girar objeto 2×3'
-    love.graphics.print(hint, headerX, layout.inventoryY + layout.inventoryHeight - 22)
+
 end
 
 
@@ -542,13 +503,22 @@ function InventoryUI:drawWeaponPanel(weaponCompartment)
     return InventoryEquipPanels.drawWeaponPanel(self, uiState, weaponCompartment)
 end
 
-function InventoryUI:drawInventorySlot(x, y)
-    local colors = uiState.colors
-    local size, radius = uiState.slotSize, uiState.borderRadius
-    love.graphics.setColor(self:isMouseOverSlot(x, y, size) and colors.slotHover or colors.slotEmpty)
-    love.graphics.rectangle('fill', x, y, size, size, radius, radius)
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], .3)
-    love.graphics.rectangle('line', x, y, size, size, radius, radius)
+function InventoryUI:layoutLootEquipment(player, x, pitch)
+    if not uiState.font then self:init() end
+    self:calculateLayout(player, x, pitch)
+    uiState.currentPlayer = player
+    uiState.mouseX, uiState.mouseY = love.mouse.getPosition()
+end
+
+function InventoryUI:drawLootEquipment(player)
+    self:drawEVAPanel(player.inventory:getCompartment('eva'))
+    self:drawWeaponPanel(player.inventory:getCompartment('weapons'))
+    self:drawPassivePanel(player.inventory:getCompartment('passives'), player)
+end
+
+function InventoryUI:drawCargoPanel(view, player)
+    if not uiState.font then self:init() end
+    CargoPanel.draw(view, self, uiState, player)
 end
 
 -- Dibujar slot EVA
@@ -597,7 +567,7 @@ function InventoryUI:drawWeaponSlot(x, y, slotIndex, item)
 end
 
 -- Dibujar item
-function InventoryUI:drawItem(x, y, size, item)
+function InventoryUI:drawItem(x, y, size, item, player)
     local colors = uiState.colors
     if not item or not item.data then return end
     
@@ -631,7 +601,7 @@ function InventoryUI:drawItem(x, y, size, item)
         love.graphics.setColor(.78,.53,1)
         require('src.ui.combat_theme').star(x+size-7,y+7,5)
     end
-    local status = require('src.ui.combat_presentation').item(uiState.currentPlayer or World.get('player'), item.data)
+    local status = require('src.ui.combat_presentation').item(player or uiState.currentPlayer or World.get('player'), item.data)
     local label, tint
     if #status.amplifications > 0 then
         label, tint = '+' .. #status.amplifications, {.25,.87,1}
@@ -1032,13 +1002,7 @@ function InventoryUI:getInventorySlotAt(x, y, inventory)
     local pitch = uiState.slotSize + uiState.slotPadding
     local startX, startY = cargoCell(1)
     local columns = inventory.columns or uiState.layout.cargoColumns
-    local rows = math.ceil(inventory.maxSlots / columns)
-    x, y = x - startX, y - startY
-    if x >= 0 and x < columns * pitch - uiState.slotPadding
-        and y >= 0 and y < rows * pitch - uiState.slotPadding then
-        local cell = math.floor(y / pitch) * columns + math.floor(x / pitch) + 1
-        if cell <= inventory.maxSlots then return cell end
-    end
+    return CargoPanel.hit(startX,startY,pitch,columns,inventory.maxSlots,x,y)
 end
 
 -- Obtener slot EVA en posición

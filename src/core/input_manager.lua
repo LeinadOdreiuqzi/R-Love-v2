@@ -392,6 +392,12 @@ function InputManager.mousereleased(x, y, button)
         return
     end
 
+    local inspection = SalvageSites.getInspection()
+    if (not stateManager or not stateManager:top()) and inspection and inspection.inspecting and inspection.player == player then
+        inspection:mousereleased(x, y, button)
+        return
+    end
+
     if EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen() and EVAInventoryUI.mousereleased and player and player.isInEVA then
         EVAInventoryUI:mousereleased(x, y, button, player.evaPlayer)
         return
