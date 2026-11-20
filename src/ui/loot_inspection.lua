@@ -208,9 +208,9 @@ function Inspection:draw()
         if target.drawWorld then
             target.drawWorld(target)
         elseif target.id then
-            local opened = Loot.getRoomRarity(self.run,target.id)
+            local opened = self.run.lootRooms[target.id] ~= nil
             Art.draw('capsule',target.x,target.y,target.unsealing or (opened and 1 or 0),
-                false,target.rarity or target.id,target.roll,1.4)
+                opened,target.rarity or target.id,target.roll,1.4)
         else
             Theme.panel(target.x-58,target.y-42,116,60,target.color)
             g.setColor(target.color)

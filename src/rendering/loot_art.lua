@@ -144,12 +144,20 @@ local function cases(t,empty)
     for _,x in ipairs({-4,3}) do plate(x,6,2,4,0,2,0,0x93afbb,0x4c6379,0x4c6379) end
     plate(-.5,8,9,2,0,2,0,0x7999a6,0x42556c,0x42556c)
 end
-local function capsule(t,_,quality)
-    local trim=quality=='exceptional' and 0xf7c779 or quality=='rare' and 0x8bbce3 or 0x9ed1c7
+-- Marker count also communicates quality when hue is hard to distinguish.
+local capsuleLights={
+    common={lanes=1,core=0xb4e2da,glow={.34,.71,.65},power=.50},
+    rare={lanes=2,core=0x99dbff,glow={.13,.47,1},power=.86},
+    exceptional={lanes=3,core=0xffe6a3,glow={1,.49,.10},power=1.12},
+}
+local function capsule(t,empty,quality)
+    local lamp=capsuleLights[quality] or capsuleLights.common
+    local lens=empty and 0x48545b or lamp.core
     plate(0,0,70,43,-9,8,8,0x586675,0x303d50,0x263344)
     plate(0,0,57,34,-1,2,5,0x1d2b39,0x273649,0x273649)
     for x=-20,20,10 do
         plate(x,0,3,29,1,1,.5,0x607781,0x374854,0x374854)
+        plate(x,0,1.6,9,2,1,.4,lens,0x495967,0x495967)
     end
     for _,sign in ipairs({-1,1}) do
         local y=sign*(9+12*t)
@@ -158,11 +166,52 @@ local function capsule(t,_,quality)
         plate(0,y,24,10,9,1,2,0x536b70,0x4c5e68,0x4c5e68)
         for _,x in ipairs({-23,23}) do
             plate(x,y,6,17,7,3,1,0x687881,0x465460,0x435160)
-            plate(x,y,3,10,10,1,.5,trim,0x50606a,0x50606a)
+            plate(x,y,3,10,10,1,.5,lens,0x50606a,0x50606a)
         end
-        plate(0,y-sign*4,12,2,10,1,.5,trim,0x576873,0x576873)
+        for lane=1,lamp.lanes do
+            local x=(lane-(lamp.lanes+1)/2)*6
+            plate(x,y,3.5,6,10,1,.6,lens,0x576873,0x576873)
+        end
     end
 end
+-- Evaluate the light in sprite pixels so reflections follow the doors at
+-- every zoom and roll, without baking a texture for each idle pulse.
+local lightShader
+local lightSource=[[
+extern vec3 glow;
+extern float power;
+extern float opening;
+vec2 project(float x,float y,float z) {
+    return vec2(.92*x-.43*y,.26*x+.67*y-.86*z);
+}
+float pool(vec2 d,vec2 radius) {
+    d/=radius;
+    return exp(-dot(d,d));
+}
+vec4 effect(vec4 tint,Image tex,vec2 uv,vec2 screen) {
+    vec4 hull=Texel(tex,uv);
+    vec2 p=uv*112.-vec2(56.,60.);
+    float light=0.;
+    for(int i=0;i<2;i++) {
+        float y=(float(i)*2.-1.)*(9.+12.*opening);
+        vec2 door=p-project(0.,y,11.);
+        door.y-=door.x*(.26/.92);
+        light+=.57*pool(door,vec2(13.,5.));
+        for(int j=0;j<2;j++) {
+            vec2 lamp=p-project(float(j)*46.-23.,y,11.);
+            light+=.68*pool(lamp,vec2(5.,5.))+.23*pool(lamp,vec2(11.,9.));
+        }
+    }
+    vec2 bay=p-project(0.,0.,3.);
+    bay.y-=bay.x*(.26/.92);
+    light+=opening*.62*pool(bay,vec2(24.,5.));
+    float intensity=light*power;
+    vec3 surface=hull.rgb+(1.-hull.rgb)*glow*min(intensity,1.);
+    surface=floor(surface*63.+.5)/63.;
+    float halo=clamp(intensity*.42,0.,.48);
+    return vec4(mix(glow,surface,hull.a),max(hull.a,halo))*tint;
+}
+]]
 local cache={}
 function Art.draw(kind,x,y,opening,empty,quality,angle,scale)
     local frame=math.floor(math.min(1,math.max(0,opening or 0))*8+.5)
@@ -183,6 +232,20 @@ function Art.draw(kind,x,y,opening,empty,quality,angle,scale)
         cache[key]=sprite
     end
     g.setColor(1,1,1,1)
+    local previousShader
+    local lit=kind=='capsule' and not empty
+    if lit then
+        local lamp=capsuleLights[quality] or capsuleLights.common
+        lightShader=lightShader or g.newShader(lightSource)
+        previousShader=g.getShader()
+        g.setShader(lightShader)
+        local t=frame/8
+        local pulse=.94+.06*math.sin(love.timer.getTime()*2)
+        lightShader:send('glow',lamp.glow)
+        lightShader:send('opening',t)
+        lightShader:send('power',lamp.power*pulse*(1+.65*math.sin(t*math.pi)))
+    end
     g.draw(sprite,x,y,angle or 0,scale or 1,scale or 1,sprite:getWidth()/2,sprite:getHeight()/2)
+    if lit then g.setShader(previousShader) end
 end
 return Art
