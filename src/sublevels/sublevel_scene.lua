@@ -346,7 +346,14 @@ function SubLevelScene:draw()
     if self.world and self.world.draw then
         self.world:draw(camera)
     end
-    if player and player.draw then player:draw() end
+    if player and player.draw then
+        local sun
+        if (meta and meta.subworldId=='tau_ceti') or (cfg and cfg.id=='tau_ceti_'..tier) then
+            local def=require('src.sublevels.definitions.tau_ceti').tiers[tier]
+            if tier==2 then sun=def.sun elseif tier==3 then sun=def.orbitalSun end
+        end
+        player:draw(self.lootLab,sun)
+    end
 
     -- Dibujar decoraciones y entidades propias del subnivel
     if SublevelDecor and SublevelDecor.draw then SublevelDecor.draw(camera, self.world) end

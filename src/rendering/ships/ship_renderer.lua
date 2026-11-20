@@ -1,3 +1,5 @@
+local LocalLight=require 'src.rendering.local_light'
+local CapsuleLight=require 'src.rendering.capsule_light'
 -- src/rendering/ships/ship_renderer.lua
 -- Renderizado geométrico puro de naves (cascos, propulsores y siluetas por clase).
 -- Separado de naves.lua para desacoplar estado/física de la presentación visual.
@@ -19,6 +21,8 @@ function ShipRenderer.drawThrusterFlame(self, offsetX, offsetY, width, color, ti
     love.graphics.push()
     love.graphics.translate(offsetX, offsetY)
     love.graphics.rotate(wiggle + (tilt or 0))
+
+    LocalLight.halo(0,length*.28,width*(1+intensity*pulse),color[1],color[2],color[3],.36*intensity*pulse)
 
     -- Capa exterior de fuego
     love.graphics.setColor(color[1], color[2], color[3], 0.45 * intensity * pulse)
@@ -726,15 +730,15 @@ function ShipRenderer.drawArkMonolithShape(self, size, isAbandoned)
     end
 end
 
-function ShipRenderer.drawGeometricShip(self, isAbandoned, classic)
+function ShipRenderer.drawGeometricShip(self, isAbandoned, classic, reflection)
     local size = self.size * (self.worldScale or 1)
     if self.convoy then
         ConvoyArt.draw(self, size)
         return
     end
-    if TacticalPixelArt.draw(self, size, isAbandoned, classic) then return end
+    if TacticalPixelArt.draw(self, size, isAbandoned, classic, reflection) then return end
     if not classic and self.shipType == 'INTERCEPTOR' then
-        InterceptorPixelArt.draw(self, size, isAbandoned)
+        InterceptorPixelArt.draw(self, size, isAbandoned, reflection)
         return
     end
     if not classic and ShipArt.draw(self, size, isAbandoned) then return end
@@ -842,6 +846,26 @@ local function effectOrigin(ship,rx,ry,angle,industrial)
     x,y=TacticalPixelArt.project(ship,x,y)
     local c,s=math.cos(angle),math.sin(angle)
     return rx+c*x-s*y,ry+s*x+c*y
+end
+
+local flashBlue,flashGold={.35,.88,1},{1,.85,.25}
+local function withMuzzleLight(ship,base)
+    local flashes=ship.weaponSystem and ship.weaponSystem.activeMuzzleFlashes
+    if not flashes then return base end
+    local brightest
+    for _,f in ipairs(flashes) do
+        if f.lx and f.ly then
+            local power=(f.overcharged and .9 or .55)*math.max(0,1-(f.timer or 0)/math.max(.01,f.duration or .09))
+            if power>0 and (not brightest or power>brightest.power) then
+                local x,y=TacticalPixelArt.project(ship,f.lx,f.ly)
+                brightest={x=x,y=y-2,color=f.overcharged and flashGold or flashBlue,power=power,range=f.overcharged and 22 or 15}
+            end
+        end
+    end
+    if not brightest then return base end
+    base=base or {x=0,y=0,color=flashBlue,power=0}
+    base.flash=brightest
+    return base
 end
 
 function ShipRenderer.drawAIShip(self)
@@ -982,7 +1006,7 @@ function ShipRenderer.drawAIShip(self)
     end
 
     self:drawShieldEffect()
-    self:drawGeometricShip(false)
+    self:drawGeometricShip(false,nil,withMuzzleLight(self))
     ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
 
     -- Baliza de rol / estado diegético sobre el fuselaje
@@ -1038,7 +1062,7 @@ function ShipRenderer.drawAIShip(self)
     end
 end
 
-function ShipRenderer.drawShip(self)
+function ShipRenderer.drawShip(self, capsuleSite, sun)
     if self.convoy then
         if not self.isDestroyed then ShipRenderer.drawAIShip(self) end
         return
@@ -1077,21 +1101,36 @@ function ShipRenderer.drawShip(self)
     
     local r, g, b, a = love.graphics.getColor()
     
+    local reflection=CapsuleLight.sample(capsuleSite,renderX,renderY,renderRot)
+
+    if sun and sun.lightDir then
+        local direction=sun.lightDir
+        reflection=LocalLight.toHull(direction[1],direction[2],renderRot,sun.color,sun.luminosity,.83)
+        reflection.directionZ=direction[3]
+    elseif sun then
+        local dx,dy=sun.x-renderX,sun.y-renderY
+        local power=LocalLight.powerAt(dx,dy,sun.lightRange,sun.luminosity)
+        if power>0 then reflection=LocalLight.toHull(dx,dy,renderRot,sun.coronaColor,power,.90) end
+    end
+    reflection=withMuzzleLight(self,reflection)
+
     -- Escudo visual activo
     self:drawShieldEffect()
     
     -- Dibujar la nave según sprite inicial (si useStarterSprite) o geometría especializada de su clase
     if self.sprite and self.useStarterSprite and self.shipType == "EXPLORER" then
-        love.graphics.setColor(0, 0, 0, 0.3)
-        love.graphics.push()
-        love.graphics.translate(3, 3)
-        love.graphics.draw(self.sprite, 
-                          -self.spriteOffsetX * self.spriteScale, 
-                          -self.spriteOffsetY * self.spriteScale, 
-                          0, 
-                          self.spriteScale, 
-                          self.spriteScale)
-        love.graphics.pop()
+        if not sun then
+            love.graphics.setColor(0, 0, 0, 0.3)
+            love.graphics.push()
+            love.graphics.translate(3, 3)
+            love.graphics.draw(self.sprite,
+                              -self.spriteOffsetX * self.spriteScale,
+                              -self.spriteOffsetY * self.spriteScale,
+                              0,
+                              self.spriteScale,
+                              self.spriteScale)
+            love.graphics.pop()
+        end
 
         local fuelPercentage = self.stats and self.stats:getFuelPercentage() or 100
         if fuelPercentage < 25 then
@@ -1102,7 +1141,7 @@ function ShipRenderer.drawShip(self)
             love.graphics.setColor(1.0, 1.0, 1.0, 1.0)
         end
         
-        love.graphics.draw(self.sprite, 
+        LocalLight.draw(reflection,self.sprite,
                           -self.spriteOffsetX * self.spriteScale, 
                           -self.spriteOffsetY * self.spriteScale, 
                           0, 
@@ -1122,7 +1161,7 @@ function ShipRenderer.drawShip(self)
             love.graphics.circle("fill", lightOffset, 0, 2)
         end
     else
-        self:drawGeometricShip(false)
+        self:drawGeometricShip(false,nil,reflection)
     end
     ShipRenderer.drawHardpointsAndMuzzleFlashes(self)
     

@@ -3,11 +3,12 @@ local utf8 = require 'utf8'
 local Menu = {opened = false, tab = 'weapons', query = '', offset = 0, slot = 2, message = ''}
 local tabs = {{'weapons', 'Armas'}, {'passives', 'Pasivas'}, {'abilities', 'Habilidades'}, {'ships', 'Naves'}}
 
-function Menu.open(player)
+function Menu.open(player, initialTab)
     if not player or not player.inventory then return end
+    Menu.tab = initialTab or Menu.tab
     Menu.player, Menu.opened = player, true
     Menu.query, Menu.offset, Menu.message = '', 0, ''
-    Menu.searchFocused, Menu.focusIndex, Menu.buttons = true, nil, {}
+    Menu.searchFocused, Menu.focusIndex, Menu.buttons = initialTab == nil, nil, {}
 end
 
 function Menu.close()

@@ -227,7 +227,7 @@ function GameLoop.draw()
     end
 
     -- 2. Dibujar entidad del jugador principal
-    if player then player:draw() end
+    if player then player:draw(SalvageSites.getInspection()) end
     
     local playerX, playerY = 0, 0
     if player then

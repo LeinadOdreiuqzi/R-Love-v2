@@ -145,11 +145,7 @@ local function cases(t,empty)
     plate(-.5,8,9,2,0,2,0,0x7999a6,0x42556c,0x42556c)
 end
 -- Marker count also communicates quality when hue is hard to distinguish.
-local capsuleLights={
-    common={lanes=1,core=0xb4e2da,glow={.34,.71,.65},power=.50},
-    rare={lanes=2,core=0x99dbff,glow={.13,.47,1},power=.86},
-    exceptional={lanes=3,core=0xffe6a3,glow={1,.49,.10},power=1.12},
-}
+local capsuleLights=require('src.rendering.capsule_light').profiles
 local function capsule(t,empty,quality)
     local lamp=capsuleLights[quality] or capsuleLights.common
     local lens=empty and 0x48545b or lamp.core

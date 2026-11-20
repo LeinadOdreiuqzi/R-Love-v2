@@ -165,6 +165,10 @@ function Sites.mousepressed(player, x, y, button)
     return true
 end
 
+function Sites.getInspection()
+    return inspection
+end
+
 function Sites.draw()
     if inspection then inspection:draw() end
 end

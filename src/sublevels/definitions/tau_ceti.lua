@@ -1,3 +1,4 @@
+local orbitalSun = { lightDir = { .65, .45, .60 }, color = { 1, .94, .82 }, luminosity = .58 }
 -- src/sublevels/definitions/tau_ceti.lua
 -- Definición declarativa del Submundo "Sistema Tau Ceti"
 -- Vista de canto / oblicua a ~10-12 grados ("Escenario amplio" sin líneas de órbitas)
@@ -217,6 +218,8 @@ local TauCeti = {
                 x = 0,
                 y = 0,
                 radius = 3200,
+                lightRange = 9600,
+                luminosity = .95,
                 surfaceColor = { 1.0, 0.96, 0.85 },
                 coronaColor = { 1.0, 0.58, 0.12 },
                 deepCoronaColor = { 0.85, 0.22, 0.05 },
@@ -261,12 +264,13 @@ local TauCeti = {
             accentColor = { 0.30, 0.90, 0.65 },
             bounds = { width = 16000, height = 16000 },
             entry = { x = 0, y = 2900 },
+            orbitalSun = orbitalSun,
             centralPlanet = {
                 name = "Tau Ceti d (Super-Tierra Rocosa)",
                 radius = 580,
                 atmosphereThickness = 0.22,
                 screenPos = { xRatio = 0.68, yRatio = 0.82 },
-                lightDir = { 0.65, 0.45, 0.60 },
+                lightDir = orbitalSun.lightDir,
                 colors = {
                     atmosphere = { 0.98, 0.86, 0.38 }, -- Amarillo dorado cálido
                     terracotta = { 0.58, 0.25, 0.13 }, -- Continentes terracota rojizo / herrumbre

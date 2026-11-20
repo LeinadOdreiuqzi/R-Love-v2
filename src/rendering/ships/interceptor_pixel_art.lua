@@ -1,3 +1,4 @@
+local LocalLight=require 'src.rendering.local_light'
 local Art = require 'src.rendering.ships.ship_art'
 
 local PixelArt = {}
@@ -134,7 +135,7 @@ function PixelArt.preload()
     if not poses then poses = buildPoses() end
 end
 
-function PixelArt.draw(ship, size, abandoned)
+function PixelArt.draw(ship, size, abandoned, reflection)
     PixelArt.preload()
     local g = love.graphics
     local index = abandoned and 0 or poseIndex(ship)
@@ -147,7 +148,7 @@ function PixelArt.draw(ship, size, abandoned)
     end
     local light = abandoned and .60 or 1
     g.setColor(light, light, light, 1)
-    g.draw(poses[index], 0, 0, 0, size / hullScale, size / hullScale, pivotX, pivotY)
+    LocalLight.draw(reflection,poses[index], 0, 0, 0, size / hullScale, size / hullScale, pivotX, pivotY)
     if abandoned then
         g.setColor(1, .24, .20, .42 + .40 * math.sin(love.timer.getTime() * 4)^2)
         g.circle('fill', 0, -size * .25, math.max(1, size * .095), 8)

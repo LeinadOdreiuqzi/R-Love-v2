@@ -720,7 +720,7 @@ function CelestialRenderer.drawTier3ScenicBackground(def, camera, player, sw, sh
 
         -- Tributo a Marathon (si la luna tiene la nave incrustada)
         if moon.hasMarathon and def.marathonShip then
-            CelestialRenderer.drawMarathonShip(def.marathonShip, mX, mY, mR, scenicScale, t)
+            CelestialRenderer.drawMarathonShip(def.marathonShip, mX, mY, mR, scenicScale, t, def.orbitalSun.lightDir)
         end
     end
 
@@ -772,7 +772,7 @@ end
 
 -- ─── TRIBUTO UESC MARATHON (NAVE INCRUSTADA EN LA LUNA DE DEIMOS) ───────────
 
-function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale, t)
+function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale, t, lightDir)
     local orbSpeed = (shipDef and shipDef.orbitSpeed) or 0.03
     -- Posicionada en el limbo izquierdo de la luna, con la aguja apuntando al centro (idéntica a Marathon referencia)
     local orbAngle = math.pi + 0.12 + math.sin(t * orbSpeed) * 0.08
@@ -800,7 +800,7 @@ function CelestialRenderer.drawMarathonShip(shipDef, moonX, moonY, moonR, scale,
         local function safeSend(name, val)
             if dShader:hasUniform(name) then dShader:send(name, val) end
         end
-        safeSend("u_lightDir", { 0.65, 0.45, 0.60 })
+        safeSend("u_lightDir", lightDir)
         safeSend("u_bounceColor", { 0.24, 0.15, 0.22 })
         safeSend("u_sunColor", { 1.00, 0.96, 0.90 })
         safeSend("u_rockLight", { 0.46, 0.46, 0.52 })

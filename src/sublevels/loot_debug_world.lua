@@ -15,12 +15,20 @@ local targets = {
 local keys = {'inventory', 'weaponSystem', 'stats', 'passiveModifiers', 'resistances',
     'abilities', 'abilitySystem', 'burn', 'weaponAuditActive', 'lootLabActive',
     'hyperTravelEnabled', 'maxSpeed', 'forwardAccel', 'strafeAccel', 'backwardAccel', 'drag',
-    'boostDuration', 'isBoostActive', 'isDrifting', 'phantomPulseCooldown'}
+    'boostDuration', 'isBoostActive', 'isDrifting', 'phantomPulseCooldown',
+    'shipType', 'shipConfig', 'shipName', 'size', 'hardpoints', 'sprite', 'useStarterSprite',
+    'visualBank', 'baseParams', 'boostMultiplier', 'shipSettings', 'damageState', 'debugDisableSynergies'}
 
 function Lab.new(player, seed)
     local self = setmetatable({player = player, seed = tostring(seed), round = 0, saved = {}, targets = {},
-        debugHint = '   [F6] Reiniciar prueba'}, Lab)
+        debugHint = '   [B] Naves   [F6] Reiniciar'}, Lab)
     for _, key in ipairs(keys) do self.saved[key] = player[key] end
+    -- Chassis switching edits these tables in place. Keep the originals for exit.
+    for _, key in ipairs({'shipSettings','damageState'}) do
+        local copy = {}
+        for k,v in pairs(player[key]) do copy[k] = v end
+        player[key] = copy
+    end
     self:reset()
     return self
 end
@@ -63,12 +71,18 @@ function Lab:close()
     require('src.core.inventory_manager').forceCloseAll()
     removeTestPassives(self.player)
     for _, key in ipairs(keys) do self.player[key] = self.saved[key] end
+    local entry = self.player.getShipRegistry()[self.player.shipId]
+    if entry then entry.type, entry.name = self.player.shipType, self.player.shipName end
     self.player:updateShipRegistry()
 end
 
 function Lab:keypressed(key)
     if key == 'f6' then self:reset(); return true end
-    if key == 'b' or key == '0' or key == 'f9' or key == 'f10' or key == 'y' then return true end
+    if key == 'b' then
+        require('src.ui.combat_debug_menu').open(self.player, 'ships')
+        return true
+    end
+    if key == '0' or key == 'f9' or key == 'f10' or key == 'y' then return true end
     return Inspection.keypressed(self, key)
 end
 

@@ -1,3 +1,4 @@
+local LocalLight=require 'src.rendering.local_light'
 -- Original fleet liveries. Geometry is authored at unit hull size and cached as
 -- one colored mesh per chassis; propulsion still follows the ship's live state.
 local Art = {}
@@ -347,10 +348,12 @@ function Art.drawLights(ship,size,abandoned,project)
         local phase = love.timer.getTime() * 3 + (ship.shipId or 0)
         local intensity = .62 + .31 * math.sin(phase)^2
         for _, beacon in ipairs(beacons[id]) do
-            g.setColor(beacon[3], beacon[4], beacon[5], intensity)
             local x,y=beacon[1]*size,beacon[2]*size
             if project then x,y=project(ship,x,y) end
-            g.circle('fill', x,y, math.max(.55,size*.074), 8)
+            local radius=math.max(.55,size*.074)
+            LocalLight.halo(x,y,radius*(2+intensity),beacon[3],beacon[4],beacon[5],.28*intensity)
+            g.setColor(beacon[3],beacon[4],beacon[5],intensity)
+            g.circle('fill',x,y,radius,8)
         end
     end
 end

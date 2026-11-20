@@ -1,3 +1,4 @@
+local LocalLight=require 'src.rendering.local_light'
 local Art=require 'src.rendering.ships.ship_art'
 local Baker=require 'src.rendering.ships.pixel_pose_baker'
 local Interceptor=require 'src.rendering.ships.interceptor_pixel_art'
@@ -114,7 +115,7 @@ function Tactical.project(ship,x,y,engine)
     return x*(1-.14*math.abs(bank)+.10*bank*(x<0 and -1 or 1))-bank*.62*offset,
         y+bank*x*.32+(.74+.20*math.abs(bank))*offset,-bank*.18
 end
-function Tactical.draw(ship,size,abandoned,classic)
+function Tactical.draw(ship,size,abandoned,classic,light)
     local d=designFor(ship)
     if not d then return false end
     if classic then return Art.draw(ship,size,abandoned) end
@@ -123,7 +124,7 @@ function Tactical.draw(ship,size,abandoned,classic)
     local g=love.graphics
     local value=abandoned and .60 or 1
     g.setColor(value,value,value,1)
-    g.draw(d.poses[abandoned and 0 or indexOf(ship)],0,0,0,size/d.scale,size/d.scale,d.width/2,d.height/2)
+    LocalLight.draw(light,d.poses[abandoned and 0 or indexOf(ship)],0,0,0,size/d.scale,size/d.scale,d.width/2,d.height/2)
     Art.drawLights(ship,size,abandoned,Tactical.project)
     return true
 end
