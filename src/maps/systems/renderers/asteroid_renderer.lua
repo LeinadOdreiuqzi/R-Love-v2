@@ -20,7 +20,7 @@ local function lcg(state)
     return (state * 1664525 + 1013904223) % 4294967296
 end
 
-local function drawRock(mapRenderer, kind, worldX, worldY, gx, gy, baseSize, lod, camera, inspection)
+local function drawRock(mapRenderer, kind, worldX, worldY, gx, gy, baseSize, lod, camera, inspection, draw)
     -- Keep the existing size roll independent of the art seed.
     local state = lcg((gx*1103515245 + gy*12345 + kind*2654435761) % 4294967296)
     local radius = baseSize * (0.8 + state/4294967296 * 0.4)
@@ -30,12 +30,11 @@ local function drawRock(mapRenderer, kind, worldX, worldY, gx, gy, baseSize, lod
     local sx, sy = camera:worldToScreen(worldX, worldY)
     local alpha = mapRenderer.calculateEdgeFade(sx, sy, radius, camera)
     local light = CapsuleLight.sample(inspection, worldX, worldY, 0)
-    Rock.draw(kind, seed, sx, sy, radius, camera.zoom or 1, alpha, lod, color, light)
+    draw(kind, seed, sx, sy, radius, camera.zoom or 1, alpha, lod, color, light)
 end
 
 function AsteroidRenderer.drawAsteroids(mapRenderer, chunkInfo, camera, getChunkFunc)
     local rendered = 0
-    local maxAsteroidsPerFrame = (MapConfig.performance and MapConfig.performance.maxAsteroidsPerFrame) or 3000
 
     local baseSizes = (MapConfig.asteroids and MapConfig.asteroids.baseSizes) or {8, 15, 25}
     local sizeScale = (MapConfig.asteroids and MapConfig.asteroids.sizeScale) or 1.0
@@ -54,11 +53,10 @@ function AsteroidRenderer.drawAsteroids(mapRenderer, chunkInfo, camera, getChunk
     local inspection = currentInspection()
     love.graphics.push('all')
     love.graphics.origin()
-    Rock.begin()
+    Rock.beginBatch()
 
     for chunkY = chunkInfo.startY, chunkInfo.endY do
         for chunkX = chunkInfo.startX, chunkInfo.endX do
-            if rendered >= maxAsteroidsPerFrame then break end
             local chunk = getChunkFunc(chunkX, chunkY)
             if chunk and chunk.tiles then
                 local chunkBaseTileX = chunkX * MapConfig.chunk.size
@@ -67,14 +65,12 @@ function AsteroidRenderer.drawAsteroids(mapRenderer, chunkInfo, camera, getChunk
                 local chunkBaseWorldY = chunkY * strideScaled
 
                 for y = 0, MapConfig.chunk.size - 1 do
-                    if rendered >= maxAsteroidsPerFrame then break end
                     local tileRow = chunk.tiles[y]
                     if tileRow then
                         local worldY = chunkBaseWorldY + y * tileSizeScaled
                         local globalTileY = chunkBaseTileY + y
 
                         for x = 0, MapConfig.chunk.size - 1 do
-                            if rendered >= maxAsteroidsPerFrame then break end
                             local tileType = tileRow[x]
                             if tileType and tileType >= MapConfig.ObjectType.ASTEROID_SMALL and tileType <= MapConfig.ObjectType.ASTEROID_LARGE then
                                 local cullingSize = (tileType == 1 and sizeScaled1) or (tileType == 2 and sizeScaled2) or sizeScaled3
@@ -86,7 +82,7 @@ function AsteroidRenderer.drawAsteroids(mapRenderer, chunkInfo, camera, getChunk
                                     rendered = rendered + 1
 
                                     local baseSize = (tileType == 1 and baseSize1) or (tileType == 2 and baseSize2) or baseSize3
-                                    drawRock(mapRenderer, tileType, worldX, worldY, globalTileX, globalTileY, baseSize, lod, camera, inspection)
+                                    drawRock(mapRenderer, tileType, worldX, worldY, globalTileX, globalTileY, baseSize, lod, camera, inspection, Rock.add)
                                 end
                             end
                         end
@@ -96,6 +92,7 @@ function AsteroidRenderer.drawAsteroids(mapRenderer, chunkInfo, camera, getChunk
         end
     end
 
+    Rock.flush()
     love.graphics.pop()
 
     return rendered
@@ -112,7 +109,7 @@ function AsteroidRenderer.drawAsteroidLOD(mapRenderer, asteroidType, worldX, wor
     love.graphics.push('all')
     love.graphics.origin()
     Rock.begin()
-    drawRock(mapRenderer, asteroidType, worldX, worldY, globalX, globalY, baseSize, lod, camera, currentInspection())
+    drawRock(mapRenderer, asteroidType, worldX, worldY, globalX, globalY, baseSize, lod, camera, currentInspection(), Rock.draw)
     love.graphics.pop()
 end
 

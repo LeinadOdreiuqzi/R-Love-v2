@@ -212,20 +212,29 @@ end
 function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     local r, g, b, a = love.graphics.getColor()
 
-    local samples, tinted = 0, 0
+    local samples, loadedFraction = 0, 0
     local red, green, blue, alpha = 0, 0, 0, 0
+    local stride = chunkInfo.strideScaled
+    local area = (chunkInfo.worldRight - chunkInfo.worldLeft) * (chunkInfo.worldBottom - chunkInfo.worldTop)
     for cy = chunkInfo.startY, chunkInfo.endY do
         for cx = chunkInfo.startX, chunkInfo.endX do
             local chunk = getChunkFunc(cx, cy)
-            if chunk and chunk.biome then
-                samples = samples + 1
-                if chunk.biome.type ~= BiomeSystem.BiomeType.DEEP_SPACE then
-                    local color = chunk.biomeBlend and BiomeSystem.getBackgroundColorBlended(chunk.biomeBlend)
-                        or BiomeSystem.getBackgroundColor(chunk.biome.type)
-                    red, green, blue = red + color[1], green + color[2], blue + color[3]
-                    alpha = alpha + (color[4] or 1)
-                    tinted = tinted + 1
+            if chunk and chunk.biome and area > 0 then
+                local left = math.max(chunkInfo.worldLeft, cx * stride)
+                local right = math.min(chunkInfo.worldRight, (cx + 1) * stride)
+                local top = math.max(chunkInfo.worldTop, cy * stride)
+                local bottom = math.min(chunkInfo.worldBottom, (cy + 1) * stride)
+                local fraction = (right - left) * (bottom - top) / area
+                loadedFraction = loadedFraction + fraction
+                local blend = chunk.biomeBlend
+                if blend and blend.weights then
+                    blend = BiomeSystem.sampleBiomeBlend((left + right) / (2 * stride), (top + bottom) / (2 * stride))
                 end
+                local color = blend and BiomeSystem.getBackgroundColorBlended(blend)
+                    or BiomeSystem.getBackgroundColor(chunk.biome.type)
+                red, green, blue = red + fraction * color[1], green + fraction * color[2], blue + fraction * color[3]
+                alpha = alpha + fraction * (color[4] or 1)
+                samples = samples + 1
             end
         end
     end
@@ -237,10 +246,9 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     -- Si hay biomas no Deep Space visibles, aplicar un tinte atmosférico sutil
     -- El alpha está acotado para garantizar que el espacio conserve su negro profundo y
     -- las nebulosas aditivas mantengan su máximo contraste y colores vivos
-    if tinted > 0 then
-        local intensity = 0.35 / tinted
-        love.graphics.setColor(red * intensity, green * intensity, blue * intensity,
-            math.min(0.06, alpha / tinted * 0.06))
+    if alpha > 0 then
+        local intensity = 0.35 / alpha
+        love.graphics.setColor(red * intensity, green * intensity, blue * intensity, math.min(0.06, alpha / loadedFraction * 0.06))
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
     end
 

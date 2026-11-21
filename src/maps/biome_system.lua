@@ -242,6 +242,7 @@ BiomeSystem.biomeConfigs = {
 -- Cache y configuración
 BiomeSystem.CACHE_LIMIT = 2048
 BiomeSystem.biomeCache = {}
+BiomeSystem.regionNodes = {}
 BiomeSystem.parameterCache = {}
 BiomeSystem._cacheKeys = {}
 BiomeSystem._cacheKeyCount = 0
@@ -362,6 +363,8 @@ function BiomeSystem.setPresetProfileBySeed(seed)
             globalMul = { stars = 1.5, asteroids = 0.5, nebulae = 0.4, specialFeatures = 0.8 }
         }
     }
+    BiomeSystem.regionNodes = {}
+    BiomeSystem.biomeCache = {}
     BiomeSystem.debugPresetProfile = profiles[s] or nil
     if BiomeSystem.debugMode then
         if BiomeSystem.debugPresetProfile then
@@ -429,6 +432,7 @@ end
 
 function BiomeSystem.clearCache()
     BiomeSystem.biomeCache = {}
+    BiomeSystem.regionNodes = {}
     BiomeSystem.parameterCache = {}
     BiomeSystem._cacheKeys = {}
     BiomeSystem._cacheKeyCount = 0
@@ -451,6 +455,7 @@ function BiomeSystem._maybeInvalidateOnOCChange()
     if BiomeSystem._ocSignature ~= sig then
         -- Solo los biomas dependen de organicCoherence; los parámetros espaciales no
         BiomeSystem.biomeCache = {}
+        BiomeSystem.regionNodes = {}
         BiomeSystem._cacheKeys = {}
         BiomeSystem._cacheKeyCount = 0
         BiomeSystem._ocSignature = sig
@@ -669,6 +674,7 @@ function BiomeSystem.init(seed)
     BiomeSystem.seed = seed or "A1B2C"
     BiomeSystem.numericSeed = BiomeSystem.seedToNumeric(seed)
     BiomeSystem.biomeCache = {}
+    BiomeSystem.regionNodes = {}
     BiomeSystem.parameterCache = {}
     BiomeSystem._cacheKeys = {}
     BiomeSystem._cacheKeyCount = 0
@@ -867,190 +873,24 @@ function BiomeSystem.matchesBiomeConditions(params, conditions)
     return true
 end
 
--- Muestreador continuo de presencia de bioma en espacio de chunks (cx, cy pueden ser flotantes)
-function BiomeSystem.sampleBiomePresence(biomeType, cx, cy)
-    -- Usa la misma lógica de puntuación que getBiomeForChunk pero sin caché y con coordenadas continuas.
-    local params = BiomeSystem.generateSpaceParameters(cx, cy, true)
+-- Nodos regionales en una malla girada: sus ejes en chunks son (2,1) y (-1,2).
+-- El hash sólo elige el tipo del nodo. La transición se evalúa en espacio continuo.
+local function classifyNode(chunkX, chunkY)
+    local randomValue = (BiomeSystem.hashChunk(chunkX, chunkY) % 10000) / 10000
+    local profile = BiomeSystem.debugPresetProfile
+    if profile and profile.enforceMajority and randomValue < profile.forceChance then
+        return profile.preferBiome
+    end
+    local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY, true)
     local biomeScores = {}
-    local BT = BiomeSystem.BiomeType
-
-    for bType, config in pairs(BiomeSystem.biomeConfigs) do
-        if BiomeSystem.matchesBiomeConditions(params, config.conditions) then
-            local score = config.spawnWeight
-
-            if config.conditions.continentalness then
-                local contLevel = BiomeSystem.findParameterLevel(params.continentalness, "continentalness")
-                for _, allowedLevel in ipairs(config.conditions.continentalness) do
-                    if contLevel == allowedLevel then
-                        score = score * 1.2
-                        break
-                    end
-                end
-            end
-
-            local depthRange = config.conditions.depthRange
-            if depthRange and params.depth then
-                local optimalDepth = (depthRange[1] + depthRange[2]) / 2
-                local depthDistance = math.abs(params.depth - optimalDepth)
-                local depthModifier = 1.0 + (0.3 - depthDistance * 0.6)
-                depthModifier = math.max(0.7, math.min(1.3, depthModifier))
-                score = score * depthModifier
-            end
-
-            table.insert(biomeScores, { type = bType, score = score })
+    for biomeType, config in ipairs(BiomeSystem.biomeConfigs) do
+        local score = _scoreBiomeAtParams(biomeType, config, params)
+        if score then
+            biomeScores[#biomeScores + 1] = {type = biomeType, score = score}
         end
     end
+    if #biomeScores == 0 then return BiomeSystem.BiomeType.DEEP_SPACE end
 
-    if #biomeScores == 0 then
-        return (biomeType == BT.DEEP_SPACE) and 1.0 or 0.0
-    end
-
-    -- Sesgo macro (usa enteros cercanos para coherencia regional)
-    local macroPreferred = BiomeSystem.getMacroPreferredBiome(math.floor(cx + 0.5), math.floor(cy + 0.5))
-    for _, entry in ipairs(biomeScores) do
-        if entry.type == macroPreferred then
-            entry.score = entry.score * BiomeSystem.macro.strength
-        else
-            entry.score = entry.score * BiomeSystem.macro.offStrength
-        end
-    end
-
-    -- Sesgo de preset de depuración (si está activo)
-    do
-        local profile = BiomeSystem.debugPresetProfile
-        if profile and profile.preferBiome then
-            local boost = profile.preferBiomeBoost or 1.0
-            local reduce = profile.reduceOthers or 1.0
-            for _, entry in ipairs(biomeScores) do
-                if entry.type == profile.preferBiome then
-                    entry.score = entry.score * boost
-                else
-                    entry.score = entry.score * reduce
-                end
-            end
-        end
-    end
-
-    -- Sesgo por cañones/grietas (mismo patrón que en getBiomeForChunk)
-    do
-        local st = BiomeSystem.structural and BiomeSystem.structural.canyon
-        if st and st.enabled then
-            local function canyonMask01(xp, yp)
-                local s = st.scale
-                local wx = PerlinNoise.noise(xp * s * 0.7, yp * s * 0.7, 910) * st.warp
-                local wy = PerlinNoise.noise(xp * s * 0.7 + 17, yp * s * 0.7 + 17, 911) * st.warp
-                local xw = xp + wx
-                local yw = yp + wy
-                local base = PerlinNoise.noise(xw * s, yw * s, 777)
-                local ridge = 1 - math.abs(base)
-                local width = math.max(0.01, math.min(1.0, (BiomeSystem.structural.canyon.width or 0.22)))
-                ridge = math.max(0, ridge - (1 - width)) / width
-                ridge = math.max(0, math.min(1, ridge))
-                return ridge
-            end
-            local mask = canyonMask01(cx, cy)
-            if mask > 0 then
-                for _, entry in ipairs(biomeScores) do
-                    if entry.type == BT.DEEP_SPACE then
-                        entry.score = entry.score * (1.0 - st.penalizeDeepSpace * mask)
-                    end
-                    local keyName = nil
-                    if entry.type == BT.ASTEROID_BELT then
-                        keyName = "ASTEROID_BELT"
-                    elseif entry.type == BT.GRAVITY_ANOMALY then
-                        keyName = "GRAVITY_ANOMALY"
-                    elseif entry.type == BT.NEBULA_FIELD then
-                        keyName = "NEBULA_FIELD"
-                    end
-                    local prefWeights = st.prefer or {}
-                    local w = (keyName and prefWeights[keyName]) or 0
-                    if w > 0 then
-                        local k = 1.0 + st.strength * w * mask
-                        entry.score = entry.score * k
-                    end
-                end
-            end
-        end
-    end
-
-    local total = 0
-    local typeScore = 0
-    for _, e in ipairs(biomeScores) do
-        total = total + e.score
-        if e.type == biomeType then
-            typeScore = e.score
-        end
-    end
-
-    if total <= 0 then return 0 end
-    return typeScore / total
-end
-
--- Determinar bioma basado en parámetros 3D
-function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
-    BiomeSystem._maybeInvalidateOnOCChange()
-    local key = chunkX .. "," .. chunkY
-    
-    if BiomeSystem.biomeCache[key] then
-        return BiomeSystem.biomeCache[key]
-    end
-
-    -- Reservas de expansión eliminadas: ahora la expansión del ASTEROID_BELT es determinista y no depende del orden de generación
-    
-    -- Generar parámetros espaciales
-    local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
-    
-    -- Sistema de puntuación para cada bioma
-    local biomeScores = {}
-    
-    for biomeType, config in pairs(BiomeSystem.biomeConfigs) do
-        if BiomeSystem.matchesBiomeConditions(params, config.conditions) then
-            -- Calcular puntuación basada en qué tan bien coincide
-            local score = config.spawnWeight
-            
-            -- Bonus por estar en el centro del rango de continentalidad
-            if config.conditions.continentalness then
-                local contLevel = BiomeSystem.findParameterLevel(params.continentalness, "continentalness")
-                for _, allowedLevel in ipairs(config.conditions.continentalness) do
-                    if contLevel == allowedLevel then
-                        score = score * 1.2
-                        break
-                    end
-                end
-            end
-            
-            -- LA ALTURA AHORA MODIFICA LA PROBABILIDAD, NO BLOQUEA
-            -- Bonus/penalización suave por altura óptima
-            local depthRange = config.conditions.depthRange
-            if depthRange and params.depth then
-                local optimalDepth = (depthRange[1] + depthRange[2]) / 2
-                local depthDistance = math.abs(params.depth - optimalDepth)
-                -- Modificador suave: máximo 1.3x si está en altura perfecta, mínimo 0.7x si está lejos
-                local depthModifier = 1.0 + (0.3 - depthDistance * 0.6)
-                depthModifier = math.max(0.7, math.min(1.3, depthModifier))
-                score = score * depthModifier
-            end
-            
-            table.insert(biomeScores, {
-                type = biomeType,
-                score = score
-            })
-        end
-    end
-    
-    -- Si no hay coincidencias, usar Deep Space
-    if #biomeScores == 0 then
-        if not BiomeSystem.biomeCache[key] then
-            BiomeSystem._trackCacheKey(key)
-        end
-        BiomeSystem.biomeCache[key] = BiomeSystem.BiomeType.DEEP_SPACE
-        return BiomeSystem.BiomeType.DEEP_SPACE
-    end
-    
-    -- Usar hash determinista para selección
-    local chunkHash = BiomeSystem.hashChunk(chunkX, chunkY)
-    local randomValue = (chunkHash % 10000) / 10000.0
-    
     -- Aplicar sesgo macro-regional para formar parches grandes (4–15 chunks)
     local macroPreferred = BiomeSystem.getMacroPreferredBiome(chunkX, chunkY)
     for i, entry in ipairs(biomeScores) do
@@ -1073,20 +913,6 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
                 else
                     entry.score = entry.score * reduce
                 end
-            end
-        end
-    end
-
-    -- NUEVO: Si el preset exige mayoría, forzar este chunk al bioma preferido con alta probabilidad
-    do
-        local profile = BiomeSystem.debugPresetProfile
-        if profile and profile.preferBiome and profile.enforceMajority then
-            local chance = profile.forceChance or 0.85
-            if randomValue < chance then
-                local params2 = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
-                local coherentType = BiomeSystem.applyCoherence3D(chunkX, chunkY, profile.preferBiome, params2)
-                BiomeSystem.biomeCache[key] = coherentType
-                return coherentType
             end
         end
     end
@@ -1158,29 +984,87 @@ function BiomeSystem.getBiomeForChunk(chunkX, chunkY)
         end
     end
 
-    -- Forzar bioma preferido por preset (si está activo) con alta probabilidad
-    do
-        local profile = BiomeSystem.debugPresetProfile
-        if profile and profile.enforceMajority and profile.preferBiome then
-            local forceChance = profile.forceChance or 0.9
-            if randomValue < forceChance then
-                selectedType = profile.preferBiome
+    return BiomeSystem.applyCoherence3D(chunkX, chunkY, selectedType, params)
+end
+
+local function regionNode(i, j)
+    local slot = (i * 131 + j * 47) % 1021
+    local node = BiomeSystem.regionNodes[slot]
+    if node and node.i == i and node.j == j then return node end
+    local x, y = 2 * i - j + 1, i + 2 * j - 1
+    local t = classifyNode(x, y)
+    local angle = (BiomeSystem.hashChunk(x, y) % 360) * math.pi / 180
+    node = {i = i, j = j, x = x + 0.5, y = y + 0.5, type = t,
+            cos = math.cos(angle), sin = math.sin(angle)}
+    BiomeSystem.regionNodes[slot] = node
+    return node
+end
+
+function BiomeSystem.sampleBiomeBlend(cx, cy)
+    BiomeSystem._maybeInvalidateOnOCChange()
+    local x, y = cx - 1.5, cy + 0.5
+    local i, j = math.floor((2*x + y) / 5), math.floor((2*y - x) / 5)
+    local weights = {0, 0, 0, 0, 0, 0}
+    local BT = BiomeSystem.BiomeType
+    local cfg = MapConfig.biomeFootprint
+    local nebulaDistance = math.huge
+    -- Los nodos están separados por sqrt(5) chunks; cada radio es menor.
+    -- Sólo las cuatro esquinas de esta celda pueden alcanzar la muestra.
+    for v = j, j + 1 do
+        for u = i, i + 1 do
+            local node = regionNode(u, v)
+            local t = node.type
+            if t ~= BT.DEEP_SPACE then
+                local dx, dy = cx - node.x, cy - node.y
+                local major = dx * node.cos + dy * node.sin
+                local minor = dy * node.cos - dx * node.sin
+                if t == BT.ASTEROID_BELT then minor = minor / cfg.beltWidthRatio end
+                local distance = math.sqrt(major*major + minor*minor)
+                local radius = t == BT.NEBULA_FIELD and cfg.nebulaRadius or cfg.radius
+                if t == BT.NEBULA_FIELD then nebulaDistance = math.min(nebulaDistance, distance) end
+                local fade = math.max(0, math.min(1, (radius - distance) / (radius - cfg.coreRadius)))
+                weights[t] = math.max(weights[t], fade*fade*(3 - 2*fade))
             end
         end
     end
-
-    -- Aplicar coherencia espacial con vecinos ya generados para unir parches
-    local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
-    local coherentType = BiomeSystem.applyCoherence3D(chunkX, chunkY, selectedType, params)
-
-    if not BiomeSystem.biomeCache[key] then
-        BiomeSystem._trackCacheKey(key)
+    -- Dos núcleos comparten la densidad disponible en su frontera.
+    -- El espacio profundo recupera la parte que ninguno ocupa.
+    local strongest, total = 0, 0
+    for t = 2, #weights do
+        strongest = math.max(strongest, weights[t])
+        total = total + weights[t]
     end
-    BiomeSystem.biomeCache[key] = coherentType
+    if total > 0 then
+        for t = 2, #weights do weights[t] = weights[t] * strongest / total end
+    end
+    weights[BT.DEEP_SPACE] = 1 - strongest
+    local first, second = 1, nil
+    for t = 2, #weights do
+        if weights[t] > weights[first] then
+            first, second = t, first
+        elseif not second or weights[t] > weights[second] then
+            second = t
+        end
+    end
+    local other = weights[second]
+    return {weights = weights, nebulaDistance = nebulaDistance, biomeA = first, biomeB = other > 0 and second or first,
+            blend = other / (weights[first] + other)}
+end
 
-    -- Expansión de ASTEROID_BELT ahora es implícita y determinista vía coherencia/macro; no se crean reservas efímeras
+function BiomeSystem.sampleBiomePresence(biomeType, cx, cy)
+    return BiomeSystem.sampleBiomeBlend(cx, cy).weights[biomeType] or 0
+end
 
-    return coherentType
+function BiomeSystem.getBiomeForChunk(cx, cy)
+    BiomeSystem._maybeInvalidateOnOCChange()
+    local key = cx .. "," .. cy
+    local biome = BiomeSystem.biomeCache[key]
+    if not biome then
+        biome = BiomeSystem.sampleBiomeBlend(cx + 0.5, cy + 0.5).biomeA
+        BiomeSystem._trackCacheKey(key)
+        BiomeSystem.biomeCache[key] = biome
+    end
+    return biome
 end
 
 -- Sistema de coherencia espacial con cohesión orgánica y suavizado local
@@ -1316,165 +1200,33 @@ function BiomeSystem.getBiomeConfig(biomeType)
     return BiomeSystem.biomeConfigs[biomeType] or BiomeSystem.biomeConfigs[BiomeSystem.BiomeType.DEEP_SPACE]
 end
 
-function BiomeSystem.getBiomeInfo(chunkX, chunkY)
-    local biomeType = BiomeSystem.getBiomeForChunk(chunkX, chunkY)
-    local config = BiomeSystem.getBiomeConfig(biomeType)
-    local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
-    
-    -- Calcular top-2 candidatos para mezcla (mismo pipeline de puntuación que getBiomeForChunk)
-    local biomeScores = {}
-    for bType, bCfg in pairs(BiomeSystem.biomeConfigs) do
-        if BiomeSystem.matchesBiomeConditions(params, bCfg.conditions) then
-            local score = bCfg.spawnWeight
-
-            if bCfg.conditions.continentalness then
-                local contLevel = BiomeSystem.findParameterLevel(params.continentalness, "continentalness")
-                for _, allowedLevel in ipairs(bCfg.conditions.continentalness) do
-                    if contLevel == allowedLevel then
-                        score = score * 1.2
-                        break
-                    end
-                end
-            end
-
-            local depthRange = bCfg.conditions.depthRange
-            if depthRange and params.depth then
-                local optimalDepth = (depthRange[1] + depthRange[2]) / 2
-                local depthDistance = math.abs(params.depth - optimalDepth)
-                local depthModifier = 1.0 + (0.3 - depthDistance * 0.6)
-                depthModifier = math.max(0.7, math.min(1.3, depthModifier))
-                score = score * depthModifier
-            end
-
-            table.insert(biomeScores, { type = bType, score = score })
-        end
-    end
-
-    if #biomeScores == 0 then
-        biomeScores = { { type = BiomeSystem.BiomeType.DEEP_SPACE, score = 1.0 } }
-    else
-        local macroPreferred = BiomeSystem.getMacroPreferredBiome(chunkX, chunkY)
-        for _, entry in ipairs(biomeScores) do
-            if entry.type == macroPreferred then
-                entry.score = entry.score * BiomeSystem.macro.strength
-            else
-                entry.score = entry.score * BiomeSystem.macro.offStrength
-            end
-        end
-    end
-
-    -- NUEVO: aplicar también el sesgo del preset aquí para que la mezcla A/B refleje el preset
-    do
-        local profile = BiomeSystem.debugPresetProfile
-        if profile and profile.preferBiome then
-            local boost = profile.preferBiomeBoost or 1.0
-            local reduce = profile.reduceOthers or 1.0
-            for _, entry in ipairs(biomeScores) do
-                if entry.type == profile.preferBiome then
-                    entry.score = entry.score * boost
-                else
-                    entry.score = entry.score * reduce
-                end
-            end
-
-            -- Extra: si se exige mayoría, hacer que el preferido gane casi siempre en la mezcla
-            if profile.enforceMajority then
-                local sb = profile.enforceScoreBoost or 100.0
-                local sr = profile.enforceScoreReduce or 0.25
-                for _, entry in ipairs(biomeScores) do
-                    if entry.type == profile.preferBiome then
-                        entry.score = entry.score * sb
-                    else
-                        entry.score = entry.score * sr
-                    end
-                end
-            end
-        end
-    end
-
-    -- NUEVO: sesgo por cañones/grietas para que la mezcla A/B también forme líneas orgánicas
-    do
-        local st = BiomeSystem.structural and BiomeSystem.structural.canyon
-        if st and st.enabled then
-            local function canyonMask01(cx, cy)
-                local s = st.scale
-                local wx = PerlinNoise.noise(cx * s * 0.7, cy * s * 0.7, 910) * st.warp
-                local wy = PerlinNoise.noise(cx * s * 0.7 + 17, cy * s * 0.7 + 17, 911) * st.warp
-                local xw = cx + wx
-                local yw = cy + wy
-                local base = PerlinNoise.noise(xw * s, yw * s, 777)
-                local ridge = 1 - math.abs(base)
-                local width = math.max(0.01, math.min(1.0, (BiomeSystem.structural.canyon.width or 0.22)))
-                ridge = math.max(0, ridge - (1 - width)) / width
-                ridge = math.max(0, math.min(1, ridge))
-                return ridge
-            end
-            local mask = canyonMask01(chunkX, chunkY)
-            if mask > 0 then
-                for _, entry in ipairs(biomeScores) do
-                    if entry.type == BiomeSystem.BiomeType.DEEP_SPACE then
-                        entry.score = entry.score * (1.0 - st.penalizeDeepSpace * mask)
-                    end
-                    local prefWeights = st.prefer or {}
-                    local keyName = nil
-                    if entry.type == BiomeSystem.BiomeType.ASTEROID_BELT then
-                        keyName = "ASTEROID_BELT"
-                    elseif entry.type == BiomeSystem.BiomeType.GRAVITY_ANOMALY then
-                        keyName = "GRAVITY_ANOMALY"
-                    elseif entry.type == BiomeSystem.BiomeType.NEBULA_FIELD then
-                        keyName = "NEBULA_FIELD"
-                    end
-                    local w = (keyName and prefWeights[keyName]) or 0
-                    if w > 0 then
-                        local k = 1.0 + st.strength * w * mask
-                        entry.score = entry.score * k
-                    end
-                end
-            end
-        end
-    end
-
-    table.sort(biomeScores, function(a, b) return a.score > b.score end)
-    local topA = biomeScores[1]
-    local topB = topA
-    for _, entry in ipairs(biomeScores) do
-        if entry.type ~= biomeType then
-            topB = entry
-            break
-        end
-    end
-
-    local function scoreOf(typeId)
-        for _, e in ipairs(biomeScores) do
-            if e.type == typeId then return e.score end
-        end
-        return 0
-    end
-
-    local scoreA = scoreOf(biomeType)
-    local scoreB = (topB and topB.score) or 0
-    local denom = scoreA + scoreB
-    local blendValue = (denom > 0) and (scoreB / denom) or 0
-
+local function biomeInfoAt(cx, cy)
+    local blend = BiomeSystem.sampleBiomeBlend(cx, cy)
+    local config = BiomeSystem.getBiomeConfig(blend.biomeA)
     return {
-        type = biomeType,
-        name = config.name,
-        config = config,
-        coordinates = {x = chunkX, y = chunkY},
-        parameters = params,
-        blend = {
-            biomeA = biomeType,
-            biomeB = topB and topB.type or biomeType,
-            blend = blendValue
-        }
+        type = blend.biomeA, name = config.name, config = config, blend = blend,
+        coordinates = {x = math.floor(cx), y = math.floor(cy)},
+        parameters = BiomeSystem.generateSpaceParameters(cx, cy, true)
     }
 end
 
-function BiomeSystem.modifyDensities(baseDensities, biomeType, chunkX, chunkY)
-    local config = BiomeSystem.getBiomeConfig(biomeType)
+function BiomeSystem.getBiomeInfo(chunkX, chunkY)
+    local info = biomeInfoAt(chunkX + 0.5, chunkY + 0.5)
+    local key = chunkX .. "," .. chunkY
+    if not BiomeSystem.biomeCache[key] then
+        BiomeSystem._trackCacheKey(key)
+        BiomeSystem.biomeCache[key] = info.type
+    end
+    return info
+end
+
+function BiomeSystem.getBiomeAtWorld(worldX, worldY)
+    return biomeInfoAt(worldX / STRIDE, worldY / STRIDE)
+end
+
+function BiomeSystem.modifyDensities(baseDensities, biomeType, chunkX, chunkY, params)
     local modifiedDensities = {}
-    
-    local params = BiomeSystem.generateSpaceParameters(chunkX, chunkY)
+    params = params or BiomeSystem.generateSpaceParameters(chunkX, chunkY)
     local energyMultiplier = 1.0 + params.energy * 0.3
     local densityMultiplier = 1.0 + params.density * 0.5
     local turbulenceMultiplier = 1.0 + math.abs(params.turbulence) * 0.2
@@ -1584,7 +1336,19 @@ function BiomeSystem.modifyDensities(baseDensities, biomeType, chunkX, chunkY)
 end
 
 -- Mezcla de densidades por bioma usando biomeBlend = { biomeA, biomeB, blend }
-function BiomeSystem.modifyDensitiesBlended(baseDensities, biomeBlend, chunkX, chunkY)
+function BiomeSystem.modifyDensitiesBlended(baseDensities, biomeBlend, chunkX, chunkY, params)
+    if biomeBlend and biomeBlend.weights then
+        local mixed = {}
+        for t, weight in ipairs(biomeBlend.weights) do
+            if weight > 0 then
+                local densities = BiomeSystem.modifyDensities(baseDensities, t, chunkX, chunkY, params)
+                for k, density in pairs(densities) do
+                    mixed[k] = (mixed[k] or 0) + weight * density
+                end
+            end
+        end
+        return mixed
+    end
     local A = biomeBlend and biomeBlend.biomeA
     local B = biomeBlend and biomeBlend.biomeB
     local t = biomeBlend and biomeBlend.blend or 0
@@ -1609,7 +1373,7 @@ end
 function BiomeSystem.updatePlayerBiome(playerX, playerY)
     local Map = require 'src.maps.map'
     local chunkX, chunkY = Map.getChunkInfo(playerX, playerY)
-    local currentBiome = BiomeSystem.getBiomeForChunk(chunkX, chunkY)
+    local currentBiome = BiomeSystem.sampleBiomeBlend(playerX / STRIDE, playerY / STRIDE).biomeA
     
     if BiomeSystem.debugInfo.lastPlayerBiome ~= currentBiome then
         BiomeSystem.debugInfo.lastPlayerBiome = currentBiome
@@ -1646,9 +1410,10 @@ end
 function BiomeSystem.getPlayerBiomeInfo(playerX, playerY)
     local Map = require 'src.maps.map'
     local chunkX, chunkY = Map.getChunkInfo(playerX, playerY)
-    local biomeInfo = BiomeSystem.getBiomeInfo(chunkX, chunkY)
+    local biomeInfo = BiomeSystem.getBiomeAtWorld(playerX, playerY)
     
     return {
+        blend = biomeInfo.blend,
         type = biomeInfo.type,
         name = biomeInfo.name,
         rarity = biomeInfo.config.rarity,
@@ -1838,6 +1603,16 @@ end
 
 -- NUEVO: color de fondo mezclado por chunk según su blend A/B
 function BiomeSystem.getBackgroundColorBlended(blend)
+    if blend and blend.weights then
+        local color = {0, 0, 0, 0}
+        for t, weight in ipairs(blend.weights) do
+            local c = BiomeSystem.biomeConfigs[t].color
+            for channel = 1, 4 do
+                color[channel] = color[channel] + weight * (c[channel] or 1)
+            end
+        end
+        return color
+    end
     if not blend or not blend.biomeA or not blend.biomeB then
         return BiomeSystem.getBackgroundColor((blend and (blend.biomeA or blend.biomeB)) or BiomeSystem.BiomeType.DEEP_SPACE)
     end
@@ -1894,17 +1669,6 @@ end
 
 function BiomeSystem.findNearbyBiomes(x, y, radius)
     radius = radius or 10000
-    local Map = require 'src.maps.map'
-
-    -- Usar la misma malla que el sistema de generación/render (stride escalado)
-    local strideScaled = (Map.stride or (((Map.chunkSize or 0) * (Map.tileSize or 0)) + (Map.spacing or 0))) * (Map.worldScale or 1)
-
-    if strideScaled <= 0 then
-        -- Fallback seguro si faltan datos en Map
-        local cs = (MapConfig.chunk.size * MapConfig.chunk.tileSize) + (MapConfig.chunk.spacing or 0)
-        strideScaled = cs * (MapConfig.chunk.worldScale or 1)
-    end
-
     if not BiomeSystem.isWithinWorldLimits(x, y) then
         return {{
             type = BiomeSystem.BiomeType.DEEP_SPACE,
@@ -1914,60 +1678,29 @@ function BiomeSystem.findNearbyBiomes(x, y, radius)
         }}
     end
 
-    -- Calcular el chunk de partida usando la misma función que usa todo el mapa
-    local startChunkX, startChunkY = Map.getChunkInfo(x, y)
-
-    -- Radio en chunks coherente con strideScaled
-    local chunkRadius = math.ceil(radius / strideScaled)
-
     local foundBiomes = {}
-    local minDistances = {}
+    local function recordSample(wx, wy, distance)
+        local blend = BiomeSystem.sampleBiomeBlend(wx / STRIDE, wy / STRIDE)
+        local t = blend.biomeA
+        if not foundBiomes[t] or distance < foundBiomes[t].distance then
+            local config = BiomeSystem.biomeConfigs[t]
+            foundBiomes[t] = {
+                type = t, name = config.name, distance = distance, config = config,
+                chunkX = math.floor(wx / STRIDE), chunkY = math.floor(wy / STRIDE),
+                parameters = BiomeSystem.generateSpaceParameters(wx / STRIDE, wy / STRIDE, true)
+            }
+        end
+    end
 
-    for dx = -chunkRadius, chunkRadius do
-        for dy = -chunkRadius, chunkRadius do
-            local chunkX = startChunkX + dx
-            local chunkY = startChunkY + dy
-
-            -- Bounds del chunk en coordenadas de mundo usando strideScaled
-            local chunkLeft = chunkX * strideScaled
-            local chunkTop = chunkY * strideScaled
-            local chunkRight = chunkLeft + strideScaled
-            local chunkBottom = chunkTop + strideScaled
-
-            local dxMin = 0
-            if x < chunkLeft then
-                dxMin = chunkLeft - x
-            elseif x > chunkRight then
-                dxMin = x - chunkRight
-            end
-
-            local dyMin = 0
-            if y < chunkTop then
-                dyMin = chunkTop - y
-            elseif y > chunkBottom then
-                dyMin = y - chunkBottom
-            end
-
-            local distance = math.sqrt(dxMin * dxMin + dyMin * dyMin)
-
-            if distance <= radius then
-                local biomeInfo = BiomeSystem.getBiomeInfo(chunkX, chunkY)
-                if biomeInfo and biomeInfo.type then
-                    local biomeType = biomeInfo.type
-                    if not minDistances[biomeType] or distance < minDistances[biomeType] then
-                        minDistances[biomeType] = distance
-                        foundBiomes[biomeType] = {
-                            type = biomeType,
-                            name = biomeInfo.name,
-                            distance = distance,
-                            config = biomeInfo.config,
-                            chunkX = chunkX,
-                            chunkY = chunkY,
-                            parameters = biomeInfo.parameters
-                        }
-                    end
-                end
-            end
+    -- El punto bajo la nave siempre tiene distancia cero. Los demás son
+    -- distancias a muestras del campo, también dentro del mismo chunk.
+    recordSample(x, y, 0)
+    local step = STRIDE / 2
+    for iy = math.ceil((y - radius) / step), math.floor((y + radius) / step) do
+        for ix = math.ceil((x - radius) / step), math.floor((x + radius) / step) do
+            local wx, wy = ix * step, iy * step
+            local distance = math.sqrt((wx - x)^2 + (wy - y)^2)
+            if distance <= radius then recordSample(wx, wy, distance) end
         end
     end
 

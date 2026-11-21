@@ -5,9 +5,23 @@ local shader, white
 local parameters = {}
 local lightVector, radiance = {}, {}
 local source = [[
+#ifdef ROCK_BATCH
+#ifdef VERTEX
+attribute vec3 RockPose;
+attribute vec4 RockData;
+attribute vec4 RockTint;
+attribute vec3 RockEmitter;
+attribute vec3 RockLight;
+#endif
+varying vec4 rock;
+varying vec4 instanceTint;
+varying vec3 emitter;
+varying vec3 lampColor;
+#else
 extern vec4 rock; // two 16-bit seed words, pixel grid width, world radius
 extern vec3 emitter;
 extern vec3 lampColor;
+#endif
 varying vec4 basis;
 varying vec4 profile;
 varying vec4 reachesA;
@@ -20,6 +34,13 @@ float roll(float n) {
     return fract((p.x+p.y)*p.z);
 }
 vec4 position(mat4 transform, vec4 vertex) {
+#ifdef ROCK_BATCH
+    rock = RockData;
+    instanceTint = RockTint;
+    emitter = RockEmitter;
+    lampColor = RockLight;
+    vertex.xy = RockPose.xy + vertex.xy * RockPose.z;
+#endif
     float family = floor(roll(1.)*3.);
     float angle = roll(2.)*6.2831853;
     float width = family < 1. ? .55 : (family < 2. ? .74 : .84);
@@ -75,6 +96,9 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
     vec3 stone=mix(vec3(35.,36.,48.),vec3(184.,164.,140.),t)/255.;
     vec3 incidence=normalize(emitter-vec3(p*rock.w,0.));
     stone+=(1.-stone)*floor(lampColor*max(dot(normal,incidence),0.)*22.+.5)/31.;
+#ifdef ROCK_BATCH
+    tint *= instanceTint;
+#endif
     return vec4(stone*tint.rgb,tint.a);
 }
 #endif
@@ -89,6 +113,66 @@ function Art.begin()
         data:release()
     end
     love.graphics.setShader(shader)
+end
+
+-- El tamaño limita una transferencia a la GPU, nunca la cantidad visible.
+local batchSize = 512
+local batchShader, quad, instances
+local rows, count = {}, 0
+local batchSupported
+local format = {
+    {'RockPose','float',3}, {'RockData','float',4}, {'RockTint','float',4},
+    {'RockEmitter','float',3}, {'RockLight','float',3}
+}
+
+function Art.beginBatch()
+    if batchSupported == nil then
+        batchSupported = love.graphics.getSupported().instancing
+        if batchSupported then
+            local ok
+            ok, batchShader = pcall(love.graphics.newShader, '#define ROCK_BATCH\n' .. source)
+            batchSupported = ok
+        end
+        if batchSupported then
+            quad = love.graphics.newMesh({
+                {-.5,-.5,0,0}, {.5,-.5,1,0}, {-.5,.5,0,1}, {.5,.5,1,1}
+            }, 'strip', 'static')
+            instances = love.graphics.newMesh(format, batchSize, 'points', 'stream')
+            for _, attribute in ipairs(format) do
+                quad:attachAttribute(attribute[1], instances, 'perinstance')
+            end
+        end
+    end
+    count = 0
+    if batchSupported then
+        love.graphics.setColor(1,1,1,1)
+        love.graphics.setShader(batchShader)
+    else
+        Art.begin()
+    end
+end
+
+function Art.flush()
+    if count == 0 then return end
+    instances:setVertices(rows, 1, count)
+    love.graphics.drawInstanced(quad, count)
+    count = 0
+end
+
+function Art.add(kind, seed, x, y, radius, zoom, alpha, lod, color, light)
+    if not batchSupported then
+        return Art.draw(kind, seed, x, y, radius, zoom, alpha, lod, color, light)
+    end
+    count = count + 1
+    local row = rows[count] or {}
+    rows[count] = row
+    row[1], row[2], row[3] = x, y, radius * zoom * (48/21)
+    row[4], row[5], row[6], row[7] = seed % 65536, math.floor(seed/65536), 16*kind, radius
+    row[8], row[9], row[10] = .68+.6*color[1], .71+.55*color[2], .74+.55*color[3]
+    row[11] = alpha * (lod >= 2 and .8 or 1)
+    row[12], row[13], row[14] = light and light.x or 0, light and light.y or 0, 8
+    for i=1,3 do row[14+i] = light and light.color[i]*light.power or 0 end
+    if count == batchSize then Art.flush() end
 end
 
 local wasLit

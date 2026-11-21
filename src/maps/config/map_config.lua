@@ -11,6 +11,15 @@ MapConfig.chunk = {
     spacing = 0
 }
 
+-- Radios desde el centro del chunk propietario, en unidades de chunk.
+MapConfig.biomeFootprint = {
+    coreRadius = 0.55,
+    nebulaRadius = 1.55,
+    radius = 2.0,
+    beltWidthRatio = 0.72,
+    nebulaHaloRadius = 0.65
+}
+
 -- Configuración de estrellas
 MapConfig.stars = {
     maxStarsPerFrame = 6000,
@@ -173,7 +182,7 @@ MapConfig.spawn = {
 
     -- Límites máximos por chunk (ajusta a tu presupuesto)
     caps = {
-        asteroids_per_chunk_max = 900,
+        asteroids_per_chunk_max = 420,
         debris_per_chunk_max = 1200,
         microstars_per_chunk_max = 3000,
         stars_per_chunk_max = 1600   -- subido desde 1200

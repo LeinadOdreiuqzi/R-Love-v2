@@ -418,10 +418,7 @@ end
 
 -- Funciones de acceso y compatibilidad
 function Map.getPlayerBiome(playerX, playerY)
-    local chunkX, chunkY = Map.getChunkInfo(playerX, playerY)
-    -- Usar la ruta no bloqueante para evitar generación sincrónica en tiempo de juego
-    local chunk = Map.getChunkNonBlocking(chunkX, chunkY)
-    return chunk and chunk.biome or nil
+    return BiomeSystem.getBiomeAtWorld(playerX, playerY)
 end
 
 function Map.getChunk(chunkX, chunkY, playerX, playerY)
