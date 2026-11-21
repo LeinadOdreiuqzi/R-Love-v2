@@ -732,7 +732,13 @@ end
 
 function ShipRenderer.drawGeometricShip(self, isAbandoned, classic, reflection)
     local size = self.size * (self.worldScale or 1)
-    if self.convoy then
+    if self.monolithFragment then
+        require('src.rendering.ships.monolith_convoy_art').fragment(size,self)
+        return
+    elseif self.convoy and self.convoy.monolith then
+        require('src.rendering.ships.monolith_convoy_art').draw(self,size)
+        return
+    elseif self.convoy then
         ConvoyArt.draw(self, size)
         return
     end
@@ -879,6 +885,14 @@ function ShipRenderer.drawAIShip(self)
 
     local r, g, b, a = love.graphics.getColor()
     local ai = self.aiController
+    if self.monolithFragment then
+        love.graphics.push('all')
+        love.graphics.translate(renderX,renderY)
+        require('src.rendering.ships.ferro_ribbon').draw(self,self.size*(self.worldScale or 1))
+        love.graphics.pop()
+        self:drawProjectiles()
+        return
+    end
 
     -- 1. Si el agente está extrayendo recursos o desmantelando un pecio, dibujar haz industrial diegético
     if ai and ai.worldGoal and ai.worldGoal.isWorking and ai.worldGoal.targetX and ai.worldGoal.targetY then

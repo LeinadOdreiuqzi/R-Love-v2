@@ -1794,6 +1794,7 @@ function AIController:update(dt)
         self:evaluatePerception()
     end
 
+    local incomingX,incomingY=self.ship.dx,self.ship.dy
     self.ship.isBoostActive = false
     self.ship._aiIsMoving = false
     if self.state ~= AIController.STATES.WORLD_GOAL then
@@ -1828,6 +1829,10 @@ function AIController:update(dt)
         self.ship.dy = (self.ship.dy / spd) * maxSpd
     end
 
+    if self.ship.monolithFragment then
+        self.ship.dx,self.ship.dy=incomingX,incomingY
+        require('src.gameplay.monolith_swarm').steer(self.ship,dt)
+    end
     -- Aplicar fricción espacial suave
     local dragFactor = math.pow(self.ship.drag or 0.94, dt * 60)
     self.ship.dx = (self.ship.dx or 0) * dragFactor
@@ -1841,6 +1846,7 @@ function AIController:update(dt)
         self.ship:resolveAsteroidCollisions(dt)
     end
 
+    if self.ship.monolithFragment then require('src.rendering.ships.ferro_ribbon').update(self.ship,dt) end
     if self.ship.weaponSystem and self.ship.weaponSystem.update then
         self.ship.weaponSystem:update(dt)
     end

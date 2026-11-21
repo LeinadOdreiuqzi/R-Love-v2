@@ -41,7 +41,7 @@ function Sites.addConvoyWreck(run, id)
         or math.abs(math.floor(wreck.y / stride) - currentY) > 1 then return end
     inspection.targets[#inspection.targets + 1] = {
         room = id, index = 1, x = wreck.x, y = wreck.y, rotation = wreck.rotation, size = wreck.size,
-        name = 'Pecio del convoy', color = {1, .66, .35}, search = 0, drawWorld = ConvoyArt.drawWreck
+        fold = wreck.fold, name = wreck.monolith and 'Pecio del monolito' or 'Pecio del convoy', color = {1, .66, .35}, search = 0, drawWorld = wreck.monolith and require('src.rendering.ships.monolith_convoy_art').wreck or ConvoyArt.drawWreck
     }
     loaded[id] = true
 end

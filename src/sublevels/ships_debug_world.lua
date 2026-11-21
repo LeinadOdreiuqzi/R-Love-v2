@@ -8,6 +8,9 @@ local Naves = require 'src.entities.naves'
 local AIController = require 'src.entities.ai_controller'
 local World = require 'src.core.world'
 local WeaponTrial = require 'src.sublevels.weapon_trial'
+local ConvoyArt = require 'src.rendering.ships.convoy_art'
+local FrontierArt = require 'src.rendering.ships.frontier_boss_art'
+local ShipRenderer = require 'src.rendering.ships.ship_renderer'
 
 local ShipsDebugWorld = {
     pads = {},
@@ -140,6 +143,45 @@ local HANGAR_LAYOUT = {
     }
 }
 
+-- Add new event hulls here. Each entry gets a display pad and a navigation stop.
+local eventShips = {
+    {title = 'CARGUERO BLINDADO', subtitle = 'Archivo · Diseño original',
+        statsText = 'Campo octagonal de energía', color = {1,.58,.32},
+        draw = function(pad)
+            love.graphics.push('all')
+            love.graphics.translate(pad.x,pad.y)
+            love.graphics.rotate(pad.preview.rotation)
+            ConvoyArt.draw(pad.preview,pad.size)
+            love.graphics.pop()
+        end},
+    {swarmDemo=true,title = 'MONOLITO ERRANTE', subtitle = 'Convoy de fragmentos',
+        statsText = 'En ruta / forma despierta', color = {.34,.91,.78},
+        draw = function(pad)
+            local c=pad.preview.convoy
+            local t=(c.age or 0)%10
+            c.fold=math.max(0,math.min(1,t-4,10-t))
+            c.state=c.fold>0 and 'awakened' or 'travel'
+            love.graphics.push('all')
+            love.graphics.translate(pad.x,pad.y)
+            love.graphics.rotate(pad.preview.rotation)
+            local art=require 'src.rendering.ships.monolith_convoy_art'
+            art.draw(pad.preview,pad.size*art.sizeMultiplier)
+            love.graphics.pop()
+            for _,f in ipairs(c.escorts or {}) do
+                if not f.isDestroyed then
+                    love.graphics.push('all')
+                    love.graphics.translate(f.x,f.y)
+                    love.graphics.rotate(f.rotation)
+                    art.fragment(f.size,f)
+                    love.graphics.pop()
+                end
+            end
+        end},
+    {title = 'EL PORTERO', subtitle = 'Frontera · Jefe de la primera fase',
+        statsText = 'Casco articulado y emisores laterales', color = {.92,.51,.29},
+        draw = function(pad) FrontierArt.draw(pad.model) end}
+}
+
 local function clearShots(ship)
     for _, shot in ipairs(ship.projectiles or {}) do
         shot.explosion_radius = 0
@@ -254,6 +296,17 @@ function ShipsDebugWorld.init(cfg)
         end
 
         table.insert(ShipsDebugWorld.pads, pad)
+    end
+    ShipsDebugWorld.eventIndex = 0
+    local cargo = ShipsDebugWorld.pads[3].mainShip
+    for i, def in ipairs(eventShips) do
+        local x,y = ((i-1)%5-1)*480, 1520+math.floor((i-1)/5)*520
+        local preview = {x=x,y=y,rotation=0,engineGlow=.75,
+            drawThrusterFlame=ShipRenderer.drawThrusterFlame,convoy={state='travel',armor=1}}
+        table.insert(ShipsDebugWorld.pads, {index=#HANGAR_LAYOUT+i, key='AvPág', x=x,y=y,
+            title=def.title,subtitle=def.subtitle,statsText=def.statsText,badgeColor=def.color,
+            padRadius=130,escortShips={},drawPreview=def.draw,swarmDemo=def.swarmDemo,preview=preview,
+            size=cargo.size*(cargo.worldScale or 1),model={ship=preview,armSpread=.18}})
     end
 end
 
@@ -442,6 +495,41 @@ function ShipsDebugWorld.update(dt, player)
         end
 
         local ship = pad.mainShip
+        if pad.swarmDemo then
+            local c=pad.preview.convoy
+            c.ship,c.age=pad.preview,(c.age or 0)+dt
+            if not c.escorts then
+                c.escorts={}
+                for i=1,3 do
+                    c.escorts[i]={x=pad.x+(i-2)*30,y=pad.y-60,size=12,rotation=0,
+                        monolithOwner=c,buddedAt=-2,budRow=i,budSide=1,dx=0,dy=0}
+                end
+            end
+            local phase=c.age%10
+            local middle=c.escorts[2]
+            if phase>5 and phase<7 then
+                if not middle.isDestroyed then middle.lastDamageTime=middle.lastDamageTime or love.timer.getTime() end
+                middle.isDestroyed=phase>5.35
+            else
+                middle.isDestroyed=false
+                middle.lastDamageTime=nil
+            end
+            local angle=phase<3 and -1.6 or phase<8 and .4 or -2.2
+            local swarm=require 'src.gameplay.monolith_swarm'
+            swarm.form(c,pad.x+math.cos(angle)*200,pad.y+math.sin(angle)*200,dt)
+            for _,f in ipairs(c.escorts) do
+                if not f.isDestroyed then
+                    swarm.steer(f,dt)
+                    f.x,f.y=f.x+f.dx*60*dt,f.y+f.dy*60*dt
+                    f.rotation=math.atan2(f.dy,f.dx)+math.pi*.5
+                    require('src.rendering.ships.ferro_ribbon').update(f,dt)
+                end
+            end
+        end
+        if pad.preview and ShipsDebugWorld.autoRotate then
+            pad.preview.rotation = pad.preview.rotation + dt*.55
+            pad.model.bank = .32*math.sin(t*1.5)
+        end
         if ship and not ship.isPiloted and not ShipsDebugWorld.liveAIMode then
             TacticalArt.previewBank(ship, ShipsDebugWorld.autoRotate and t * 1.5)
             ship.engineGlow = 0.75 + 0.25 * math.sin(t * 4.0 + pad.index)
@@ -529,6 +617,7 @@ function ShipsDebugWorld.draw(camera, player)
         end
 
         -- Renderizar la nave con sus colores activos reales (no apagados) aunque esté lista para ser abordada
+        if pad.drawPreview then pad.drawPreview(pad) end
         if ship and not ship.isDestroyed and not ship.isPiloted then
             if ShipsDebugWorld.liveAIMode and ship.draw then
                 ship:draw()
@@ -674,7 +763,7 @@ function ShipsDebugWorld.drawHUD()
 
     love.graphics.setColor(0.88, 0.92, 0.98, 0.95)
     love.graphics.printf(
-        "[1-7] Naves Tácticas   |   [8] Excavadora Titán   |   [9] Portanaves Eclipse   |   [0] Arca Monolito",
+        "[1–7] Naves tácticas   |   [8–0] Nodrizas   |   [AvPág] Siguiente nave de evento",
         px + 14, py + 33, panelW - 28, "center"
     )
 
@@ -702,7 +791,7 @@ function ShipsDebugWorld.triggerFleetClashDemo()
             elseif pad.shipType == "ARK_MONOLITH" then facId = "SIGNAL_CYAN" end
         end
 
-        local ringAngle = ((idx - 1) / #ShipsDebugWorld.pads) * math.pi * 2
+        local ringAngle = ((idx - 1) / #HANGAR_LAYOUT) * math.pi * 2
         local ringRadius = pad.isMothership and 1050 or 720
         local baseX = math.cos(ringAngle) * ringRadius
         local baseY = 380 + math.sin(ringAngle) * (ringRadius * 0.68)
@@ -821,8 +910,13 @@ function ShipsDebugWorld.keypressed(key, player, camera)
     end
 
     local normalizedKey = tostring(key or ""):gsub("^kp", "")
+    local eventPad
+    if key == 'pagedown' then
+        ShipsDebugWorld.eventIndex = ShipsDebugWorld.eventIndex % #eventShips + 1
+        eventPad = ShipsDebugWorld.pads[#HANGAR_LAYOUT+ShipsDebugWorld.eventIndex]
+    end
     for _, pad in ipairs(ShipsDebugWorld.pads) do
-        if normalizedKey == pad.key then
+        if normalizedKey == pad.key or pad == eventPad then
             local targetX = pad.x
             local targetY = pad.y + pad.padRadius + 130
             local activeEntity = (player and player.getActiveEntity and player:getActiveEntity()) or player

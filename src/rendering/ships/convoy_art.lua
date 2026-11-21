@@ -197,17 +197,20 @@ function ConvoyArt.draw(ship, size)
         g.setColor(1, .34, .13, .85)
         g.rectangle('fill', -size * .13, size * .64, size * .26, size * .10)
     end
-    if not exposed then
-        if not fieldMesh then bakeField() end
-        local flash = (convoy.blockFlash or 0) / ForceField.flashDuration
-        g.setColor(1, 1, 1, 1)
-        g.push('all')
-        g.setShader(fieldShader)
-        fieldShader:send('strike', {convoy.fieldHitX or 0, convoy.fieldHitY or -2.5, 1 - flash, flash > 0 and 1 or 0})
-        fieldShader:send('fieldTime', love.timer.getTime())
-        g.draw(fieldMesh, 0, 0, 0, size, size)
-        g.pop()
-    end
+    if not exposed then ConvoyArt.drawField(convoy, size) end
+end
+
+function ConvoyArt.drawField(convoy, size)
+    local g = love.graphics
+    if not fieldMesh then bakeField() end
+    local flash = (convoy.blockFlash or 0) / ForceField.flashDuration
+    g.setColor(1, 1, 1, 1)
+    g.push('all')
+    g.setShader(fieldShader)
+    fieldShader:send('strike', {convoy.fieldHitX or 0, convoy.fieldHitY or -2.5, 1 - flash, flash > 0 and 1 or 0})
+    fieldShader:send('fieldTime', love.timer.getTime())
+    g.draw(fieldMesh, 0, 0, 0, size, size)
+    g.pop()
 end
 
 return ConvoyArt

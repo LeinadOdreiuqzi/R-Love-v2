@@ -7,15 +7,18 @@ local MapConfig = require 'src.maps.config.map_config'
 local ForceField = require 'src.physics.convoy_force_field'
 local Catalog = require 'src.gameplay.encounter_catalog'
 
+local Swarm=require 'src.gameplay.monolith_swarm'
+local Ribbon=require 'src.rendering.ships.ferro_ribbon'
+
 local Convoy = {}
 Convoy.__index = Convoy
 local stops = {
-    {name = 'Refrigeración', duration = 9, wave = {'FIGHTER', 'INTERCEPTOR'}},
-    {name = 'Relevo', duration = 10, wave = {'FIGHTER', 'SENTINEL'}},
-    {name = 'Alineación', duration = 11, wave = {'INTERCEPTOR', 'FIGHTER', 'GUNSHIP'}},
-    {name = 'Carga de salto', duration = 13, wave = {'INTERCEPTOR', 'GUNSHIP', 'SENTINEL'}}
+    {name = 'Refrigeración', duration = 9, wave = 1},
+    {name = 'Relevo', duration = 10, wave = 1},
+    {name = 'Alineación', duration = 11, wave = 2},
+    {name = 'Despertar', duration = 13, wave = 2}
 }
-local initialEscort = {'FIGHTER', 'INTERCEPTOR', 'SENTINEL'}
+local initialEscort, fragmentCap = 2, 8
 local speed, armorMax, hullMax = 105, 170, 310
 local travelDamage, responseTime = .25, 1.2
 local faction = 'SALVAGE_CONVOY'
@@ -68,7 +71,7 @@ end
 
 function Convoy.trySpawn(director, cx, cy, stride, px, py, map)
     local run = director.runState
-    if not run or director.convoy or #director.ecosystem.activeAgents > director.ecosystem.maxActiveAgents - #initialEscort then return end
+    if not run or director.convoy or #director.ecosystem.activeAgents > director.ecosystem.maxActiveAgents - initialEscort then return end
     local biome = director:getChunkBiomeAndBorder(cx, cy)
     local phase = Catalog.phaseForSector(cx, cy, stride)
     local id, rng = Convoy.candidate(run.seed, cx, cy, biome, phase)
@@ -83,24 +86,36 @@ function Convoy.trySpawn(director, cx, cy, stride, px, py, map)
     if Convoy.start(director, run, id, route, rng) then run.convoyVisited[id] = true end
 end
 
-function Convoy:deploy(types, reinforcing)
+function Convoy:deploy(count, reinforcing)
     local ship = self.ship
     local sin, cos = math.sin(ship.rotation), math.cos(ship.rotation)
     local player = World.getPlayer()
-    for index, kind in ipairs(types) do
+    for index = 1,count do
         local side = index % 2 == 1 and -1 or 1
-        local offsetX = index == 3 and 0 or side * 108
-        local offsetY = (reinforcing and 195 or 70) + (index - 1) * 32
+        local live = 0
+        for _, fragment in ipairs(self.escorts) do
+            if not fragment.isDestroyed and not fragment.isAbandoned then live = live + 1 end
+        end
+        if live >= fragmentCap or #self.director.ecosystem.activeAgents >= self.director.ecosystem.maxActiveAgents then break end
+        local offsetX = side * ForceField.scale(ship) * .8
+        local offsetY = (index - 2) * ForceField.scale(ship) * .6
         local slot = #self.escorts + 1
         local escort = self.director:spawnEcologicalShip(ship.x + offsetX * cos - offsetY * sin,
-            ship.y + offsetX * sin + offsetY * cos, kind, AI.ROLES.WARDEN, self.rng, {
+            ship.y + offsetX * sin + offsetY * cos, 'SENTINEL', AI.ROLES.WARDEN, self.rng, {
                 faction = faction, wingmanOf = ship, formationSlotIndex = slot,
-                formationOffsetX = offsetX, formationOffsetY = 65 + (slot - 1) * 15,
-                namePrefix = reinforcing and 'Refuerzo del convoy' or 'Escolta del convoy', suppressLoot = true,
+                formationOffsetX = side * 82, formationOffsetY = 40 + index * 16,
+                warpInTimer = 0, namePrefix = 'Fragmento', suppressLoot = true,
                 entryAngle = ship.rotation - math.pi * .5
             })
         if escort then
             self.escorts[slot] = escort
+            escort.monolithFragment = true
+            escort.monolithOwner,escort.buddedAt = self,self.age
+            escort.budSide,escort.budRow = side,index-2
+            local config = {}
+            for k,v in pairs(escort.aiController.config) do config[k]=v end
+            config.intactChance = 0
+            escort.aiController.config = config
             if reinforcing and player and (player.x - ship.x)^2 + (player.y - ship.y)^2 <= 1100^2 then
                 escort.aiController:onDamaged(0, player)
             end
@@ -116,8 +131,11 @@ function Convoy.start(director, run, id, route, rng)
         nextPoint = 2, armor = armorMax, hull = hullMax, escorts = {}, state = 'travel', rng = rng}, Convoy)
     director.convoy = self
     ship.convoy = self
+    self.monolith = true
+    self.age = 0
+    ship.size = ship.size * require('src.rendering.ships.monolith_convoy_art').sizeMultiplier
     ship.projectileBarrier = ForceField
-    ship.shipName, ship.aiFaction, ship.isAI, ship.isAbandoned = 'Convoy blindado', faction, true, false
+    ship.shipName, ship.aiFaction, ship.isAI, ship.isAbandoned = 'Monolito errante', faction, true, false
     ship.stats.shield.currentShield = 0
     ship.rotation = math.atan2(route[2].y - origin.y, route[2].x - origin.x) + math.pi * .5
     ship.prevRotation = ship.rotation
@@ -130,6 +148,11 @@ function Convoy.start(director, run, id, route, rng)
 end
 
 local function removeShip(ship)
+    for _,shot in ipairs(ship.projectiles or {}) do
+        shot.explosion_radius = 0
+        shot:destroy('monolith_end')
+    end
+    ship.projectiles = {}
     ship.isDestroyed = true
     require('src.entities.naves').removeShip(ship.shipId)
     World.removeEntity(ship)
@@ -147,12 +170,14 @@ function Convoy:finish(escaped)
     for _, escort in ipairs(self.escorts) do
         if isActiveEscort(escort) then
             escort.aiController.wingmanOf = nil
-            if escaped then removeShip(escort) end
+            removeShip(escort)
         end
     end
     if not escaped then
         local ship = self.ship
         local id = Loot.registerConvoyWreck(self.run, self.id, ship.x, ship.y, ship.rotation, ForceField.scale(ship))
+        self.run.lootRooms[id].convoyWreck.monolith = true
+        self.run.lootRooms[id].convoyWreck.fold = self.fold
         Sites.addConvoyWreck(self.run, id)
     end
     self.director.convoy = nil
@@ -171,7 +196,7 @@ function Convoy:takeDamage(amount, attacker, hitX, hitY)
             escort.aiController:onDamaged(amount, source)
         end
     end
-    if self.state ~= 'exposed' then
+    if self.state == 'travel' then
         if hitX and hitY then
             self.fieldHitX, self.fieldHitY = ForceField.toLocal(self.ship, hitX, hitY)
         elseif (self.blockFlash or 0) < .05 and source.x and source.y then
@@ -194,17 +219,87 @@ function Convoy:takeDamage(amount, attacker, hitX, hitY)
     return false
 end
 
+-- The core commits to a direction before surging. Crossing its flank during
+-- recovery gives short-range ships the same opening as ranged ships.
+function Convoy:updateAwakened(dt)
+    local ship, player = self.ship, World.getPlayer()
+    if self.state == 'folding' then
+        self.fold = math.min(1,self.fold+dt/1.6)
+        for _,fragment in ipairs(self.escorts) do
+            if isActiveEscort(fragment) then
+                fragment.x = fragment.foldX+(ship.x-fragment.foldX)*self.fold
+                fragment.y = fragment.foldY+(ship.y-fragment.foldY)*self.fold
+                Ribbon.update(fragment,dt)
+            end
+        end
+        if self.fold == 1 then self.state,self.attackTime = 'awakened',0
+            for _,fragment in ipairs(self.escorts) do
+                if isActiveEscort(fragment) then removeShip(fragment) end
+            end end
+        return
+    end
+    if not player or player.isInEVA or player.combatContext ~= ship.combatContext then return end
+    local dx,dy = player.x-ship.x,player.y-ship.y
+    local distance = math.sqrt(dx*dx+dy*dy)
+    if self.attack == 'surge' then
+        local step = math.min(dt,self.attackTime)*420
+        local vx,vy = math.sin(ship.rotation),-math.cos(ship.rotation)
+        local along = math.max(0,math.min(step,dx*vx+dy*vy))
+        if not self.struck and (dx-along*vx)^2+(dy-along*vy)^2 < (ForceField.scale(ship)+(player.size or 14))^2 then
+            player:takeDamage(18,ship,'collision')
+            self.struck = true
+        end
+        ship.x,ship.y = ship.x+step*vx,ship.y+step*vy
+    elseif self.attack ~= 'recover' and distance < 1050 then
+        local desired = math.atan2(dy,dx)+math.pi*.5
+        local error = (desired-ship.rotation+math.pi)%(2*math.pi)-math.pi
+        ship.rotation = ship.rotation+math.max(-dt*1.65,math.min(dt*1.65,error))
+        if not self.attack then
+            local step = math.min(dt*155,math.max(0,distance-220))
+            ship.x,ship.y = ship.x+step*math.sin(ship.rotation),ship.y-step*math.cos(ship.rotation)
+            if distance < 390 and math.abs(error)<.18 then self.attack,self.attackTime='charging',.95 end
+        end
+    end
+    self.attackTime = math.max(0,self.attackTime-dt)
+    if self.attackTime==0 then
+        if self.attack=='charging' then self.attack,self.attackTime,self.struck='surge',.85,false
+        elseif self.attack=='surge' then self.attack,self.attackTime='recover',1.8
+        else self.attack=nil end
+    end
+    self.aperture = self.attack=='charging' and 1-self.attackTime/.95 or self.attack=='recover' and 1 or 0
+    ship:updateShipRegistry()
+end
+
 function Convoy:update(dt)
     if self.state == 'destroyed' or self.state == 'escaped' then return end
+    self.age = self.age + dt
     local ship = self.ship
     ship:updateProjectiles(dt)
     self.blockFlash = math.max(0, (self.blockFlash or 0) - dt)
+    if self.state == 'folding' or self.state == 'awakened' then
+        ship:updateBurn(dt)
+        if not ship.isDestroyed then self:updateAwakened(dt) end
+        return
+    end
+    local player=World.getPlayer()
+    if player then Swarm.form(self,player.x,player.y,dt) end
+    self.aperture = self.state == 'exposed' and math.min(1,(self.aperture or 0)+dt*2) or math.max(0,(self.aperture or 0)-dt*2)
     if self.state == 'exposed' then
         ship:updateBurn(math.min(dt, self.remaining))
         if ship.isDestroyed then return end
         self.remaining = self.remaining - dt
         if self.remaining <= 0 then
-            if self.nextPoint == #self.route then self:finish(true); return end
+            if self.nextPoint == #self.route then
+                self.state,self.fold,self.reinforcementTimer = 'folding',0,nil
+                for _,fragment in ipairs(self.escorts) do
+                    if isActiveEscort(fragment) then
+                        fragment.foldX,fragment.foldY=fragment.x,fragment.y
+                        fragment.aiController.active=false
+                        fragment.dx,fragment.dy=0,0
+                    end
+                end
+                return
+            end
             self.state = 'travel'
             ship.projectileBarrier = ForceField
             self.nextPoint = self.nextPoint + 1
@@ -249,11 +344,13 @@ function Convoy:drawHUD(player, camera)
     x, y = math.max(86, math.min(w - 86, x)), math.max(90, math.min(h - 130, y))
     g.push('all')
     g.setColor(1, .72, .35)
-    g.printf(('Convoy blindado · %.0f u'):format(distance), x - 115, y + 48, 230, 'center')
-    if self.state == 'exposed' then
+    g.printf(('Monolito errante · %.0f u'):format(distance), x - 115, y + 48, 230, 'center')
+    if self.state == 'folding' or self.state == 'awakened' then
+        g.printf(self.state=='folding' and 'Reconfigurando' or 'Núcleo despierto',x-115,y+65,230,'center')
+    elseif self.state == 'exposed' then
         g.setColor(.35, .95, 1)
         local status = ('%d/%d %s · %ds'):format(self.nextPoint - 1, #stops, self.stop.name, math.ceil(self.remaining))
-        if self.reinforcementTimer then status = status .. ' · refuerzos' end
+        if self.reinforcementTimer then status = status .. ' · formando fragmentos' end
         local width = math.min(w - 20, 294)
         g.printf(status, math.max(10, math.min(w - width - 10, x - width / 2)), y + 65, width, 'center')
     else
