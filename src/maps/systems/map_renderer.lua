@@ -25,6 +25,7 @@ local STRIDE = SIZE_PIXELS + (MapConfig.chunk.spacing or 0)
 
 -- Inicializar tablas de optimización
 function MapRenderer.init(worldSeed)
+    MapRenderer.worldSeed = tonumber(worldSeed) or 0
     for i = 0, 359 do
         local rad = math.rad(i)
         MapRenderer.sinTable[i] = math.sin(rad)
@@ -1615,25 +1616,7 @@ function MapRenderer.drawBiomeFeature(feature, worldX, worldY, camera)
         end
 
     elseif feature.type == "mega_asteroid" then
-        local shader = ShaderManager and ShaderManager.getShader and ShaderManager.getShader("asteroid") or nil
-        local img = ShaderManager and ShaderManager.getBaseImage and ShaderManager.getBaseImage("circle") or nil
-        if shader and img then
-            love.graphics.setShader(shader)
-            local iw, ih = img:getWidth(), img:getHeight()
-            -- Sombra
-            love.graphics.setColor(0, 0, 0, 0.3 * alpha)
-            love.graphics.draw(img, screenX + 3, screenY + 3, 0, (renderSize * 2) / iw, (renderSize * 2) / ih, iw * 0.5, ih * 0.5)
-            -- Cuerpo
-            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
-            love.graphics.draw(img, screenX, screenY, 0, (renderSize * 2) / iw, (renderSize * 2) / ih, iw * 0.5, ih * 0.5)
-            love.graphics.setShader()
-        else
-            -- Fallback previo
-            love.graphics.setColor(feature.color[1], feature.color[2], feature.color[3], (feature.color[4] or 1) * alpha)
-            love.graphics.circle("fill", screenX, screenY, renderSize, 16)
-            love.graphics.setColor(0, 0, 0, 0.3 * alpha)
-            love.graphics.circle("fill", screenX + 3, screenY + 3, renderSize, 16)
-        end
+        AsteroidRenderer.drawMega(MapRenderer.worldSeed, feature, screenX, screenY, worldX, worldY, camera.zoom, alpha)
 
     elseif feature.type == "gravity_well" then
         -- Mantener primitivas (efecto de anillos)
