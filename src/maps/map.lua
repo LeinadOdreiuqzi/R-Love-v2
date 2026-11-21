@@ -212,7 +212,7 @@ function Map.draw(camera)
     BackgroundManager.render(camera)
     
     -- Dibujar fondo según bioma dominante
-    local biomesActive = MapRenderer.drawBiomeBackground(chunkInfo, Map.getChunkNonBlocking)
+    local biomesActive = MapRenderer.drawBiomeBackground(VisibilityUtils.getVisibleChunkBounds(camera, 0), Map.getChunkNonBlocking)
     MapStats.setBiomesActive(biomesActive)
     
     -- NUEVO: microestrellas de fondo (spritebatch con culling por zoom)
@@ -248,7 +248,7 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
     MapStats.addObjects(starsTotal, starsRendered, starsTotal - starsRendered)
     
     -- 2. Dibujar nebulosas (ahora tapan las estrellas)
-    local nebulaeRendered = MapRenderer.drawNebulae(chunkInfo, camera, Map.getChunkNonBlocking)
+    local nebulaeRendered = MapRenderer.drawNebulae(VisibilityUtils.getVisibleChunkBounds(camera), camera, Map.getChunkNonBlocking)
     MapStats.addObjects(nebulaeRendered, nebulaeRendered, 0)
     
     -- 3. Dibujar asteroides
@@ -280,8 +280,8 @@ function Map.drawTraditionalImproved(camera, chunkInfo)
 end
 -- Utilidad unificada: calcular bounds de chunks visibles con margen de pantalla (px)
 function Map.getVisibleChunkBounds(camera, marginPx)
-    -- Usar la utilidad compartida con anillo de precarga suave (+/-3)
-    return VisibilityUtils.getVisibleChunkBounds(camera, marginPx or 800, 3)
+    -- Un margen cero pide el viewport exacto; las búsquedas ampliadas precargan vecinos.
+    return VisibilityUtils.getVisibleChunkBounds(camera, marginPx or 800, marginPx == 0 and 0 or 3)
 end
 
 -- Calcular chunks visibles (compatible)

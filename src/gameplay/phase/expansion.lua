@@ -7,15 +7,12 @@ local PhaseSystem = require 'src.gameplay.phase.core'
 function PhaseSystem.update(dt, playerX, playerY)
     if not PhaseSystem.state.initialized then return end
     
-    -- Si el mapa está completamente desbloqueado, bloquear todas las funcionalidades del phase manager
+    PhaseSystem.state.lastPlayerPosition.x = playerX
+    PhaseSystem.state.lastPlayerPosition.y = playerY
+    PhaseSystem.state.lastPlayerWorldPosition.x = playerX
+    PhaseSystem.state.lastPlayerWorldPosition.y = playerY
+
     if PhaseSystem.state.mapFullyUnlocked then
-        -- Solo actualizar posiciones para mantener compatibilidad con otros sistemas
-        PhaseSystem.state.lastPlayerPosition.x = playerX
-        PhaseSystem.state.lastPlayerPosition.y = playerY
-        local worldX, worldY = PhaseSystem.getWorldCoordinates(playerX, playerY)
-        PhaseSystem.state.lastPlayerWorldPosition.x = worldX
-        PhaseSystem.state.lastPlayerWorldPosition.y = worldY
-        
         -- Asegurar que todos los prompts estén desactivados
         PhaseSystem.state.showUnlockPrompt = false
         PhaseSystem.state.showExpansionPrompt = false
@@ -27,20 +24,10 @@ function PhaseSystem.update(dt, playerX, playerY)
         return "map_unlocked"
     end
     
-    -- Actualizar posición del jugador (relativa)
-    PhaseSystem.state.lastPlayerPosition.x = playerX
-    PhaseSystem.state.lastPlayerPosition.y = playerY
-    
-    -- Actualizar posición del jugador (mundo)
-    local worldX, worldY = PhaseSystem.getWorldCoordinates(playerX, playerY)
-    PhaseSystem.state.lastPlayerWorldPosition.x = worldX
-    PhaseSystem.state.lastPlayerWorldPosition.y = worldY
-    
     -- Verificar estado del jugador respecto a los límites
     local nearBoundary = PhaseSystem.isPlayerNearBoundary(playerX, playerY)
     local atBoundary = PhaseSystem.isPlayerAtBoundary(playerX, playerY)
     local canUnlockNext = PhaseSystem.state.currentPhase < PhaseSystem.config.totalPhases
-    local inCurrentPhase = PhaseSystem.isPositionInCurrentPhase(playerX, playerY)
     
     -- Actualizar estado
     PhaseSystem.state.playerAtBoundary = atBoundary

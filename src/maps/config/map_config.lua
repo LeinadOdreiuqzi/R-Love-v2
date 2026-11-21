@@ -147,7 +147,13 @@ MapConfig.nebulae = {
         gigantic  = { min = 720,  max = 1200, weight = 0.01 }
     },
     -- Factor global para mantener coherencia con lo que tenías (x1.25)
-    baseSizeScale = 1.80
+    baseSizeScale = 1.80,
+    fieldSizeMultiplierMax = 1.90,
+    parallaxSizeThreshold = 220, -- en unidades base, antes de worldScale
+    minParallax = 0.50,
+    maxSizeMinParallax = 0.85,
+    cullRadiusMultiplier = 1.25,
+    cullPaddingPx = 50
 }
 
 -- Configuración de renderizado

@@ -8,62 +8,27 @@ local VisibilityUtils = {}
 -- Configuración del margen dinámico (puede ser modificada externamente)
 VisibilityUtils.dynamicMarginConfig = {
     baseMargin = 300,
-    zoomThreshold = 0.3,
-    nebulaMarginMultiplier = 0.75,
-    maxZoomFactor = 3.0,
-    maxMarginMultiplier = 8.0,  -- Acotado a 8.0 (hasta 2400px) para evitar inflar chunks fuera de pantalla
-    lowZoomBonus = 200
 }
 
--- Calcula el margen dinámico basado en el zoom y tamaño de nebulosas
-local function calculateDynamicMargin(camera, baseMargingPx)
-    local config = VisibilityUtils.dynamicMarginConfig
-    local baseMargin = baseMargingPx or config.baseMargin
-    
-    -- Si no hay cámara, usar margen base
-    if not camera or not camera.zoom then
-        return baseMargin
+-- Invertir la proyección con parallax para incluir el chunk dueño de una
+-- nebulosa cuyo halo alcanza la pantalla. El margen sólo se usa en esa capa.
+local function calculateDynamicMargin(camera, baseMargin)
+    baseMargin = baseMargin or VisibilityUtils.dynamicMarginConfig.baseMargin
+    if not camera or not camera.zoom then return baseMargin end
+
+    local width, height = love.graphics.getDimensions()
+    local ox, oy = camera.offsetX or width / 2, camera.offsetY or height / 2
+    local extent = math.max(ox, width - ox, oy, height - oy)
+    local cfg = MapConfig.nebulae
+    local scale = MapConfig.chunk.worldScale
+    local function marginFor(baseSize, parallax)
+        local radius = baseSize * scale * cfg.fieldSizeMultiplierMax * camera.zoom
+        local reach = radius * cfg.cullRadiusMultiplier + cfg.cullPaddingPx
+        return (extent + reach) / parallax - extent
     end
-    
-    local zoom = camera.zoom
-    
-    -- Obtener configuración de nebulosas desde MapConfig
-    local nebulaConfig = MapConfig.nebulae
-    if not nebulaConfig or not nebulaConfig.sizeTiers then
-        return baseMargin -- Fallback si no hay configuración
-    end
-    
-    -- Calcular el tamaño máximo de nebulosa
-    local maxNebulaSize = nebulaConfig.sizeTiers.gigantic and nebulaConfig.sizeTiers.gigantic.max or 1200
-    local baseSizeScale = nebulaConfig.baseSizeScale or 1.80
-    local worldScale = MapConfig.chunk.worldScale or 2.0
-    
-    -- Calcular el tamaño máximo real de nebulosa en píxeles de pantalla
-    local maxNebulaWorldSize = maxNebulaSize * baseSizeScale * worldScale
-    local maxNebulaScreenSize = maxNebulaWorldSize * zoom
-    
-    -- Margen adaptativo basado en zoom y tamaño de nebulosas
-    local adaptiveMargin
-    
-    if zoom >= config.zoomThreshold then
-        -- En zooms altos, necesitamos margen suficiente para nebulosas grandes
-        local nebulaMargin = maxNebulaScreenSize * config.nebulaMarginMultiplier
-        adaptiveMargin = math.max(baseMargin, nebulaMargin)
-        
-        -- Escalar gradualmente el margen adicional según el zoom
-        local zoomFactor = math.min(zoom / config.zoomThreshold, config.maxZoomFactor)
-        adaptiveMargin = adaptiveMargin * zoomFactor
-    else
-        -- En zooms bajos, usar margen base con pequeño incremento
-        local zoomBonus = zoom * config.lowZoomBonus
-        adaptiveMargin = baseMargin + zoomBonus
-    end
-    
-    -- Limitar el margen máximo para evitar cargar demasiados chunks
-    local maxMargin = baseMargin * config.maxMarginMultiplier
-    adaptiveMargin = math.min(adaptiveMargin, maxMargin)
-    
-    return math.floor(adaptiveMargin)
+    local small = marginFor(cfg.parallaxSizeThreshold, cfg.minParallax)
+    local large = marginFor(cfg.sizeTiers.gigantic.max * cfg.baseSizeScale, cfg.maxSizeMinParallax)
+    return math.ceil(math.max(baseMargin, small, large))
 end
 
 -- Calcula los índices de chunk visibles y el rectángulo del viewport en world-space.
@@ -81,7 +46,7 @@ function VisibilityUtils.getVisibleChunkBounds(camera, marginPx, preloadRing)
     local screenWidth, screenHeight = love.graphics.getDimensions()
     
     -- Usar margen dinámico si no se especifica uno
-    local margin = marginPx or calculateDynamicMargin(camera, 300)
+    local margin = marginPx or calculateDynamicMargin(camera)
 
     -- Viewport con margen a world-space
     local wl, wt = camera:screenToWorld(-margin, -margin)
@@ -100,8 +65,8 @@ function VisibilityUtils.getVisibleChunkBounds(camera, marginPx, preloadRing)
     -- Índices visibles de chunk
     local startX = math.floor(worldLeft  / strideScaled)
     local startY = math.floor(worldTop   / strideScaled)
-    local endX   = math.ceil (worldRight / strideScaled)
-    local endY   = math.ceil (worldBottom/ strideScaled)
+    local endX   = math.ceil(worldRight / strideScaled) - 1
+    local endY   = math.ceil(worldBottom / strideScaled) - 1
 
     -- Anillo opcional de precarga
     local ring = preloadRing or 0
@@ -122,7 +87,7 @@ function VisibilityUtils.getVisibleChunkBounds(camera, marginPx, preloadRing)
         -- Información adicional para debug y optimización
         isDynamicMargin = marginPx == nil,
         zoom = camera.zoom or 0,
-        baseMargin = 300
+        baseMargin = VisibilityUtils.dynamicMarginConfig.baseMargin
     }
 end
 
@@ -156,7 +121,7 @@ function VisibilityUtils.getDynamicMarginInfo(camera, baseMargingPx)
     local maxNebulaSize = nebulaConfig.sizeTiers.gigantic and nebulaConfig.sizeTiers.gigantic.max or 1200
     local baseSizeScale = nebulaConfig.baseSizeScale or 1.80
     local worldScale = MapConfig.chunk.worldScale or 2.0
-    local maxNebulaWorldSize = maxNebulaSize * baseSizeScale * worldScale
+    local maxNebulaWorldSize = maxNebulaSize * baseSizeScale * worldScale * nebulaConfig.fieldSizeMultiplierMax
     local maxNebulaScreenSize = maxNebulaWorldSize * zoom
     
     local calculatedMargin = calculateDynamicMargin(camera, baseMargingPx)
@@ -167,8 +132,6 @@ function VisibilityUtils.getDynamicMarginInfo(camera, baseMargingPx)
         isDynamic = true,
         baseMargin = baseMargin,
         maxNebulaScreenSize = maxNebulaScreenSize,
-        zoomThreshold = config.zoomThreshold,
-        isAboveThreshold = zoom >= config.zoomThreshold,
         marginIncrease = calculatedMargin / baseMargin,
         config = config
     }

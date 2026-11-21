@@ -8,14 +8,11 @@ function PhaseSystem.getDistanceToCurrentPhaseBoundary(playerX, playerY)
     local bounds = PhaseSystem.getCurrentPhaseBounds()
     if not bounds then return math.huge end
     
-    -- Convertir a coordenadas del mundo
-    local worldX, worldY = PhaseSystem.getWorldCoordinates(playerX, playerY)
-    
     local distanceToEdge = math.min(
-        math.abs(worldX - bounds.minX),
-        math.abs(worldX - bounds.maxX),
-        math.abs(worldY - bounds.minY),
-        math.abs(worldY - bounds.maxY)
+        math.abs(playerX - bounds.minX),
+        math.abs(playerX - bounds.maxX),
+        math.abs(playerY - bounds.minY),
+        math.abs(playerY - bounds.maxY)
     )
     
     return distanceToEdge
@@ -34,12 +31,9 @@ function PhaseSystem.isPlayerAtBoundary(playerX, playerY)
     local bounds = PhaseSystem.getCurrentPhaseBounds()
     if not bounds then return false end
     
-    -- Convertir a coordenadas del mundo
-    local worldX, worldY = PhaseSystem.getWorldCoordinates(playerX, playerY)
-    
     -- Verificar si está fuera de los límites
-    return worldX < bounds.minX or worldX > bounds.maxX or 
-           worldY < bounds.minY or worldY > bounds.maxY
+    return playerX < bounds.minX or playerX > bounds.maxX or
+           playerY < bounds.minY or playerY > bounds.maxY
 end
 
 return PhaseSystem

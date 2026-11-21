@@ -522,12 +522,13 @@ function GravityAnomaly.drawContinuousAnomalies(camera)
         local MapRenderer = require 'src.maps.systems.map_renderer'
         local BackgroundManager = require 'src.shaders.background_manager'
         BackgroundManager.render(camera)
+        local VisibilityUtils = require "src.maps.visibility_utils"
         local chunkInfo = Map.calculateVisibleChunksTraditional(camera)
-        MapRenderer.drawBiomeBackground(chunkInfo, Map.getChunkNonBlocking)
+        MapRenderer.drawBiomeBackground(VisibilityUtils.getVisibleChunkBounds(camera, 0), Map.getChunkNonBlocking)
         MapRenderer.drawMicroStars(camera)
         MapRenderer.drawSmallStars(camera)
         MapRenderer.drawEnhancedStars(chunkInfo, camera, Map.getChunkNonBlocking, Map.starConfig)
-        MapRenderer.drawNebulae(chunkInfo, camera, Map.getChunkNonBlocking)
+        MapRenderer.drawNebulae(VisibilityUtils.getVisibleChunkBounds(camera), camera, Map.getChunkNonBlocking)
         MapRenderer.drawAsteroids(chunkInfo, camera, Map.getChunkNonBlocking)
         MapRenderer.drawSpecialObjects(chunkInfo, camera, Map.getChunkNonBlocking)
         MapRenderer.drawBiomeFeatures(chunkInfo, camera, Map.getChunkNonBlocking)

@@ -212,50 +212,21 @@ end
 function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     local r, g, b, a = love.graphics.getColor()
 
-    -- Encontrar bioma más común y acumular color mezclado por chunks visibles
-    local biomeCounts = {}
-    local sumR, sumG, sumB, sumA, sumCount = 0, 0, 0, 0, 0
-    -- Acumulador solo de no Deep Space (para asegurar visibilidad del fondo)
-    local ndSumR, ndSumG, ndSumB, ndSumA, ndCount = 0, 0, 0, 0, 0
-
-    for i = 1, #chunkInfo do
-        local info = chunkInfo[i]
-        local chunk = getChunkFunc(info.cx, info.cy)
-        if chunk and chunk.biome then
-            local biomeType = chunk.biome.type
-            biomeCounts[biomeType] = (biomeCounts[biomeType] or 0) + 1
-
-            -- Considerar color mezclado por chunk si existe biomeBlend
-            if chunk.biomeBlend and BiomeSystem.getBackgroundColorBlended then
-                local c = BiomeSystem.getBackgroundColorBlended(chunk.biomeBlend)
-                if c then
-                    sumR, sumG, sumB, sumA = sumR + (c[1] or 0), sumG + (c[2] or 0), sumB + (c[3] or 0), sumA + (c[4] or 1)
-                    if biomeType ~= BiomeSystem.BiomeType.DEEP_SPACE then
-                        ndSumR, ndSumG, ndSumB, ndSumA = ndSumR + (c[1] or 0), ndSumG + (c[2] or 0), ndSumB + (c[3] or 0), ndSumA + (c[4] or 1)
-                        ndCount = ndCount + 1
-                    end
-                end
-            else
-                local c = BiomeSystem.getBackgroundColor(biomeType)
-                if c then
-                    sumR, sumG, sumB, sumA = sumR + (c[1] or 0), sumG + (c[2] or 0), sumB + (c[3] or 0), sumA + (c[4] or 1)
-                    if biomeType ~= BiomeSystem.BiomeType.DEEP_SPACE then
-                        ndSumR, ndSumG, ndSumB, ndSumA = ndSumR + (c[1] or 0), ndSumG + (c[2] or 0), ndSumB + (c[3] or 0), ndSumA + (c[4] or 1)
-                        ndCount = ndCount + 1
-                    end
+    local samples, tinted = 0, 0
+    local red, green, blue, alpha = 0, 0, 0, 0
+    for cy = chunkInfo.startY, chunkInfo.endY do
+        for cx = chunkInfo.startX, chunkInfo.endX do
+            local chunk = getChunkFunc(cx, cy)
+            if chunk and chunk.biome then
+                samples = samples + 1
+                if chunk.biome.type ~= BiomeSystem.BiomeType.DEEP_SPACE then
+                    local color = chunk.biomeBlend and BiomeSystem.getBackgroundColorBlended(chunk.biomeBlend)
+                        or BiomeSystem.getBackgroundColor(chunk.biome.type)
+                    red, green, blue = red + color[1], green + color[2], blue + color[3]
+                    alpha = alpha + (color[4] or 1)
+                    tinted = tinted + 1
                 end
             end
-            sumCount = sumCount + 1
-        end
-    end
-
-    -- Encontrar bioma dominante
-    local dominantBiome = BiomeSystem.BiomeType.DEEP_SPACE
-    local maxCount = 0
-    for biomeType, count in pairs(biomeCounts) do
-        if count > maxCount then
-            maxCount = count
-            dominantBiome = biomeType
         end
     end
 
@@ -266,22 +237,16 @@ function MapRenderer.drawBiomeBackground(chunkInfo, getChunkFunc)
     -- Si hay biomas no Deep Space visibles, aplicar un tinte atmosférico sutil
     -- El alpha está acotado para garantizar que el espacio conserve su negro profundo y
     -- las nebulosas aditivas mantengan su máximo contraste y colores vivos
-    if ndCount > 0 then
-        local backgroundColor = { ndSumR / ndCount, ndSumG / ndCount, ndSumB / ndCount, (ndSumA / ndCount) }
-        local cr = backgroundColor[1] or 0
-        local cg = backgroundColor[2] or 0
-        local cb = backgroundColor[3] or 0
-        -- Opacidad máxima subliminal (máx 6% de opacidad) para que el fondo se perciba negro con ligero matiz
-        local maxAmbientAlpha = 0.06
-        local rawA = backgroundColor[4] or 1.0
-        local ca = math.min(maxAmbientAlpha, rawA * 0.06)
-        love.graphics.setColor(cr * 0.35, cg * 0.35, cb * 0.35, ca)
+    if tinted > 0 then
+        local intensity = 0.35 / tinted
+        love.graphics.setColor(red * intensity, green * intensity, blue * intensity,
+            math.min(0.06, alpha / tinted * 0.06))
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
     end
 
     love.graphics.pop()
     love.graphics.setColor(r, g, b, a)
-    return (sumCount > 0) and sumCount or 0
+    return samples
 end
 
 -- NUEVO: Construir buffer instanced con culling en pantalla y cero recolección de basura

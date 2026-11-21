@@ -810,8 +810,8 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             nebula.softness   = rng:randomRange(0.18, 0.40)
 
             -- Parallax por-nebulosa: más grande => más “cerca” (parallax mayor)
-            local sizeFactor = math.min(1.0, (nebula.size / (220.0 * MapConfig.chunk.worldScale)))
-            nebula.parallax  = math.min(0.95, 0.55 + sizeFactor * 0.35 + rng:randomRange(-0.05, 0.05))
+            local sizeFactor = math.min(1.0, (nebula.size / (MapConfig.nebulae.parallaxSizeThreshold * MapConfig.chunk.worldScale)))
+            nebula.parallax  = math.min(0.95, MapConfig.nebulae.minParallax + sizeFactor * (MapConfig.nebulae.maxSizeMinParallax - MapConfig.nebulae.minParallax) + rng:randomRange(0, 0.10))
 
             -- Brillo base por-nebulosa (usado por el renderer)
             nebula.brightness = rng:randomRange(1.10, 1.22)
@@ -819,7 +819,7 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             -- Modulaciones físicas y energéticas según el bioma (Opción A)
             local bType = chunk.biome.type
             if bType == BiomeSystem.BiomeType.NEBULA_FIELD then
-                nebula.size = nebula.size * rng:randomRange(1.30, 1.90)
+                nebula.size = nebula.size * rng:randomRange(1.30, MapConfig.nebulae.fieldSizeMultiplierMax)
                 nebula.intensity = nebula.intensity * rng:randomRange(1.20, 1.70)
                 nebula.warpAmp    = (nebula.warpAmp or 0.5) * rng:randomRange(1.10, 1.40)
                 nebula.noiseScale = (nebula.noiseScale or 2.5) * rng:randomRange(1.05, 1.25)

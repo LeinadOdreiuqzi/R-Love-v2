@@ -56,7 +56,7 @@ local function isOnScreen(screenX, screenY, radiusPx)
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
     -- El radio visual efectivo incluye el radio base, la capa de niebla (1.18x),
     -- deformación por warp del shader (~8%) y un margen de seguridad de 50px
-    local effectiveRadius = (radiusPx or 140) * 1.25 + 50
+    local effectiveRadius = (radiusPx or 140) * MapConfig.nebulae.cullRadiusMultiplier + MapConfig.nebulae.cullPaddingPx
     return (screenX + effectiveRadius >= 0) and (screenX - effectiveRadius <= w)
        and (screenY + effectiveRadius >= 0) and (screenY - effectiveRadius <= h)
 end
@@ -91,7 +91,7 @@ local function calculateNebulaAlpha(screenX, screenY, radiusPx)
     end
 
     local distOutside = math.sqrt(dx * dx + dy * dy)
-    local effectiveRadius = radiusPx * 1.25
+    local effectiveRadius = radiusPx * MapConfig.nebulae.cullRadiusMultiplier
     local distToCutoff = effectiveRadius - distOutside
 
     -- Fuera del alcance visual

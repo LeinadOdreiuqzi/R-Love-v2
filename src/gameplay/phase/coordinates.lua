@@ -63,66 +63,33 @@ function PhaseSystem.getWorldCoordinates(x, y)
     end
 end
 
--- Verificar si una posición está dentro de los límites de una fase
+local function containsWorldPosition(bounds, worldX, worldY)
+    if PhaseSystem.state.mapFullyUnlocked then return true end
+    if not bounds then return false end
+    local tolerance = PhaseSystem.config.chunkAlignment.chunkStride * 0.1
+    return worldX >= bounds.minX - tolerance and worldX <= bounds.maxX + tolerance
+       and worldY >= bounds.minY - tolerance and worldY <= bounds.maxY + tolerance
+end
+
+function PhaseSystem.isWorldPositionInCurrentPhase(worldX, worldY)
+    return containsWorldPosition(PhaseSystem.getCurrentPhaseBounds(), worldX, worldY)
+end
+
+-- Compatibilidad con consultas que reciben posiciones relativas al origen.
 function PhaseSystem.isPositionInPhase(x, y, phase)
-    -- Si el mapa está completamente desbloqueado, todas las posiciones son válidas
-    if PhaseSystem.state.mapFullyUnlocked then
-        return true
-    end
-    
-    local bounds = PhaseSystem.getPhaseBounds(phase)
-    if not bounds then return false end
-    
-    -- Convertir a coordenadas del mundo si es necesario
-    local worldX, worldY = PhaseSystem.getWorldCoordinates(x, y)
-    
-    -- CORRECCIÓN: Implementar tolerancia para manejar discrepancias de precisión
-    -- Calcular tolerancia basada en el stride de chunks (aproximadamente 10% del stride)
-    local tolerance = PhaseSystem.config.chunkAlignment.chunkStride * 0.1
-    
-    return worldX >= (bounds.minX - tolerance) and worldX <= (bounds.maxX + tolerance) and 
-           worldY >= (bounds.minY - tolerance) and worldY <= (bounds.maxY + tolerance)
+    return containsWorldPosition(PhaseSystem.getPhaseBounds(phase), PhaseSystem.getWorldCoordinates(x, y))
 end
 
--- Verificar si una posición está dentro de la fase actual
 function PhaseSystem.isPositionInCurrentPhase(x, y)
-    -- Si el mapa está completamente desbloqueado, permitir cualquier posición
-    if PhaseSystem.state.mapFullyUnlocked then
-        return true
-    end
-    
-    local bounds = PhaseSystem.getCurrentPhaseBounds()
-    if not bounds then return false end
-    
-    -- Convertir a coordenadas del mundo si es necesario
-    local worldX, worldY = PhaseSystem.getWorldCoordinates(x, y)
-    
-    -- CORRECCIÓN: Implementar tolerancia para manejar discrepancias de precisión
-    -- Calcular tolerancia basada en el stride de chunks (aproximadamente 10% del stride)
-    local tolerance = PhaseSystem.config.chunkAlignment.chunkStride * 0.1
-    
-    return worldX >= (bounds.minX - tolerance) and worldX <= (bounds.maxX + tolerance) and 
-           worldY >= (bounds.minY - tolerance) and worldY <= (bounds.maxY + tolerance)
+    return PhaseSystem.isWorldPositionInCurrentPhase(PhaseSystem.getWorldCoordinates(x, y))
 end
 
--- Restringir posición del jugador a los límites de la fase actual
-function PhaseSystem.clampPlayerToCurrentPhase(playerX, playerY)
+-- La nave, el jugador EVA y sus destinos se almacenan en coordenadas de mundo.
+function PhaseSystem.clampPlayerToCurrentPhase(worldX, worldY)
     local bounds = PhaseSystem.getCurrentPhaseBounds()
-    if not bounds then return playerX, playerY end
-    
-    -- Convertir a coordenadas del mundo
-    local worldX, worldY = PhaseSystem.getWorldCoordinates(playerX, playerY)
-    
-    -- Restringir a los límites
-    worldX = math.max(bounds.minX, math.min(bounds.maxX, worldX))
-    worldY = math.max(bounds.minY, math.min(bounds.maxY, worldY))
-    
-    -- Convertir de vuelta a coordenadas relativas si es necesario
-    if CoordinateSystem then
-        return CoordinateSystem.worldToRelative(worldX, worldY)
-    else
-        return worldX, worldY
-    end
+    if not bounds then return worldX, worldY end
+    return math.max(bounds.minX, math.min(bounds.maxX, worldX)),
+           math.max(bounds.minY, math.min(bounds.maxY, worldY))
 end
 
 return PhaseSystem

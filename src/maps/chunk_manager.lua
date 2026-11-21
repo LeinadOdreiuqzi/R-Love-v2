@@ -413,7 +413,7 @@ function ChunkManager.isChunkInCurrentPhase(chunkX, chunkY)
     local worldY = chunkY * strideScaled + (strideScaled / 2)
     
     -- Verificar si está dentro de la fase actual
-    return PhaseSystem.isPositionInCurrentPhase(worldX, worldY)
+    return PhaseSystem.isWorldPositionInCurrentPhase(worldX, worldY)
 end
 
 -- Callback cuando se expande una fase
