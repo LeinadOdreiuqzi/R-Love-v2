@@ -227,7 +227,8 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         local cr, cg, cb = 1, 1, 1
         if volume then
             n.emissionRegion = n.emissionRegion or Material.atWorld(item.worldX, item.worldY)
-            Volume.setCloud(shader, n.emissionRegion, item.worldX, item.worldY, n)
+            local balance = Material.cloudBalance(n.emissionRegion, item.worldX, item.worldY, n)
+            Volume.setCloud(shader, n.emissionRegion, item.worldX, item.worldY, n, balance)
         else
             cr, cg, cb = classicTints(item)
         end

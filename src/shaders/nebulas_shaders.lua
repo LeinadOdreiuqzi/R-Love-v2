@@ -102,6 +102,7 @@ local nebulaShaderCode = [[
     extern vec4 u_frontBand;
     extern vec3 u_outerBand;
     extern float u_dustDetailScale;
+    extern float u_cloudBalance;
     extern int u_materialView;
     extern Image u_dustGrain;
     extern vec4 u_structure[6];
@@ -432,11 +433,16 @@ local nebulaShaderCode = [[
                 transmission *= stepT;
             }
             vec3 ivory = vec3(1.0,.94,.89);
+            float continuum = hotGas*(.74*bands.r+.60*bands.g);
+            float knotLight = structure.w*structure.w*(1.6*bands.r+bands.g)*incident;
+            // Redistribuir las dos emisiones después de integrar su absorción.
+            float litFront = smoothstep(.15,.85,incident)*(.20+.80*smoothstep(.02,.75,surface+structure.y));
+            float transfer = max(u_cloudBalance,0.0)*litFront*bands.r + min(u_cloudBalance,0.0)*bands.g;
+            bands.r -= transfer;
+            bands.g += transfer;
             float frontShare = bands.g/max(.0001,bands.r+bands.g);
             vec3 scattered = mix(mix(u_gasBand.rgb,u_frontBand.rgb,frontShare),ivory,paleFace*hotWhite);
-            float continuum = hotGas*(.74*bands.r+.60*bands.g);
             vec3 ionized = mix(u_frontBand.rgb,ivory,hotWhite);
-            float knotLight = structure.w*structure.w*(1.6*bands.r+bands.g)*incident;
             vec3 gasLight = bands.r*u_gasBand.rgb + bands.g*u_frontBand.rgb + bands.b*scattered;
             float thinLight = 0.0;
             if (outskirts > 0.0 && density < .43) {

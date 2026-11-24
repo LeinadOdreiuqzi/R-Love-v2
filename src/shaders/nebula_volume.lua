@@ -58,7 +58,8 @@ function Volume.begin(shader, view)
     hadSource = nil
 end
 
-function Volume.setCloud(shader, region, x, y, nebula)
+function Volume.setCloud(shader, region, x, y, nebula, balance)
+    shader:send("u_cloudBalance", balance or 0)
     if lastRegion ~= region then
         shader:send("u_gasBand", region.gas)
         shader:send("u_frontBand", region.front)

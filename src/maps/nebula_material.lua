@@ -95,6 +95,17 @@ function Material.atWorld(x, y)
     return Material.forNode(Biomes.sampleBiomeBlend(x / stride, y / stride, true).nebulaRegion)
 end
 
+-- La semilla elige una proporción reproducible para cada nube.
+-- Un campo continuo limita el acento de las nubes vecinas incluso entre chunks.
+function Material.cloudBalance(region, x, y, cloud)
+    local seed = cloud.seed or 0
+    local roll = (seed * .754877666 + .31) % 1
+    local scale = math.max(1, region.reach)
+    local area = love.math.noise(x/scale, y/scale)
+    local accent = math.max(0, math.min(1, (area-.24)/.42))
+    return -.78 + roll^1.5*(.60+1.04*accent)
+end
+
 -- Lleva la fuente del mundo al espacio de la nube, incluyendo su giro y excentricidad.
 function Material.projectLight(region, x, y, size, aspect, rotation, out)
     local dx, dy = region.lightX - x, region.lightY - y
