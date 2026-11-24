@@ -8,6 +8,7 @@ local HyperspaceTunnel = {}
 
 local shader = nil
 local initialized = false
+local compilationFailed = false
 local dummyImage = nil
 
 -- Configuración por defecto
@@ -43,16 +44,16 @@ local proceduralState = {
     streakParams = {0.35, 0.48, 1.5, 3.2}     -- density, length, speedMul, width/sharpness
 }
 
--- Catálogo de 6 Arquetipos Espectrales Armónicos (Bicolor astrofísico elegante, cero arcoíris)
+-- Paletas por ruta: sombra, cuerpo, gas iluminado y tres tonos de borde.
 local ARCHETYPES = {
     {
         name = "Destiny 2 Carina Conduit (Bicolor Cyan & Coral)",
-        col1 = {0.03, 0.08, 0.30}, -- Índigo noche profundo (Sombra O-III)
-        col2 = {0.08, 0.58, 0.88}, -- Cerúleo eléctrico vibrante (Cuerpo O-III)
-        col3 = {0.30, 0.82, 0.98}, -- Cian estelar radiante (Cresta O-III)
-        col4 = {0.28, 0.06, 0.10}, -- Vino granate profundo (Sombra H-α)
-        col5 = {0.90, 0.36, 0.20}, -- Coral hidrógeno / salmón (Cuerpo H-α)
-        col6 = {1.00, 0.68, 0.26}, -- Ámbar dorado cálido (Cresta H-α)
+        col1 = {0.031, 0.055, 0.157},
+        col2 = {0.082, 0.224, 0.412},
+        col3 = {0.384, 0.659, 0.671},
+        col4 = {0.255, 0.255, 0.337},
+        col5 = {0.761, 0.573, 0.502},
+        col6 = {1.000, 0.886, 0.729},
         colPeak = {1.00, 0.96, 0.88},
         spaceVoid = {0.003, 0.005, 0.012},
         dust = {0.010, 0.006, 0.005},
@@ -63,12 +64,12 @@ local ARCHETYPES = {
     },
     {
         name = "Tarantula Supernova (Rose-Gold & Deep Violet)",
-        col1 = {0.07, 0.03, 0.25}, -- Amatista noche profunda (Sombra)
-        col2 = {0.48, 0.22, 0.80}, -- Violeta real cósmico (Cuerpo)
-        col3 = {0.80, 0.42, 0.92}, -- Rosa orquídea luminoso (Cresta)
-        col4 = {0.26, 0.07, 0.14}, -- Ciruela ahumada (Sombra)
-        col5 = {0.88, 0.36, 0.46}, -- Oro rosa / salmón suave (Cuerpo)
-        col6 = {1.00, 0.72, 0.52}, -- Melocotón champagne (Cresta)
+        col1 = {0.082, 0.055, 0.141},
+        col2 = {0.290, 0.192, 0.333},
+        col3 = {0.686, 0.475, 0.494},
+        col4 = {0.337, 0.267, 0.349},
+        col5 = {0.847, 0.675, 0.549},
+        col6 = {1.000, 0.941, 0.847},
         colPeak = {1.00, 0.94, 0.90},
         spaceVoid = {0.005, 0.004, 0.012},
         dust = {0.012, 0.005, 0.008},
@@ -79,12 +80,12 @@ local ARCHETYPES = {
     },
     {
         name = "Pillars of Creation (Hubble Deep Teal & Solar Amber)",
-        col1 = {0.02, 0.08, 0.22}, -- Abismo teal profundo (Sombra)
-        col2 = {0.06, 0.55, 0.68}, -- Teal oxígeno clásico Hubble (Cuerpo)
-        col3 = {0.20, 0.80, 0.85}, -- Aguamarina luminosa (Cresta)
-        col4 = {0.24, 0.09, 0.04}, -- Tierra umber cósmica (Sombra)
-        col5 = {0.85, 0.46, 0.14}, -- Cobre incandescente (Cuerpo)
-        col6 = {1.00, 0.76, 0.25}, -- Ámbar solar dorado (Cresta)
+        col1 = {0.024, 0.098, 0.118},
+        col2 = {0.082, 0.286, 0.306},
+        col3 = {0.349, 0.639, 0.608},
+        col4 = {0.286, 0.302, 0.271},
+        col5 = {0.733, 0.592, 0.369},
+        col6 = {0.973, 0.902, 0.718},
         colPeak = {0.98, 1.00, 0.90},
         spaceVoid = {0.003, 0.006, 0.012},
         dust = {0.014, 0.008, 0.005},
@@ -95,12 +96,12 @@ local ARCHETYPES = {
     },
     {
         name = "Cygnus Arc (High-Energy Cobalt & Pure Cyan)",
-        col1 = {0.03, 0.06, 0.28}, -- Azul cobalto medianoche (Sombra)
-        col2 = {0.10, 0.52, 0.92}, -- Azul alta tensión (Cuerpo)
-        col3 = {0.40, 0.85, 1.00}, -- Cian hielo brillante (Cresta)
-        col4 = {0.05, 0.04, 0.22}, -- Ultramar profundo (Sombra)
-        col5 = {0.35, 0.44, 0.88}, -- Pervinca eléctrico (Cuerpo)
-        col6 = {0.78, 0.88, 1.00}, -- Diamante blanco-azul (Cresta)
+        col1 = {0.035, 0.075, 0.180},
+        col2 = {0.149, 0.243, 0.475},
+        col3 = {0.502, 0.604, 0.737},
+        col4 = {0.208, 0.278, 0.400},
+        col5 = {0.553, 0.745, 0.741},
+        col6 = {0.914, 1.000, 1.000},
         colPeak = {0.96, 0.98, 1.00},
         spaceVoid = {0.003, 0.004, 0.010},
         dust = {0.008, 0.006, 0.010},
@@ -111,12 +112,12 @@ local ARCHETYPES = {
     },
     {
         name = "Supernova Remnant (Cosmic Ruby & Starburst Amber)",
-        col1 = {0.20, 0.03, 0.07}, -- Granate abisal (Sombra)
-        col2 = {0.78, 0.15, 0.24}, -- Rubí cósmico intenso (Cuerpo)
-        col3 = {0.96, 0.40, 0.30}, -- Coral vivo incandescente (Cresta)
-        col4 = {0.18, 0.05, 0.03}, -- Castaño ahumado (Sombra)
-        col5 = {0.88, 0.48, 0.12}, -- Ámbar fundido (Cuerpo)
-        col6 = {1.00, 0.78, 0.30}, -- Oro solar brillante (Cresta)
+        col1 = {0.094, 0.059, 0.125},
+        col2 = {0.345, 0.188, 0.224},
+        col3 = {0.729, 0.447, 0.322},
+        col4 = {0.345, 0.224, 0.251},
+        col5 = {0.812, 0.616, 0.471},
+        col6 = {1.000, 0.941, 0.773},
         colPeak = {1.00, 0.96, 0.90},
         spaceVoid = {0.005, 0.004, 0.008},
         dust = {0.012, 0.006, 0.006},
@@ -127,12 +128,12 @@ local ARCHETYPES = {
     },
     {
         name = "Void Dynamo (Cosmic Twilight & Arc Cyan)",
-        col1 = {0.04, 0.02, 0.16}, -- Índigo crepuscular oscuro (Sombra)
-        col2 = {0.24, 0.15, 0.60}, -- Amatista crepúsculo (Cuerpo)
-        col3 = {0.58, 0.48, 0.90}, -- Aurora lavanda suave (Cresta)
-        col4 = {0.03, 0.07, 0.25}, -- Azul marino profundo (Sombra)
-        col5 = {0.10, 0.58, 0.88}, -- Cerúleo eléctrico arco (Cuerpo)
-        col6 = {0.35, 0.85, 0.96}, -- Aguamarina arco radiante (Cresta)
+        col1 = {0.047, 0.063, 0.157},
+        col2 = {0.188, 0.208, 0.357},
+        col3 = {0.557, 0.502, 0.643},
+        col4 = {0.188, 0.275, 0.329},
+        col5 = {0.443, 0.663, 0.678},
+        col6 = {0.859, 0.937, 0.922},
         colPeak = {0.96, 0.98, 1.00},
         spaceVoid = {0.003, 0.003, 0.008},
         dust = {0.008, 0.004, 0.009},
@@ -269,6 +270,7 @@ local shaderSource = [[
     extern float u_progress;
     extern float u_alpha;
     extern float u_seedOffset;
+    extern float u_arrivalIntensity;
     extern float u_breakout; // 0.0 en viaje normal, 0.0..1.0 durante la rotura cuántica de llegada
 
     // 6 Colores del espectro nebular multidimensional
@@ -393,7 +395,9 @@ local shaderSource = [[
 
         // Morfología: Billow FBM suave + FBM continuo (aspecto aterciopelado)
         float baseNoise = fbm3D(pFluid * 1.05);
-        float billows   = billowFBM(pFluid * 1.25 + vec3(5.2, 2.1, 7.3));
+        // La pared exterior se proyecta a mayor profundidad sobre el mismo rayo.
+        vec3 outerWall = pFluid * 1.25 + vec3(5.2, 2.1, 7.3 + z * 0.15);
+        float billows   = billowFBM(outerWall);
         float rawCloud  = baseNoise * 0.50 + billows * 0.50;
 
         // Densidad neta de gas cósmico con transiciones aterciopeladas
@@ -405,35 +409,32 @@ local shaderSource = [[
         float dustNoise = fbm3D(dustPos);
         float dustVein = smoothstep(0.34, 0.80, dustNoise) * u_cloudParams.z;
 
-        float gasEmission = cloudDensity * (1.0 - dustVein * 0.80);
+        float transmission = exp(-2.4 * dustVein * cloudDensity);
+        float gasEmission = cloudDensity * transmission;
 
-        // 3. Distribución cromática astrofísica armónica (Atmósfera Primaria + Corrientes de Acento)
-        // Gas Primario: sombreado volumétrico dimensional según densidad (Sombra -> Cuerpo -> Cresta)
-        float primShade = smoothstep(0.18, 0.65, cloudDensity);
-        vec3 colPrimary = mix(u_col1, u_col2, primShade);
-        colPrimary = mix(colPrimary, u_col3, smoothstep(0.55, 0.90, cloudDensity));
+        // La luz revelada por los pliegues recorre una escala de tonos continua.
+        float exposed = clamp(0.55 * baseNoise + 0.45 * billows, 0.0, 1.0) * transmission;
+        float facing = exp(-r * 2.8);
+        float forwardScatter = facing * facing * cloudDensity;
+        float lightLevel = clamp(1.55 * exposed - 0.16 + 0.18 * facing, 0.0, 1.0);
+        vec3 gasBaseCol = mix(u_col1, u_col2, smoothstep(0.06, 0.40, lightLevel));
+        gasBaseCol = mix(gasBaseCol, u_col3, smoothstep(0.30, 0.67, lightLevel));
 
-        // Gas de Acento (Secundario): sombreado volumétrico dimensional según densidad
-        float accShade = smoothstep(0.18, 0.65, cloudDensity);
-        vec3 colAccent = mix(u_col4, u_col5, accShade);
-        colAccent = mix(colAccent, u_col6, smoothstep(0.55, 0.90, cloudDensity));
+        // Las crestas recogen el color de la luz rasante. La máscara viaja con el gas.
+        float ridge = smoothstep(-0.04, 0.24, billows - baseNoise);
+        float rimLight = ridge * transmission * smoothstep(0.24, 0.70, cloudDensity);
+        vec3 rimTint = mix(u_col4, u_col5, smoothstep(0.18, 0.68, lightLevel));
+        rimTint = mix(rimTint, u_col6, smoothstep(0.55, 0.92, lightLevel));
+        gasBaseCol = mix(gasBaseCol, rimTint, rimLight);
 
-        // Corrientes cósmicas tridimensionales que entrelazan los dos gases orgánicamente
-        float streamNoise = fbm3D(pFluid * 0.65 + vec3(u_seedOffset, 2.5, zCoord * 0.08));
-        float streamLobe  = sin(a * 2.0 + zCoord * 0.28 + u_seedOffset) * 0.32;
-        float streamField = streamNoise + streamLobe;
-        float accentWeight = smoothstep(0.48, 0.76, streamField);
-
-        // Mezcla física entre el gas primario y los ríos de gas de acento
-        vec3 gasBaseCol = mix(colPrimary, colAccent, accentWeight);
-
-        // Iluminación estelar frontal (forward scattering hacia la singularidad)
-        float forwardScatter = exp(-r * 6.0) * pow(cloudDensity, 1.2);
-        vec3 cloudColor = mix(gasBaseCol, u_colPeak, clamp(forwardScatter * 0.65, 0.0, 0.85));
+        // Un tinte frío acompaña la aceleración sólo en la luz frontal transmitida.
+        float speedShift = smoothstep(0.85, 3.05, u_speed) * facing * transmission;
+        vec3 incident = mix(u_colPeak, vec3(0.56, 0.81, 1.0), speedShift);
+        vec3 cloudColor = mix(gasBaseCol, incident, forwardScatter * 0.38);
 
         // Composición de pared del túnel: gas emisor sobre el vacío cósmico profundo
         vec3 tunnelWall = mix(u_spaceVoid, cloudColor * (1.12 + forwardScatter * 0.35), gasEmission);
-        tunnelWall = mix(tunnelWall, u_dustColor, dustVein * cloudDensity * 0.70);
+        tunnelWall += u_dustColor * (1.0 - transmission);
 
         // Apertura central suave del túnel
         float wallFade = smoothstep(0.025, 0.19, r);
@@ -446,39 +447,41 @@ local shaderSource = [[
         float ray3 = cos(rayAngle * 3.0 + u_time * 0.06) * 0.5 + 0.5;
         float godRays = pow(ray1 * 0.45 + ray2 * 0.35 + ray3 * 0.20, 3.2);
 
-        float rayFalloff = exp(-r * 3.4) * smoothstep(1.35, 0.05, r);
-        vec3 rayTint = mix(vec3(1.0, 0.97, 0.92), gasBaseCol, 0.35);
+        float rayFalloff = exp(-r * 3.4) * (1.0 - smoothstep(0.05, 1.35, r));
+        vec3 rayTint = mix(incident, gasBaseCol, 0.58);
         vec3 rayLight = rayTint * godRays * rayFalloff * 1.6 * (1.1 - cloudDensity * 0.50);
 
         // 5. Estelas de Luz de Seda y Micro-Brasas (Laminar Silk Streams, sutiles y elegantes)
-        float streakSector = a * 14.0;
+        float azimuth = fract(a / 6.2831853);
+        float streakSector = azimuth * 88.0;
         float streakFract  = fract(streakSector);
         float streakId     = floor(streakSector);
         float streakRand   = fract(sin(streakId * 73.15 + u_seedOffset) * 43758.5453);
 
         vec3 streaksOut = vec3(0.0);
-        if (streakRand > 0.74) {
+        if (streakRand > 1.0 - u_streakParams.x) {
             float distFromCenter = abs(streakFract - 0.5);
-            float filamentProfile = exp(-distFromCenter * distFromCenter * 50.0);
+            float filamentProfile = exp(-distFromCenter * distFromCenter * 16.0 * u_streakParams.w);
             float filamentGlow = exp(-distFromCenter * 10.0) * 0.25;
             float totalCrossSection = filamentProfile + filamentGlow;
 
-            float filamentSpeed = 0.60 + streakRand * 0.30;
+            float filamentSpeed = (0.40 + streakRand * 0.20) * u_streakParams.z;
             float filamentZ = fract(z * 0.24 + flow * 0.32 * filamentSpeed + streakRand);
-            float tail = smoothstep(0.0, 0.18, filamentZ) * smoothstep(0.90, 0.20, filamentZ);
+            float tailEnd = u_streakParams.y * (0.75 + 0.26 * u_speed);
+            float tail = smoothstep(0.0, 0.10, filamentZ) * (1.0 - smoothstep(0.10, tailEnd, filamentZ));
 
-            float filamentIntensity = totalCrossSection * tail * smoothstep(0.06, 0.32, r) * smoothstep(1.30, 0.60, r);
-            vec3 filamentColor = mix(gasBaseCol * 1.3, vec3(1.0, 0.98, 0.92), 0.55);
+            float filamentIntensity = totalCrossSection * tail * smoothstep(0.06, 0.32, r) * (1.0 - smoothstep(0.60, 1.30, r));
+            vec3 filamentColor = mix(gasBaseCol, incident, 0.32 + 0.28 * facing);
             streaksOut = filamentColor * filamentIntensity * 0.95;
         }
 
         // Micro-brasas cósmicas flotando suavemente en paralaje
-        float emberSector = a * 20.0;
+        float emberSector = azimuth * 126.0;
         float emberId = floor(emberSector);
         float emberRand = fract(sin(emberId * 113.7 + u_seedOffset * 1.5) * 31415.9);
         if (emberRand > 0.88) {
             float emberZ = fract(z * 0.32 + flow * 0.45 + emberRand);
-            float emberTrail = smoothstep(0.0, 0.10, emberZ) * smoothstep(0.40, 0.10, emberZ);
+            float emberTrail = smoothstep(0.0, 0.10, emberZ) * (1.0 - smoothstep(0.10, 0.40, emberZ));
             float emberDot = exp(-pow(abs(fract(emberSector) - 0.5) * 8.0, 2.0));
             vec3 emberCol = mix(gasBaseCol, u_colPeak, emberRand);
             streaksOut += emberCol * emberDot * emberTrail * smoothstep(0.08, 0.35, r) * 0.70;
@@ -486,7 +489,7 @@ local shaderSource = [[
 
         // Sobretensión Cinematográfica de Llegada (Arrival Surge: cuando se está por llegar)
         float arrivalSurge = smoothstep(0.55, 1.0, u_progress);
-        float surgeExpo = pow(arrivalSurge, 2.4);
+        float surgeExpo = pow(arrivalSurge, 2.4) * u_arrivalIntensity;
 
         // A. Curvatura de Lente Gravitacional del Horizonte de Salida
         float lensPull = surgeExpo * 0.16 * exp(-r * 3.2);
@@ -499,7 +502,7 @@ local shaderSource = [[
         float apRing = exp(-apDist * apDist * 220.0);
         float apCorona = (0.0035 * surgeExpo) / (apDist * apDist + 0.0010);
         float apUndulation = 1.0 + 0.10 * sin(angle * 8.0 + u_time * 6.0) * arrivalSurge;
-        vec3 apLight = mix(u_flareColor, vec3(1.0, 0.98, 0.92), 0.65) * (apRing * 2.2 + apCorona * 0.6) * apUndulation * surgeExpo;
+        vec3 apLight = mix(u_flareColor, vec3(1.0, 0.98, 0.92), 0.65) * (apRing * 0.45 + apCorona * 0.1) * apUndulation * surgeExpo;
 
         // C. Dispersión Cromática Prismática Relativista (Prismatic Fringe)
         float chromaDist = surgeExpo * 0.035 * smoothstep(0.02, 0.40, r) * exp(-r * 2.5);
@@ -510,11 +513,11 @@ local shaderSource = [[
         );
 
         // 6. Singularidad Central Deslumbrante (Blinding White-Hot Singularity)
-        float coreScale = 1.0 + surgeExpo * 1.8;
+        float coreScale = 1.0 + surgeExpo * 0.35;
         float coreR = warpedR / coreScale;
         float coreInner = exp(-coreR * 38.0);
         float coreMid   = exp(-coreR * 12.0);
-        float coreAura  = (0.0035 + surgeExpo * 0.018) / (coreR * coreR + 0.0014);
+        float coreAura  = (0.0035 + surgeExpo * 0.002) / (coreR * coreR + 0.0014);
         vec3 coreLight = (u_coreColor * coreInner * (3.8 + surgeExpo * 4.5) +
                          mix(u_coreColor, u_flareColor, 0.35) * coreMid * (1.6 + surgeExpo * 2.8) +
                          u_flareColor * coreAura * (0.35 + surgeExpo * 1.4));
@@ -534,13 +537,13 @@ local shaderSource = [[
         flareLight += mix(u_coreColor, u_flareColor, 0.5) * crossSpike;
 
         // 8. Resplandor Cósmico de Inserción (Arrival Flash Bloom)
-        vec3 arrivalBloom = mix(vec3(1.0, 0.98, 0.92), u_flareColor, 0.4) * exp(-r * 1.8) * (surgeExpo * 1.8);
+        vec3 arrivalBloom = mix(vec3(1.0, 0.98, 0.92), u_flareColor, 0.4) * exp(-r * 9.0) * (surgeExpo * 0.55);
 
         // 9. Rotura Cuántica de Llegada (Breakout Flash & Relativistic Shockwave)
         vec3 breakoutLight = vec3(0.0);
         if (u_breakout > 0.0001) {
             float b = u_breakout;
-            float bEnv = sin(b * 3.14159265);
+            float bEnv = sin(b * 3.14159265) * u_arrivalIntensity;
 
             // Onda de choque relativista expansiva continua con separación cromática
             float waveR = 1.75 * pow(b, 0.62);
@@ -554,24 +557,27 @@ local shaderSource = [[
 
             vec3 waveCol = (vec3(waveCore) + u_flareColor * waveCyan * 0.85 + mix(u_col5, u_col6, 0.5) * waveAmber * 0.65);
             float waveFade = (1.0 - b) * bEnv;
-            breakoutLight += waveCol * waveFade * 4.2;
+            breakoutLight += waveCol * waveFade * (0.24 + cloudDensity * 0.65);
 
             // Inundación fotónica de singularidad (soft volumetric bloom)
-            float burstFalloff = exp(-r * (1.8 + b * 2.8));
-            breakoutLight += mix(vec3(1.0, 0.98, 0.95), u_flareColor, 0.30) * burstFalloff * bEnv * 4.8;
+            float burstFalloff = exp(-r * (9.0 + b * 2.8));
+            breakoutLight += mix(vec3(1.0, 0.98, 0.95), u_flareColor, 0.30) * burstFalloff * bEnv * 0.85;
 
             // Cuchilla anamórfica horizontal en disipación
             float bladeH = abs(p.y);
-            float bladeInt = exp(-bladeH * (55.0 / (1.0 + b * 2.5))) * bEnv * (1.0 - b * 0.45) * 3.2;
+            float bladeInt = exp(-bladeH * (55.0 / (1.0 + b * 2.5))) * bEnv * exp(-flareX * 5.0) * 0.75;
             breakoutLight += mix(u_flareColor, vec3(1.0), 0.75) * bladeInt;
         }
 
         // Composición Multicapa con Dispersión Prismática
-        vec3 finalColor = (cloudsOut * chromaPrism) + rayLight * (1.0 + surgeExpo * 1.8) + streaksOut + coreLight + flareLight + apLight + arrivalBloom + breakoutLight;
+        // El polvo atenúa la luz de fondo; la onda de salida queda en primer plano.
+        vec3 backLight = rayLight * (1.0 + surgeExpo) + coreLight + apLight + arrivalBloom;
+        vec3 finalColor = cloudsOut * chromaPrism + backLight * mix(1.0, transmission, wallFade)
+                        + streaksOut + flareLight * 0.55 + breakoutLight;
 
         // 10. Viñeta Cinematográfica (se dilata suavemente para que la luz inunde los bordes al llegar)
         float vignetteLimit = 1.45 + surgeExpo * 0.85;
-        float vignette = smoothstep(vignetteLimit, 0.45, length(p));
+        float vignette = (1.0 - smoothstep(0.45, vignetteLimit, r));
         finalColor *= vignette;
 
         // 11. ACES Filmic Tone Mapping (Conserva el contraste profundo y el resplandor cálido)
@@ -596,11 +602,13 @@ function HyperspaceTunnel.init()
     end)
 
     if success then
+        compilationFailed = false
         shader = result
         initialized = true
         print("✓ HyperspaceTunnel: Destiny 2 procedural warp tunnel shader compiled successfully")
         HyperspaceTunnel.setSeed(HyperspaceTunnel.config.currentSeed)
     else
+        compilationFailed = true
         print("✗ HyperspaceTunnel: Shader compilation failed: " .. tostring(result))
         shader = nil
         initialized = false
@@ -617,22 +625,29 @@ function HyperspaceTunnel.init()
 end
 
 -- Actualización temporal y velocidad
+function HyperspaceTunnel.flightFactor(progress)
+    local p = math.min(1, math.max(0, progress))
+    local approach = math.min(1, p / 0.72)
+    local brake = math.max(0, (p - 0.72) / 0.28)
+    return approach * approach * (3 - 2 * approach) * (1 - 0.82 * brake * brake * (3 - 2 * brake))
+end
+
 function HyperspaceTunnel.update(dt, progress)
     local p = progress or 0
     HyperspaceTunnel.config.time = HyperspaceTunnel.config.time + dt
-    local speed = HyperspaceTunnel.config.baseSpeed + HyperspaceTunnel.config.maxSpeedBoost * (p ^ 1.2)
+    local speed = HyperspaceTunnel.config.baseSpeed + HyperspaceTunnel.config.maxSpeedBoost * HyperspaceTunnel.flightFactor(p)
     HyperspaceTunnel.config.flowPos = (HyperspaceTunnel.config.flowPos or 0) + speed * dt
 end
 
 -- Renderizado a pantalla completa del túnel hiperespacial
-function HyperspaceTunnel.draw(cx, cy, width, height, alpha, progress, exitProgress)
+function HyperspaceTunnel.draw(cx, cy, width, height, alpha, progress, exitProgress, reducedEffects)
     if not initialized or not shader then
-        if not HyperspaceTunnel.init() then return false end
+        if compilationFailed or not HyperspaceTunnel.init() then return false end
     end
 
     local p = progress or 0
     local b = exitProgress or 0.0
-    local speed = HyperspaceTunnel.config.baseSpeed + HyperspaceTunnel.config.maxSpeedBoost * (p ^ 1.2)
+    local speed = HyperspaceTunnel.config.baseSpeed + HyperspaceTunnel.config.maxSpeedBoost * HyperspaceTunnel.flightFactor(p)
     local time = HyperspaceTunnel.config.time
     local flowPos = HyperspaceTunnel.config.flowPos or (time * speed)
 
@@ -666,6 +681,7 @@ function HyperspaceTunnel.draw(cx, cy, width, height, alpha, progress, exitProgr
     if shader:hasUniform("u_seedOffset") then
         shader:send("u_seedOffset", proceduralState.seedOffset)
     end
+    shader:send("u_arrivalIntensity", reducedEffects and 0.2 or 1.0)
     if shader:hasUniform("u_breakout") then
         shader:send("u_breakout", b)
     end

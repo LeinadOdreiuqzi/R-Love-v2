@@ -118,11 +118,12 @@ end
 
 -- La densidad se interpola entre muestras compartidas por los chunks contiguos.
 -- El relieve del cinturón se muestrea por tile en coordenadas globales.
-function MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, densities, rng)
+function MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, densities, rng, checkpoint)
     local size = MapConfig.chunk.size
     local divisions = 8
     local field = {}
     for j = 0, divisions do
+        if checkpoint then checkpoint() end
         field[j] = {}
         for i = 0, divisions do
             local cx, cy = chunkX + i / divisions, chunkY + j / divisions
@@ -138,6 +139,7 @@ function MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, densities
     local selected, candidates = {}, 0
     local capRng = SeedSystem.makeRNG(string.format("%d:%d:%d:rock-cap", BiomeSystem.numericSeed, chunkX, chunkY))
     for y = 0, size - 1 do
+        if checkpoint then checkpoint() end
         local v = (y + 0.5) * divisions / size
         local j = math.floor(v)
         local top, bottom = field[j], field[j + 1]
@@ -242,13 +244,14 @@ local function spaceNebulae(candidates, cx, cy)
     return result
 end
 
-function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, rng)
+function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, rng, checkpoint)
     local nebulaObjects = {}
     
     local BT = BiomeSystem.BiomeType
     local numNebulae = 14
 
     for i = 1, numNebulae do
+        if checkpoint then checkpoint() end
         local x = rng:randomInt(0, MapConfig.chunk.size - 1)
         local y = rng:randomInt(0, MapConfig.chunk.size - 1)
         local ensureField = i == numNebulae and #nebulaObjects == 0 and chunk.biome.type == BT.NEBULA_FIELD
@@ -559,7 +562,7 @@ function MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, dens
 end
 
 -- Generar estrellas balanceadas
-function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities, rng)
+function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities, rng, checkpoint)
     local stars = {}
     local starDensity = densities.stars or MapConfig.density.stars
     local BT = BiomeSystem.BiomeType
@@ -579,6 +582,7 @@ function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities, rn
     }
     
     for sectorY = 0, sectorsPerSide - 1 do
+        if checkpoint then checkpoint() end
         for sectorX = 0, sectorsPerSide - 1 do
             local localBiome = chunk.biome.type
             local density, factor = starDensity, factorByBiome[localBiome] or 1.3
@@ -655,7 +659,7 @@ function MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, densities, rn
 end
 
 -- Generar chunk completo
-function MapGenerator.generateChunk(chunkX, chunkY)
+function MapGenerator.generateChunk(chunkX, chunkY, checkpoint)
     -- Despachar a modo subnivel si está activo
     if MapGenerator.subLevelMode and MapGenerator.subLevelMode.active then
         local cfg = MapGenerator.subLevelMode.config or {}
@@ -717,21 +721,21 @@ function MapGenerator.generateChunk(chunkX, chunkY)
     
     if MapGenerator.debugLogs then
         local t0 = love.timer.getTime()
-        MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, modified, rng)
+        MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, modified, rng, checkpoint)
         local t1 = love.timer.getTime()
-        MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, modified, rng)
+        MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, modified, rng, checkpoint)
         local t2 = love.timer.getTime()
         MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, modified, rng)
         local t3 = love.timer.getTime()
-        MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modified, rng)
+        MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modified, rng, checkpoint)
         local t4 = love.timer.getTime()
         print(string.format("[GenProfile] Chunk (%d,%d): Ast=%.2fms, Neb=%.2fms, Spec=%.2fms, Stars=%.2fms",
             chunkX, chunkY, (t1-t0)*1000, (t2-t1)*1000, (t3-t2)*1000, (t4-t3)*1000))
     else
-        MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, modified, rng)
-        MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, modified, rng)
+        MapGenerator.generateBalancedAsteroids(chunk, chunkX, chunkY, modified, rng, checkpoint)
+        MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, modified, rng, checkpoint)
         MapGenerator.generateBalancedSpecialObjects(chunk, chunkX, chunkY, modified, rng)
-        MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modified, rng)
+        MapGenerator.generateBalancedStars(chunk, chunkX, chunkY, modified, rng, checkpoint)
     end
 
     -- IMPORTANTE: Asegurar que las características especiales de bioma SIEMPRE se generen

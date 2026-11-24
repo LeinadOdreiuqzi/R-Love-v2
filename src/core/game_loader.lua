@@ -11,9 +11,7 @@ local Map = require 'src.maps.map'
 local Naves = require 'src.entities.naves'
 local HUD = require 'src.ui.hud'
 local BiomeSystem = require 'src.maps.biome_system'
-local CoordinateSystem = require 'src.maps.coordinate_system'
 local ChunkManager = require 'src.maps.chunk_manager'
-local OptimizedRenderer = require 'src.maps.optimized_renderer'
 local SeedSystem = require 'src.utils.seed_system'
 local LoadingScreen = require 'src.ui.loading_screen'
 local GameState = require 'src.core.game_state'
@@ -23,6 +21,8 @@ local PhysicsManager = require 'src.physics.physics_manager'
 local InventoryManager = require 'src.core.inventory_manager'
 local PassiveManager = require 'src.item_systems.passive_manager'
 local AudioManager = require 'src.audio.audio_manager'
+
+local interfacesReady = false
 
 local function loadWorld(updateProgress)
     local state = GameState.state
@@ -34,6 +34,18 @@ local function loadWorld(updateProgress)
         return true
     end)
     
+    if not interfacesReady then
+        table.insert(loadSteps, function()
+            updateProgress("init", "Preparing items...")
+            require('src.item_systems.items.init').initialize()
+        end)
+        table.insert(loadSteps, function()
+            require('src.ui.inventory_ui'):init()
+            require('src.ui.eva_inventory_ui'):init()
+            interfacesReady = true
+        end)
+    end
+
     table.insert(loadSteps, function()
         updateProgress("seed", "Generating universe seed...")
         if not state.currentSeed then
@@ -44,30 +56,30 @@ local function loadWorld(updateProgress)
         return true
     end)
     
+    local function addPreload(stage, detail, fraction, preload)
+        table.insert(loadSteps, coroutine.wrap(function()
+            updateProgress(stage, detail, fraction)
+            preload(function() coroutine.yield(false) end)
+            return true
+        end))
+    end
+    addPreload("seed", "Preparing rendering resources...", 0.5, require('src.shaders.shader_manager').init)
+
     table.insert(loadSteps, function()
         updateProgress("perlin", "Creating noise patterns...")
-        local mapInitSuccess = pcall(function() Map.init(state.currentSeed) end)
-        if not mapInitSuccess then print("Warning: Enhanced Map initialization had issues") end
+        Map.init(state.currentSeed)
         return true
     end)
     
     table.insert(loadSteps, function()
-        updateProgress("biomes", "Distributing biomes across space...")
-        if BiomeSystem then
-            for i = 1, 10 do
-                local testX = math.random(-100, 100)
-                local testY = math.random(-100, 100)
-                BiomeSystem.getBiomeForChunk(testX, testY)
-                updateProgress("biomes", string.format("Calculating biome distribution... %d%%", i * 10))
-            end
-        end
+        updateProgress("biomes", "Locating the starting biome...")
+        BiomeSystem.getBiomeForChunk(0, 0)
         return true
     end)
     
     table.insert(loadSteps, function()
         updateProgress("coordinates", "Setting up infinite coordinate system...")
-        local success, cam = pcall(function() return Camera:new() end)
-        if not success or not cam then error("Failed to initialize camera") end
+        local cam = assert(Camera:new(), "Failed to initialize camera")
         
         World.set('camera', cam)
         cam:updateScreenDimensions()
@@ -76,38 +88,41 @@ local function loadWorld(updateProgress)
     
     table.insert(loadSteps, function()
         updateProgress("chunks", "Initializing chunk management...")
-        if ChunkManager and ChunkManager.state then
-            updateProgress("chunks", "Creating chunk pool... 50%")
+        for y = -1, 1 do
+            for x = -1, 1 do Map.getChunkNonBlocking(x, y) end
         end
-        return true
     end)
-    
-    table.insert(loadSteps, function()
-        updateProgress("renderer", "Preparing renderer and shaders...")
-        local rendererSuccess, rendererErr = pcall(function() OptimizedRenderer.init() end)
-        if not rendererSuccess then print("Warning: OptimizedRenderer not available: " .. tostring(rendererErr)) end
-        require('src.rendering.ships.frontier_boss_art').preload()
-        require('src.rendering.ships.tactical_pixel_art').preload()
-        return true
-    end)
-    
-    local initialRadius = 3
-    local chunkCount = 0
-    local totalChunks = (initialRadius * 2 + 1) ^ 2
-    
-    for chunkY = -initialRadius, initialRadius do
-        for chunkX = -initialRadius, initialRadius do
-            local cx, cy = chunkX, chunkY
-            table.insert(loadSteps, function()
-                if Map.getChunk then Map.getChunk(cx, cy, 0, 0) end
-                chunkCount = chunkCount + 1
-                local percent = math.floor((chunkCount / totalChunks) * 100)
-                updateProgress("initial_chunks", string.format("Generating chunks... %d%%", percent))
-                return true
-            end)
+
+    addPreload("renderer", "Preparing frontier ship art...", 0, require('src.rendering.ships.frontier_boss_art').preload)
+    addPreload("renderer", "Preparing tactical ships...", 0.5, require('src.rendering.ships.tactical_pixel_art').preload)
+
+    -- The player starts at a chunk boundary. Wait for its immediate neighbours.
+    table.insert(loadSteps, coroutine.wrap(function()
+        local ready = 0
+        local deadline = love.timer.getTime() + 0.002
+        local function checkpoint()
+            if love.timer.getTime() >= deadline then
+                coroutine.yield(false)
+                deadline = love.timer.getTime() + 0.002
+            end
         end
-    end
-    
+        repeat
+            updateProgress("initial_chunks", string.format("Starting sectors ready: %d / 9", ready), ready / 9)
+            ChunkManager.processLoadQueue(nil, 0.003, checkpoint)
+            ready = 0
+            for y = -1, 1 do
+                for x = -1, 1 do
+                    assert(ChunkManager.isChunkInCurrentPhase(x, y), "Starting sector outside active map")
+                    local chunk = Map.getChunkNonBlocking(x, y)
+                    if chunk and chunk.status == "complete" then ready = ready + 1 end
+                end
+            end
+            checkpoint()
+        until ready == 9
+        updateProgress("initial_chunks", "Starting sectors ready: 9 / 9", 1)
+        return true
+    end))
+
     table.insert(loadSteps, function()
         updateProgress("player", "Creating player entity and test ships...")
         if Naves.clearAllShips then
@@ -189,7 +204,7 @@ local function loadWorld(updateProgress)
     
     return function()
         if currentStep <= #loadSteps then
-            loadSteps[currentStep]()
+            if loadSteps[currentStep]() == false then return false end
             currentStep = currentStep + 1
             return currentStep > #loadSteps
         end

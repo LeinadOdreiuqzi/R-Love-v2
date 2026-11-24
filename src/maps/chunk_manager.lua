@@ -646,7 +646,7 @@ function ChunkManager.computeGenerationBudget(dt)
     return base
 end
 -- Procesar cola de carga con presupuesto de tiempo (segundos)
-function ChunkManager.processLoadQueue(dt, timeBudgetSec)
+function ChunkManager.processLoadQueue(dt, timeBudgetSec, checkpoint)
     local startTime = love.timer.getTime()
     local budget = timeBudgetSec or 0.002
     local queue = ChunkManager.state.loadQueue
@@ -658,7 +658,7 @@ function ChunkManager.processLoadQueue(dt, timeBudgetSec)
         -- Si ya está cargado o cacheado, saltar
         if not ChunkManager.state.activeChunks[id] and not ChunkManager.state.cachedChunks[id] then
             -- Generar chunk
-            local chunk = MapGenerator.generateChunk(req.chunkX, req.chunkY)
+            local chunk = MapGenerator.generateChunk(req.chunkX, req.chunkY, checkpoint)
             -- Normalizar a estructura esperada por ChunkManager
             chunk.id = id
             chunk.status = "complete"

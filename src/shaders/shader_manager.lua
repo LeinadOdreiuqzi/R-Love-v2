@@ -279,7 +279,7 @@ function ShaderManager.checkDependencies(shaderName)
 end
 
 -- Inicializar el gestor de shaders con orden de dependencias
-function ShaderManager.init()
+function ShaderManager.init(yieldWork)
     print("=== SHADER MANAGER INITIALIZING (ORDERED) ===")
 
     -- Evitar doble init
@@ -293,7 +293,8 @@ function ShaderManager.init()
 
     -- Inicializar en orden de dependencias
     for _, shaderType in ipairs(shaderDependencies.initOrder) do
-        ShaderManager.initializeShaderByType(shaderType)
+        ShaderManager.initializeShaderByType(shaderType, yieldWork)
+        if yieldWork then yieldWork() end
     end
     
     -- Warmup de shaders para evitar stutter en primer uso
@@ -305,9 +306,9 @@ function ShaderManager.init()
 end
 
 -- Inicializar shader específico por tipo
-function ShaderManager.initializeShaderByType(shaderType)
+function ShaderManager.initializeShaderByType(shaderType, yieldWork)
     if shaderType == "base_images" then
-        ShaderManager.createBaseImages()
+        ShaderManager.createBaseImages(yieldWork)
         print("✓ Base images created")
         
     elseif shaderType == "star" then
@@ -371,7 +372,7 @@ function ShaderManager.initializeShaderByType(shaderType)
 end
 
 -- Crear imágenes base para batching
-function ShaderManager.createBaseImages()
+function ShaderManager.createBaseImages(yieldWork)
     if not love.graphics then return end
     
     -- Imagen blanca 1x1 para shaders
@@ -396,6 +397,7 @@ function ShaderManager.createBaseImages()
             local alpha = 1.0 - math.min(1.0, dist)
             circleData:setPixel(x, y, 1, 1, 1, alpha)
         end
+        if yieldWork and y % 32 == 31 then yieldWork() end
     end
     ShaderManager.state.baseImages = ShaderManager.state.baseImages or {}
     ShaderManager.state.baseImages.circle = love.graphics.newImage(circleData)

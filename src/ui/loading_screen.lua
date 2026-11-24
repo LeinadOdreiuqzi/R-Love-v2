@@ -9,6 +9,7 @@ local GameState = require 'src.core.game_state'
 -- Configuración temática del Hiperespacio
 LoadingScreen.config = {
     -- Tiempos de transición
+    reducedEffects = false,
     minLoadTime = 0.90,         -- Tiempo mínimo cinematográfico para disfrutar del túnel
     fadeInTime = 0.35,          -- Entrada suave
     fadeOutTime = 0.50,         -- Salida con destello warp hacia el juego
@@ -126,13 +127,6 @@ LoadingScreen.gameLoadSteps = {
 
 -- Inicializar fuentes, tips y recursos
 function LoadingScreen.init()
-    LoadingScreen.generateStars()
-    LoadingScreen.generateNebulae()
-
-    if ShaderManager and (not ShaderManager.state or not ShaderManager.state.initialized) then
-        ShaderManager.init()
-    end
-
     -- Inicializar fuentes nítidas y balanceadas
     LoadingScreen.fonts = {
         header    = love.graphics.newFont(26),
@@ -242,6 +236,9 @@ end
 function LoadingScreen.startWarpJump(options)
     options = options or {}
     local state = LoadingScreen.state
+    LoadingScreen.loadIterator = nil
+    state.failure = nil
+    state.workComplete = false
     state.active = true
     state.isWarpJump = true
     state.progress = 0
@@ -260,7 +257,7 @@ function LoadingScreen.startWarpJump(options)
     state.displaySeed = "----------"
     state.seedLockIndex = 0
 
-    state.warpDuration = options.duration or 1.95
+    state.warpDuration = math.max(0.01, options.duration or 1.95)
     state.warpTitle = options.title or "CONDUIT HYPERSPACE JUMP"
     state.warpDestination = options.destination or "Submundo Cuántico"
     state.currentStep = state.warpTitle
@@ -270,13 +267,14 @@ function LoadingScreen.startWarpJump(options)
     state.midpointExecuted = false
     state.onComplete = options.onComplete
     state.loadFunction = nil
-    state.loadIterator = nil
 
     local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
     HyperspaceTunnel.setSeed(seed)
 
-    LoadingScreen.generateStars()
-    LoadingScreen.generateNebulae()
+    if not HyperspaceTunnel.isInitialized() then
+        LoadingScreen.generateStars()
+        LoadingScreen.generateNebulae()
+    end
 
     print("★ LoadingScreen: Portal warp jump initiated to seed [" .. tostring(seed) .. "] destination: " .. tostring(state.warpDestination))
 end
@@ -284,6 +282,9 @@ end
 -- Iniciar secuencia de carga
 function LoadingScreen.start(loadFunction, onComplete, seedOverride)
     local state = LoadingScreen.state
+    LoadingScreen.loadIterator = nil
+    state.failure = nil
+    state.workComplete = false
     state.active = true
     state.isWarpJump = false
     state.progress = 0
@@ -291,6 +292,7 @@ function LoadingScreen.start(loadFunction, onComplete, seedOverride)
     state.currentStep = "Initiating Hyperspace Drive..."
     state.subStep = "Synchronizing Event Horizon"
     state.startTime = love.timer.getTime()
+    state.timings = {slowestStepMs = 0}
     state.elapsedTime = 0
     state.animationTime = 0
     state.fadeAlpha = 0
@@ -311,8 +313,10 @@ function LoadingScreen.start(loadFunction, onComplete, seedOverride)
     state.onComplete = onComplete
     state.loadFunction = loadFunction
 
-    LoadingScreen.generateStars()
-    LoadingScreen.generateNebulae()
+    if not HyperspaceTunnel.isInitialized() then
+        LoadingScreen.generateStars()
+        LoadingScreen.generateNebulae()
+    end
 
     if LoadingScreen.tips and #LoadingScreen.tips > 0 then
         LoadingScreen.currentTip = LoadingScreen.tips[math.random(1, #LoadingScreen.tips)]
@@ -322,7 +326,7 @@ function LoadingScreen.start(loadFunction, onComplete, seedOverride)
 end
 
 -- Actualizar progreso de carga
-function LoadingScreen.updateProgress(stepId, subStep)
+function LoadingScreen.updateProgress(stepId, subStep, fraction)
     for i, step in ipairs(LoadingScreen.gameLoadSteps) do
         if step.id == stepId then
             LoadingScreen.state.currentStepIndex = i
@@ -334,11 +338,7 @@ function LoadingScreen.updateProgress(stepId, subStep)
                 progressSoFar = progressSoFar + LoadingScreen.gameLoadSteps[j].weight
             end
 
-            if subStep then
-                local subProgress = tonumber(string.match(subStep, "(%d+)%%")) or 0
-                progressSoFar = progressSoFar + (LoadingScreen.gameLoadSteps[i].weight * subProgress / 100)
-            end
-
+            progressSoFar = progressSoFar + step.weight * (fraction or 0)
             LoadingScreen.state.progress = math.min(1.0, math.max(0.0, progressSoFar))
             LoadingScreen.state.stepsCompleted = i - 1
             break
@@ -346,16 +346,24 @@ function LoadingScreen.updateProgress(stepId, subStep)
     end
 end
 
+local function failLoading(reason)
+    local state = LoadingScreen.state
+    LoadingScreen.loadIterator = nil
+    state.failure = tostring(reason)
+    state.fadeState = "failed"
+    state.fadeAlpha = 1
+    state.subStep = state.failure:match("[^\n]+")
+    state.currentStep = "Load failed - " .. state.currentStep .. " (Enter to restart)"
+    state.onComplete = nil
+    print(state.currentStep .. "\n" .. state.failure)
+end
+
 -- Ciclo principal de actualización
 function LoadingScreen.update(dt)
     local state = LoadingScreen.state
     if not state.active then return false end
 
-    -- Actualizar subsistema de audio
-    local AudioManager = require 'src.audio.audio_manager'
-    if AudioManager and AudioManager.update then
-        AudioManager.update(dt)
-    end
+    if state.failure then return true end
 
     LoadingScreen.processAsyncTasks(dt)
     LoadingScreen.cleanupResourceCache()
@@ -398,39 +406,31 @@ function LoadingScreen.update(dt)
     state.astrolabe.pitch = math.sin(state.animationTime * 1.4) * 0.42
     state.astrolabe.pulse = 1.0 + 0.06 * math.sin(state.animationTime * 4.5 * warpFactor)
 
-    -- Dinámica del campo estelar Warp 3D (Star Streaks con desaceleración relativista de llegada)
-    local baseSpd = LoadingScreen.config.warp.baseSpeed
-    local maxBoost = LoadingScreen.config.warp.maxSpeedBoost
-    local currentSpeed = baseSpd + maxBoost * (p ^ 1.35)
-    if p > 0.72 and state.fadeState ~= "out" then
-        -- Desaceleración al aproximarse al horizonte de llegada
-        local brakeT = (p - 0.72) / 0.28
-        currentSpeed = baseSpd + maxBoost * (1.0 - 0.75 * (brakeT ^ 1.8))
-    elseif state.fadeState == "out" then
-        local exitT = 1.0 - state.fadeAlpha
-        currentSpeed = baseSpd * (1.0 - exitT * 0.8)
-    end
-
-    local maxZ = LoadingScreen.config.warp.maxDepth
-    for _, star in ipairs(state.stars) do
-        star.z = star.z - currentSpeed * star.speedMul * dt
-        if star.z <= 6 then
-            star.z = maxZ
-            local angle = math.random() * math.pi * 2
-            local dist = (math.random() ^ 0.65) * 1100 + 35
-            star.x = math.cos(angle) * dist
-            star.y = math.sin(angle) * dist
+    if not HyperspaceTunnel.isInitialized() then
+        local warp = LoadingScreen.config.warp
+        local currentSpeed = warp.baseSpeed + warp.maxSpeedBoost * HyperspaceTunnel.flightFactor(p)
+        local maxZ = LoadingScreen.config.warp.maxDepth
+        for _, star in ipairs(state.stars) do
+            star.z = star.z - currentSpeed * star.speedMul * dt
+            if star.z <= 6 then
+                star.z = maxZ
+                local angle = math.random() * math.pi * 2
+                local dist = (math.random() ^ 0.65) * 1100 + 35
+                star.x = math.cos(angle) * dist
+                star.y = math.sin(angle) * dist
+            end
         end
-    end
 
-    -- Rotación de nebulosa focal
-    for _, neb in ipairs(state.nebulae) do
-        neb.rotation = neb.rotation + dt * neb.rotationSpeed * (1.0 + p)
+        -- Rotación de nebulosa focal
+        for _, neb in ipairs(state.nebulae) do
+            neb.rotation = neb.rotation + dt * neb.rotationSpeed * (1.0 + p)
+        end
     end
 
     -- Máquina de estados de fade
     if state.fadeState == "in" then
-        state.fadeAlpha = math.min(1.0, state.fadeAlpha + dt / LoadingScreen.config.fadeInTime)
+        local fadeIn = state.isWarpJump and math.min(state.warpDuration * 0.2, LoadingScreen.config.fadeInTime) or LoadingScreen.config.fadeInTime
+        state.fadeAlpha = math.min(1.0, state.fadeAlpha + dt / fadeIn)
         if state.fadeAlpha >= 1.0 then
             state.fadeState = "loading"
             if state.loadFunction then
@@ -441,7 +441,8 @@ function LoadingScreen.update(dt)
         if state.isWarpJump then
             local dur = state.warpDuration or 1.95
             local p = math.min(1.0, state.elapsedTime / dur)
-            state.progress = p
+            local fadeOut = math.min(dur * 0.25, LoadingScreen.config.fadeOutTime)
+            state.progress = math.min(1, state.elapsedTime / (dur - fadeOut))
 
             if p < 0.25 then
                 state.subStep = "Sincronizando Horizonte de Eventos..."
@@ -465,23 +466,29 @@ function LoadingScreen.update(dt)
             if p >= 0.45 and not state.midpointExecuted then
                 state.midpointExecuted = true
                 if state.onMidpoint then
-                    state.onMidpoint()
+                    local ok, err = xpcall(state.onMidpoint, debug.traceback)
+                    if not ok then failLoading(err); return true end
                 end
             end
 
             -- Si se completó el tiempo del salto
-            if p >= 1.0 and state.smoothProgress >= 0.98 then
+            if state.elapsedTime >= dur - fadeOut then
                 state.fadeState = "out"
             end
         else
-            -- Presupuesto seguro de tiempo por frame (12ms) para 60 FPS estables (Carga inicial)
+            -- Presupuesto seguro de tiempo por frame (5ms) entre pasos (Carga inicial)
             local tStart = love.timer.getTime()
-            while LoadingScreen.loadIterator and (love.timer.getTime() - tStart) < 0.012 do
+            while LoadingScreen.loadIterator and (love.timer.getTime() - tStart) < 0.005 do
                 LoadingScreen.resumeLoading()
             end
         end
     elseif state.fadeState == "out" then
-        state.fadeAlpha = math.max(0.0, state.fadeAlpha - dt / LoadingScreen.config.fadeOutTime)
+        if state.isWarpJump then
+            local fadeOut = math.min(state.warpDuration * 0.25, LoadingScreen.config.fadeOutTime)
+            state.fadeAlpha = math.max(0, (state.warpDuration - state.elapsedTime) / fadeOut)
+        else
+            state.fadeAlpha = math.max(0.0, state.fadeAlpha - dt / LoadingScreen.config.fadeOutTime)
+        end
         if state.fadeAlpha <= 0.0 then
             state.fadeState = "done"
             state.active = false
@@ -505,7 +512,7 @@ function LoadingScreen.update(dt)
     end
 
     -- Condición de finalización para carga normal de mundo
-    if not state.isWarpJump and state.fadeState == "loading" and state.progress >= 1.0 and state.smoothProgress >= 0.99 then
+    if not state.isWarpJump and state.fadeState == "loading" and state.workComplete and state.progress >= 1.0 and state.smoothProgress >= 0.99 then
         if state.elapsedTime >= LoadingScreen.config.minLoadTime then
             state.fadeState = "out"
         end
@@ -516,14 +523,31 @@ end
 
 function LoadingScreen.executeLoadSteps()
     if LoadingScreen.state.loadFunction then
-        LoadingScreen.loadIterator = LoadingScreen.state.loadFunction(LoadingScreen.updateProgress)
+        local ok, iterator = pcall(LoadingScreen.state.loadFunction, LoadingScreen.updateProgress)
+        if not ok or type(iterator) ~= "function" then
+            failLoading(ok and "Missing load iterator" or iterator)
+            return
+        end
+        LoadingScreen.loadIterator = iterator
     end
 end
 
 function LoadingScreen.resumeLoading()
     if LoadingScreen.loadIterator then
-        local ok, completed = pcall(LoadingScreen.loadIterator)
-        if not ok or completed then
+        local started = love.timer.getTime()
+        local ok, completed = xpcall(LoadingScreen.loadIterator, debug.traceback)
+        local ms = (love.timer.getTime() - started) * 1000
+        local timings = LoadingScreen.state.timings
+        if ms > timings.slowestStepMs then
+            timings.slowestStepMs = ms
+            timings.slowestStep = LoadingScreen.state.subStep
+        end
+        if not ok then
+            failLoading(completed)
+        elseif completed then
+            LoadingScreen.state.workComplete = true
+            print(string.format("[Load] First draw %.1f ms; longest step %.1f ms (%s)",
+                timings.firstDrawMs or 0, timings.slowestStepMs, timings.slowestStep or ""))
             LoadingScreen.state.progress = 1.0
             LoadingScreen.loadIterator = nil
         end
@@ -537,6 +561,9 @@ function LoadingScreen.draw()
     local state = LoadingScreen.state
     if not state.active then return end
 
+    if not state.isWarpJump and state.timings and not state.timings.firstDrawMs then
+        state.timings.firstDrawMs = (love.timer.getTime() - state.startTime) * 1000
+    end
     local width, height
     local curCanvas = love.graphics.getCanvas()
     if curCanvas then
@@ -548,11 +575,11 @@ function LoadingScreen.draw()
     local alpha = state.fadeAlpha
     local colors = LoadingScreen.config.colors
 
-    love.graphics.push()
+    love.graphics.push("all")
     love.graphics.origin()
 
     -- 1. Fondo de vacío cósmico profundo (opaco en carga inicial, modulado por fadeAlpha en salto de portal)
-    local bgAlpha = state.isWarpJump and alpha or 1.0
+    local bgAlpha = (state.isWarpJump or state.fadeState == "out") and alpha or 1.0
     love.graphics.setColor(colors.background[1], colors.background[2], colors.background[3], bgAlpha)
     love.graphics.rectangle("fill", 0, 0, width, height)
 
@@ -564,7 +591,7 @@ function LoadingScreen.draw()
     -- Micro-turbulencia cinemática en cabina al aproximarse al horizonte de llegada ("cuando se está por llegar")
     if p > 0.72 and state.fadeState ~= "out" then
         local surgeT = (p - 0.72) / 0.28
-        local shakeAmp = (surgeT ^ 2.2) * 4.8
+        local shakeAmp = LoadingScreen.config.reducedEffects and 0 or (surgeT ^ 2.2) * 2.4
         local shakeFreq = state.animationTime * 48.0
         cx = cx + math.sin(shakeFreq) * shakeAmp
         cy = cy + math.cos(shakeFreq * 1.33) * shakeAmp * 0.7
@@ -574,7 +601,7 @@ function LoadingScreen.draw()
 
     -- 2. Túnel hiperespacial 3D (Shader procedural estilo Destiny 2 con llegada y rotura cuántica en GPU)
     local HyperspaceTunnel = require 'src.shaders.hyperspace_tunnel'
-    local tunnelOk = HyperspaceTunnel.draw(cx, cy, width, height, alpha, p, exitT)
+    local tunnelOk = HyperspaceTunnel.draw(cx, cy, width, height, alpha, p, exitT, LoadingScreen.config.reducedEffects)
 
     if not tunnelOk then
         -- Fallback de seguridad si el shader no estuviese disponible
@@ -588,12 +615,12 @@ function LoadingScreen.draw()
     end
 
     -- 5. Interfaz HUD: Paso de inicialización y barra cuántica - OMITIR EN SALTOS DE SUBMUNDOS
-    if not state.isWarpJump then
-        LoadingScreen.drawProgressSection(cx, cy, width, height, alpha)
+    if not state.isWarpJump or state.failure then
+        LoadingScreen.drawProgressSection(math.floor(width * 0.5), cy, width, height, alpha)
     end
 
     -- 8. Destello culminante de llegada hiperespacial (Atmospheric Wash suplementario)
-    if state.fadeState == "out" then
+    if state.fadeState == "out" and not LoadingScreen.config.reducedEffects then
         LoadingScreen.drawArrivalBreakout(cx, cy, width, height, alpha)
     end
 
@@ -617,7 +644,7 @@ function LoadingScreen.drawArrivalBreakout(cx, cy, width, height, alpha)
     love.graphics.setBlendMode("add", "alphamultiply")
 
     -- Resplandor ambiental de descompresión cinemática (Full-Screen Atmospheric Wash)
-    local washAlpha = (math.sin(exitT * math.pi) ^ 1.8) * 0.35 * alpha
+    local washAlpha = (math.sin(exitT * math.pi) ^ 1.8) * 0.055 * alpha
     if washAlpha > 0.002 then
         local wr = flareCol[1] * 0.3 + 0.7
         local wg = flareCol[2] * 0.3 + 0.7
@@ -674,7 +701,7 @@ function LoadingScreen.drawWarpStarfield(cx, cy, width, height, alpha)
     local state = LoadingScreen.state
     local fov = LoadingScreen.config.warp.fov
     local p = state.smoothProgress
-    local warpSpeed = LoadingScreen.config.warp.baseSpeed + LoadingScreen.config.warp.maxSpeedBoost * (p ^ 1.35)
+    local warpSpeed = LoadingScreen.config.warp.baseSpeed + LoadingScreen.config.warp.maxSpeedBoost * require("src.shaders.hyperspace_tunnel").flightFactor(p)
     local streakScale = math.max(12.0, (warpSpeed / 75.0))
 
     local oldBlend, oldAlphaMode = love.graphics.getBlendMode()
@@ -1125,13 +1152,14 @@ function LoadingScreen.isActive()
 end
 
 function LoadingScreen.forceComplete()
+    if not LoadingScreen.state.workComplete then return end
     LoadingScreen.state.progress = 1.0
     LoadingScreen.state.smoothProgress = 1.0
     LoadingScreen.state.fadeState = "out"
 end
 
 function LoadingScreen.resize(w, h)
-    if LoadingScreen.state.active then
+    if LoadingScreen.state.active and not require("src.shaders.hyperspace_tunnel").isInitialized() then
         LoadingScreen.generateStars()
         LoadingScreen.generateNebulae()
     end

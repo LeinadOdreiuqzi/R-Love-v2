@@ -63,10 +63,11 @@ vec4 effect(vec4 tint,Image tex,vec2 uv,vec2 screen) {
     return vec4(floor(clamp(rgb,0.,1.)*23.+.5)/23.,1.);
 }
 ]]
-local function prepare(id,d)
+local function prepare(id,d,yieldWork)
     if d.poses then return end
     local hull={shipType=id}
     local poses=Baker.build{
+        yieldWork=yieldWork,
         width=d.width,height=d.height,variants=1,parts=1,bankAmplitude=d.amplitude,
         layerStep=d.thickness/8,lighting=lighting,rootX=function() return 0 end,
         paint=function() Art.draw(hull,d.scale,false,true) end,
@@ -80,9 +81,9 @@ local function prepare(id,d)
     }
     d.poses=poses[0][1]
 end
-function Tactical.preload()
-    Interceptor.preload()
-    for id,d in pairs(designs) do prepare(id,d) end
+function Tactical.preload(yieldWork)
+    Interceptor.preload(yieldWork)
+    for id,d in pairs(designs) do prepare(id,d,yieldWork) end
 end
 function Tactical.update(ship,dt,previousRotation)
     local d=designFor(ship)

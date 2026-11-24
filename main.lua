@@ -1,4 +1,5 @@
 -- main.lua (SISTEMA COMPLETO DESACOPLADO)
+local bootStarted = love.timer.getTime()
 
 local CombatDebug = require 'src.ui.combat_debug_menu'
 local World = require 'src.core.world'
@@ -8,9 +9,6 @@ local GameLoop = require 'src.core.game_loop'
 local LoadingScreen = require 'src.ui.loading_screen'
 local FullscreenManager = require 'src.utils.fullscreen_manager'
 local StateManager = require 'src.states.state_manager'
-local ItemSystem = require 'src.item_systems.items.init'
-local InventoryUI = require 'src.ui.inventory_ui'
-local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
 local HUD = require 'src.ui.hud'
 
 -- State manager se instancia aquí y se inyecta
@@ -32,16 +30,8 @@ function love.load(args)
     
     LoadingScreen.init()
     
-    if ItemSystem and ItemSystem.initialize then
-        ItemSystem.initialize()
-        print("[MAIN] Sistema de items inicializado")
-    end
-    
-    if InventoryUI and InventoryUI.init then InventoryUI:init() end
-    if EVAInventoryUI and EVAInventoryUI.init then EVAInventoryUI:init() end
-    
-    -- Inicia carga asincrónica
     GameLoader.startLoading()
+    LoadingScreen.state.startTime = bootStarted
 end
 
 function love.update(dt)
@@ -60,6 +50,10 @@ function love.draw()
 end
 
 function love.keypressed(key)
+    if LoadingScreen.state.failure and (key == 'return' or key == 'kpenter') then
+        love.event.quit('restart')
+        return
+    end
     local run = World.get('runState')
     if run and run.defeat then
         if key == 'return' or key == 'kpenter' then

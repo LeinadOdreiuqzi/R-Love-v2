@@ -1695,7 +1695,4 @@ function MapRenderer.drawSmallStars(camera)
     return BackgroundStarRenderer.drawSmallStars(MapRenderer, camera)
 end
 
--- Initialize the renderer
-MapRenderer.init()
-
 return MapRenderer

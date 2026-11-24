@@ -132,21 +132,21 @@ local function geometry(part,wear)
     return love.graphics.newMesh(vertices,'triangles','static')
 end
 
-local function ensurePoses()
+local function ensurePoses(yieldWork)
     if poses then return end
     local meshes={}
     for wear=0,3 do
         meshes[wear]={}
         for part=1,3 do meshes[wear][part]=geometry(part,wear) end
     end
-    poses,cacheStats=Baker.build({width=112,height=112,parts=3,variants=4,lighting=lighting,
+    poses,cacheStats=Baker.build({yieldWork=yieldWork,width=112,height=112,parts=3,variants=4,lighting=lighting,
         rootX=function(part) return part==1 and 0 or part==2 and -Rig.pivot or Rig.pivot end,
         paint=function(part,wear) love.graphics.setColor(1,1,1);love.graphics.draw(meshes[wear][part]) end})
     for _,parts in pairs(meshes) do for _,mesh in ipairs(parts) do mesh:release() end end
 end
 
 function Art.getCacheStats() return cacheStats end
-function Art.preload() ensurePoses() end
+function Art.preload(yieldWork) ensurePoses(yieldWork) end
 function Art.damageStage(boss,wreck)
     if wreck then return 3 end
     local health=boss.ship.stats and boss.ship.stats.health

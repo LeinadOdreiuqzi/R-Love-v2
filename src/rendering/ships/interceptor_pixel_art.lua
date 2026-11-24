@@ -63,7 +63,7 @@ vec4 effect(vec4 tint, Image source, vec2 uv, vec2 screen) {
 }
 ]]
 
-local function buildPoses()
+local function buildPoses(yieldWork)
     local g = love.graphics
     local source = g.newCanvas(width, height, {dpiscale = 1})
     source:setFilter('nearest', 'nearest')
@@ -71,9 +71,9 @@ local function buildPoses()
     local project = g.newShader(projection)
     local hull = {shipType = 'INTERCEPTOR'}
     local result = {}
-    g.push('all')
-    g.reset()
     for index = -2, 2 do
+        g.push('all')
+        g.reset()
         local bank = index / 2
         g.setCanvas(source)
         g.setShader(project)
@@ -98,8 +98,9 @@ local function buildPoses()
         g.setColor(1, 1, 1, 1)
         g.draw(source)
         result[index] = sprite
+        g.pop()
+        if yieldWork then yieldWork() end
     end
-    g.pop()
     source:release()
     shader:release()
     project:release()
@@ -131,8 +132,8 @@ function PixelArt.project(ship,x,y)
         +size*bank*(.10+.15*spine), y+bank*x*.43
 end
 
-function PixelArt.preload()
-    if not poses then poses = buildPoses() end
+function PixelArt.preload(yieldWork)
+    if not poses then poses = buildPoses(yieldWork) end
 end
 
 function PixelArt.draw(ship, size, abandoned, reflection)

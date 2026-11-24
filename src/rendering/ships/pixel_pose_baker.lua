@@ -31,15 +31,14 @@ function Baker.build(config)
     local light=g.newShader(config.lighting)
     local result,count={},0
     local started=love.timer.getTime()
-    g.push('all')
-    g.reset()
     project:send('layerStep',config.layerStep or 1)
-    g.setScissor();g.setBlendMode('alpha','alphamultiply')
     for variant=0,config.variants-1 do
         result[variant]={}
         for part=1,config.parts do
             local poses={};result[variant][part]=poses
             for index=-2,2 do
+                g.push('all')
+                g.reset()
                 local bank=index/2*(config.bankAmplitude or 1)
                 g.setCanvas(source);g.origin();g.clear(0,0,0,0)
                 g.translate(config.width/2,config.height/2)
@@ -60,10 +59,11 @@ function Baker.build(config)
                 if config.setLights then config.setLights(light) end
                 g.draw(source)
                 poses[index]=sprite;count=count+1
+                g.pop()
+                if config.yieldWork then config.yieldWork() end
             end
         end
     end
-    g.pop()
     source:release();project:release();light:release()
     return result,{poses=count,bytes=count*config.width*config.height*4,
         bakeMs=(love.timer.getTime()-started)*1000}
