@@ -6,6 +6,8 @@ local PerlinNoise = require 'src.maps.perlin_noise'
 local BiomeSystem = require 'src.maps.biome_system'
 local MapConfig = require 'src.maps.config.map_config'
 local ColorHarmony = require 'src.utils.color_harmony'
+local NebulaMaterial = require 'src.maps.nebula_material'
+local NebulaShape = require 'src.maps.nebula_shape'
 local SeedSystem = require 'src.utils.seed_system'
 
 MapGenerator.debugLogs = false
@@ -181,6 +183,65 @@ local function limitNebulaHalo(nebula, blend)
     nebula.size = math.min(nebula.size, maxSize)
 end
 
+-- Reservas circulares en coordenadas de mundo: el resultado es independiente
+-- de qué chunk solicitó el jugador primero. Nunca recortamos un sprite.
+local function nebulaSite(cx, cy)
+    local rng = SeedSystem.makeRNG(BiomeSystem.hashChunk(cx,cy))
+    return cx+rng:randomRange(.16,.84), cy+rng:randomRange(.16,.84), rng:random() < .82
+end
+
+local function spaceNebulae(candidates, cx, cy)
+    if #candidates == 0 then return candidates end
+    local sx, sy, active = nebulaSite(cx,cy)
+    if not active then return {} end
+    local radius = .94
+    for y=cy-2,cy+2 do
+        for x=cx-2,cx+2 do
+            if x~=cx or y~=cy then
+                local nx,ny,occupied = nebulaSite(x,y)
+                if occupied then
+                    radius = math.min(radius,.46*math.sqrt((nx-sx)^2+(ny-sy)^2))
+                end
+            end
+        end
+    end
+    local cfg = MapConfig.chunk
+    local stride = (cfg.size*cfg.tileSize+cfg.spacing)*cfg.worldScale
+    local primary, bestSize, bestScore
+    for _,n in ipairs(candidates) do
+        local dx = cx + n.x*cfg.worldScale/stride - sx
+        local dy = cy + n.y*cfg.worldScale/stride - sy
+        local stretch = math.max(n.aspectRatio,1/n.aspectRatio)
+        -- Reservamos el núcleo visible. El halo tenue puede cruzar la reserva vecina.
+        local room = (radius-math.sqrt(dx*dx+dy*dy))*stride*n.parallax/(.62*stretch)
+        local size = math.min(n.size,room)
+        local score = size*(.85+.15*(n.seed%1))
+        if size > .045*stride and (not bestScore or score > bestScore) then
+            primary,bestSize,bestScore = n,size,score
+        end
+    end
+    if not primary then return {} end
+    primary.size = bestSize
+    local result = {primary}
+    for _,n in ipairs(candidates) do
+        if n ~= primary and n.sizeTier == "small" then
+            local dx,dy = (n.x-primary.x)*cfg.worldScale,(n.y-primary.y)*cfg.worldScale
+            local offset = math.sqrt(dx*dx+dy*dy)
+            local extent = primary.size*math.max(primary.aspectRatio,1/primary.aspectRatio)
+            if offset > extent*.4 and offset < extent*.78 then
+                n.size = math.min(n.size,(extent-offset)/math.max(n.aspectRatio,1/n.aspectRatio))
+                n.parallax = primary.parallax
+                n.color,n.coreColor = primary.color,primary.coreColor
+                n.emissionRegion = primary.emissionRegion
+                n.intensity = n.intensity*.55
+                result[2] = n
+                break
+            end
+        end
+    end
+    return result
+end
+
 function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, rng)
     local nebulaObjects = {}
     
@@ -199,7 +260,7 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
         local globalY = chunkY * MapConfig.chunk.size + y
         
         local nebulaChance = MapGenerator.multiOctaveNoise(globalX, globalY, 3, 0.5, 0.035)
-        local blend = BiomeSystem.sampleBiomeBlend(globalX / MapConfig.chunk.size, globalY / MapConfig.chunk.size)
+        local blend = BiomeSystem.sampleBiomeBlend(globalX / MapConfig.chunk.size, globalY / MapConfig.chunk.size, true)
         local localBiome = blend.biomeA
         local w = blend.weights
         local threshold = 0.18 + 0.10 * w[BT.DEEP_SPACE] - 0.18 * w[BT.NEBULA_FIELD]
@@ -267,6 +328,7 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
             
             local nebula = {
                 type = MapConfig.ObjectType.NEBULA,
+                emissionRegion = NebulaMaterial.forNode(blend.nebulaRegion),
                 x = x * MapConfig.chunk.tileSize,
                 y = y * MapConfig.chunk.tileSize,
                 -- Tamaño según tier (reemplaza al tamaño fijo anterior)
@@ -279,7 +341,12 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
                 -- 2. Una semilla específica para la nebulosa
                 -- 3. Paletas astronómicas predefinidas o armonías procedurales
                 color = (function()
-                    local ok, nebColor = pcall(ColorHarmony.generateNebulaColor, rng, localBiome, math.floor(nebulaSeed))
+                    -- El matiz cambia gradualmente en el mundo, incluso al cruzar un chunk.
+                    local worldSeed = BiomeSystem.numericSeed
+                    local cx, cy = globalX/MapConfig.chunk.size, globalY/MapConfig.chunk.size
+                    local drift = love.math.noise(cx*.08 + worldSeed%271, cy*.08 + worldSeed%397)
+                    local regionalHue = (worldSeed%360/360 + cx*.019 + cy*.013 + drift*.18) % 1
+                    local ok, nebColor = pcall(ColorHarmony.generateNebulaColor, rng, localBiome, math.floor(nebulaSeed), nil, regionalHue)
                     if ok and type(nebColor) == "table" then
                         return nebColor
                     end
@@ -364,7 +431,10 @@ function MapGenerator.generateBalancedNebulae(chunk, chunkX, chunkY, densities, 
         end
     end
 
-    chunk.objects.nebulae = nebulaObjects
+    chunk.objects.nebulae = MapConfig.nebulae.spaced and spaceNebulae(nebulaObjects,chunkX,chunkY) or nebulaObjects
+    for _, cloud in ipairs(chunk.objects.nebulae) do
+        cloud.visualMorphology = NebulaShape.visualMorphology(cloud.seed, cloud.morphology)
+    end
 end
 
 -- Generar objetos especiales balanceados

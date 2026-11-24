@@ -373,7 +373,7 @@ end
 --   • FORMA A: Nebulosa Mono-Tonal (Color celestial puro unificado con núcleo del mismo matiz)
 --   • FORMA B: Nebulosa Bi-Tonal (Dual-Tone con filamentos exteriores y núcleo de color contrastante)
 -- Ambas formas coexisten en cualquier sector y mantienen el espectro 100% LIBRE (0° a 360°).
-function ColorHarmony.generateNebulaColor(rng, biomeType, seed, forceMode)
+function ColorHarmony.generateNebulaColor(rng, biomeType, seed, forceMode, regionalHue)
     -- Usar semilla para determinismo si se provee
     if seed and not rng then
         local ok, SeedSystem = pcall(require, "src.utils.seed_system")
@@ -454,6 +454,17 @@ function ColorHarmony.generateNebulaColor(rng, biomeType, seed, forceMode)
         coreColor = palette[2] or {0.2, 0.85, 0.95, 0.55}
     end
     
+    if regionalHue then
+        local outerH, outerS, outerV = rgb2hsv(outerColor[1],outerColor[2],outerColor[3])
+        local coreH, coreS, coreV = rgb2hsv(coreColor[1],coreColor[2],coreColor[3])
+        -- Conserva la variación de cada nube dentro de la gama del entorno.
+        local hue = (regionalHue + .045*(outerH-.5)) % 1
+        local accent = mode == "B" and .10*(coreH-.5) or 0
+        outerColor[1],outerColor[2],outerColor[3] = hsv2rgb(hue,outerS*.83,outerV*.84)
+        coreColor[1],coreColor[2],coreColor[3] = hsv2rgb((hue+accent)%1,coreS*.72,coreV)
+        selectedHarmony = mode == "B" and "analogous" or "monochromatic"
+    end
+
     local sparkle = 0.0
     if profile.sparkleRange and profile.sparkleRange[2] > 0 then
         sparkle = rng:randomRange(profile.sparkleRange[1], profile.sparkleRange[2])

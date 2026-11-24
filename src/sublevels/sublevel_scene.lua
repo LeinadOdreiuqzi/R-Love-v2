@@ -346,6 +346,9 @@ function SubLevelScene:draw()
     if self.world and self.world.draw then
         self.world:draw(camera)
     end
+    if meta and meta.subworldId == "nebulae_debug" then
+        require('src.sublevels.nebulae_debug_world').draw(camera, player)
+    end
     if player and player.draw then
         local sun
         if (meta and meta.subworldId=='tau_ceti') or (cfg and cfg.id=='tau_ceti_'..tier) then
@@ -379,9 +382,6 @@ function SubLevelScene:draw()
     elseif self.config and self.config.meta and self.config.meta.subworldId == "stations_debug" then
         local StationsDebugWorld = require 'src.sublevels.stations_debug_world'
         StationsDebugWorld.draw(camera, player)
-    elseif self.config and self.config.meta and self.config.meta.subworldId == "nebulae_debug" then
-        local NebulaeDebugWorld = require 'src.sublevels.nebulae_debug_world'
-        NebulaeDebugWorld.draw(camera, player)
     end
 
     -- Restaurar transformación

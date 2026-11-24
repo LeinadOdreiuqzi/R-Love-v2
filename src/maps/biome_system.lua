@@ -1000,14 +1000,16 @@ local function regionNode(i, j)
     return node
 end
 
-function BiomeSystem.sampleBiomeBlend(cx, cy)
+function BiomeSystem.sampleBiomeBlend(cx, cy, resolveNebulaRegion)
     BiomeSystem._maybeInvalidateOnOCChange()
     local x, y = cx - 1.5, cy + 0.5
-    local i, j = math.floor((2*x + y) / 5), math.floor((2*y - x) / 5)
+    local uCoord, vCoord = (2*x + y) / 5, (2*y - x) / 5
+    local i, j = math.floor(uCoord), math.floor(vCoord)
     local weights = {0, 0, 0, 0, 0, 0}
     local BT = BiomeSystem.BiomeType
     local cfg = MapConfig.biomeFootprint
     local nebulaDistance = math.huge
+    local fieldNode
     -- Los nodos están separados por sqrt(5) chunks; cada radio es menor.
     -- Sólo las cuatro esquinas de esta celda pueden alcanzar la muestra.
     for v = j, j + 1 do
@@ -1021,7 +1023,9 @@ function BiomeSystem.sampleBiomeBlend(cx, cy)
                 if t == BT.ASTEROID_BELT then minor = minor / cfg.beltWidthRatio end
                 local distance = math.sqrt(major*major + minor*minor)
                 local radius = t == BT.NEBULA_FIELD and cfg.nebulaRadius or cfg.radius
-                if t == BT.NEBULA_FIELD then nebulaDistance = math.min(nebulaDistance, distance) end
+                if t == BT.NEBULA_FIELD and distance < nebulaDistance then
+                    nebulaDistance, fieldNode = distance, node
+                end
                 local fade = math.max(0, math.min(1, (radius - distance) / (radius - cfg.coreRadius)))
                 weights[t] = math.max(weights[t], fade*fade*(3 - 2*fade))
             end
@@ -1047,7 +1051,15 @@ function BiomeSystem.sampleBiomeBlend(cx, cy)
         end
     end
     local other = weights[second]
-    return {weights = weights, nebulaDistance = nebulaDistance, biomeA = first, biomeB = other > 0 and second or first,
+    local source
+    if resolveNebulaRegion then
+        if first == BT.NEBULA_FIELD or (first == BT.DEEP_SPACE and weights[BT.NEBULA_FIELD] > 0) then
+            source = fieldNode
+        else
+            source = regionNode(math.floor(uCoord + .5), math.floor(vCoord + .5))
+        end
+    end
+    return {weights = weights, nebulaDistance = nebulaDistance, nebulaRegion = source, biomeA = first, biomeB = other > 0 and second or first,
             blend = other / (weights[first] + other)}
 end
 

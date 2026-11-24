@@ -4,45 +4,44 @@ local NebulaRenderer = {}
 local MapConfig = require 'src.maps.config.map_config'
 local ShaderManager = require 'src.shaders.shader_manager'
 local NebulasShaders = require 'src.shaders.nebulas_shaders'
-local BiomeSystem = require 'src.maps.biome_system'
+local Volume = require 'src.shaders.nebula_volume'
+local Material = require 'src.maps.nebula_material'
+local Color = require 'src.utils.color_harmony'
 
 local SIZE_PIXELS = MapConfig.chunk.size * MapConfig.chunk.tileSize
 local STRIDE = SIZE_PIXELS + (MapConfig.chunk.spacing or 0)
 
--- Utilidades color: RGB<->HSV (valores en [0,1])
-local function rgb2hsv(r, g, b)
-    local maxc = math.max(r, g, b)
-    local minc = math.min(r, g, b)
-    local v = maxc
-    local d = maxc - minc
-    local s = (maxc == 0) and 0 or d / maxc
-    if d == 0 then return 0, 0, v end
-    local h
-    if maxc == r then
-        h = ((g - b) / d) % 6
-    elseif maxc == g then
-        h = (b - r) / d + 2
-    else
-        h = (r - g) / d + 4
-    end
-    h = h / 6
-    if h < 0 then h = h + 1 end
-    return h, s, v
+local items, visibleList = {}, {}
+local cfg = {coreColor = {1,1,1}}
+local white = {1,1,1}
+
+local function backToFront(a, b)
+    if a.par == b.par then return a.order < b.order end
+    return a.par < b.par
 end
 
-local function hsv2rgb(h, s, v)
-    local i = math.floor(h * 6)
-    local f = h * 6 - i
-    local p = v * (1 - s)
-    local q = v * (1 - f * s)
-    local t = v * (1 - (1 - f) * s)
-    local m = i % 6
-    if m == 0 then return v, t, p
-    elseif m == 1 then return q, v, p
-    elseif m == 2 then return p, v, t
-    elseif m == 3 then return p, q, v
-    elseif m == 4 then return t, p, v
-    else return v, p, q end
+local function tint(color, fallback, shift, saturation, value)
+    local h, s, v = Color.rgb2hsv(color[1] or fallback[1] or 1, color[2] or fallback[2] or 1, color[3] or fallback[3] or 1)
+    return Color.hsv2rgb((h+shift)%1, math.min(1,s*saturation), math.min(1,v*value))
+end
+
+local function classicTints(item)
+    local n, par = item.n, item.par
+    local outer = n.color or white
+    local core = n.coreColor or outer.core or outer
+    local influence = 1
+    for j, neighbor in ipairs(item.chunk.objects.nebulae) do
+        if j ~= item.idx then
+            local distance = math.sqrt((n.x-neighbor.x)^2 + (n.y-neighbor.y)^2)
+            influence = influence + .15 * math.max(0, 1-distance/300)
+        end
+    end
+    influence = math.min(1.3, influence)
+    local shift = (par-.5)*.12*influence
+    local saturation = (.90+.20*par)*influence
+    local value = (.95+.10*(1-par))*influence
+    cfg.coreColor[1],cfg.coreColor[2],cfg.coreColor[3] = tint(core, outer, shift, saturation, value)
+    return tint(outer, white, shift, saturation, value)
 end
 
 local function worldToScreenParallax(camera, wx, wy, parallax)
@@ -52,13 +51,20 @@ local function worldToScreenParallax(camera, wx, wy, parallax)
     return camera:worldToScreen(px, py)
 end
 
-local function isOnScreen(screenX, screenY, radiusPx)
-    local w, h = love.graphics.getWidth(), love.graphics.getHeight()
-    -- El radio visual efectivo incluye el radio base, la capa de niebla (1.18x),
-    -- deformación por warp del shader (~8%) y un margen de seguridad de 50px
-    local effectiveRadius = (radiusPx or 140) * MapConfig.nebulae.cullRadiusMultiplier + MapConfig.nebulae.cullPaddingPx
-    return (screenX + effectiveRadius >= 0) and (screenX - effectiveRadius <= w)
-       and (screenY + effectiveRadius >= 0) and (screenY - effectiveRadius <= h)
+local function isOnScreen(x, y, radius, nebula, volume, width, height)
+    local rx, ry
+    if volume then
+        -- Máxima extensión de la misma máscara radial que usa el shader, después del giro.
+        local aspect, angle = nebula.aspectRatio or 1, nebula.rotation or 0
+        local c, s = math.cos(angle), math.sin(angle)
+        local bound = radius * (1 + .25 * math.min(.75, nebula.irregularity or .35))
+        rx = bound * math.sqrt((aspect*c)^2 + (s/aspect)^2) + 1
+        ry = bound * math.sqrt((aspect*s)^2 + (c/aspect)^2) + 1
+    else
+        rx = radius * MapConfig.nebulae.cullRadiusMultiplier + MapConfig.nebulae.cullPaddingPx
+        ry = rx
+    end
+    return x+rx >= 0 and x-rx <= width and y+ry >= 0 and y-ry <= height
 end
 
 -- Calcular factor de alpha para fade-in gradual de nebulas grandes en el borde del viewport
@@ -131,10 +137,12 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
 
     local zoom = camera and camera.zoom or 1
     local timeNow = love.timer.getTime()
+    local width, height = love.graphics.getDimensions()
+    local target = love.graphics.getCanvas()
+    if target then width, height = target:getDimensions() end
 
     -- Pool para recolección de nebulosas visibles (evita GC allocations)
-    NebulaRenderer._visibleList = NebulaRenderer._visibleList or {}
-    local visibleList = NebulaRenderer._visibleList
+    local volume = MapConfig.nebulae.volumetric
     local visibleCount = 0
 
     for chunkY = chunkInfo.startY, chunkInfo.endY do
@@ -154,15 +162,18 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
                     local radiusPx = (n.size or 140) * zoom
 
                     -- Culling matemático exacto con margen físico
-                    if isOnScreen(screenX, screenY, radiusPx) then
-                        local fadeAlpha = calculateNebulaAlpha(screenX, screenY, radiusPx)
+                    if isOnScreen(screenX, screenY, radiusPx, n, volume, width, height) then
+                        local fadeAlpha = volume and 1 or calculateNebulaAlpha(screenX, screenY, radiusPx)
                         if fadeAlpha > 0.01 then
                             visibleCount = visibleCount + 1
-                            local item = visibleList[visibleCount]
+                            local item = items[visibleCount]
                             if not item then
                                 item = {}
-                                visibleList[visibleCount] = item
+                                items[visibleCount] = item
                             end
+                            visibleList[visibleCount] = item
+                            item.order = visibleCount
+                            item.worldX, item.worldY = wx, wy
                             item.n = n
                             item.screenX = screenX
                             item.screenY = screenY
@@ -187,14 +198,19 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
     local halfIw, halfIh = iw * 0.5, ih * 0.5
 
     -- Preparar transformaciones una sola vez para todo el lote
-    love.graphics.push()
+    love.graphics.push("all")
     love.graphics.origin()
     local oldBlend, oldAlphaMode = love.graphics.getBlendMode()
 
     -- =========================================================================
     -- PASO 1: CUERPOS DE NEBULOSAS (Shader activo + Blend Additive)
     -- =========================================================================
-    love.graphics.setBlendMode("add", "alphamultiply")
+    if volume then
+        table.sort(visibleList, backToFront)
+        Volume.begin(shader)
+    else
+        love.graphics.setBlendMode("add","alphamultiply")
+    end
     NebulasShaders.setShader()
 
     local OptimizedRenderer = require 'src.maps.optimized_renderer'
@@ -207,68 +223,23 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         local screenX = item.screenX
         local screenY = item.screenY
         local radiusPx = item.radiusPx
-        local chunk = item.chunk
-        local i = item.idx
-
-        -- Color base con alpha aumentado y fade-in gradual
-        local br = (n.color and n.color[1] or 1)
-        local bg = (n.color and n.color[2] or 1)
-        local bb = (n.color and n.color[3] or 1)
         local ba = (n.color and n.color[4] or 1) * 1.25 * fadeAlpha
-
-        -- Armonización con nebulosas cercanas del mismo chunk
-        local neighborInfluence = 0.0
-        for j = 1, #chunk.objects.nebulae do
-            if j ~= i then
-                local neighbor = chunk.objects.nebulae[j]
-                local dist = math.sqrt((n.x - neighbor.x)^2 + (n.y - neighbor.y)^2)
-                if dist < 300 then
-                    local influence = math.max(0, 1.0 - dist / 300)
-                    neighborInfluence = neighborInfluence + influence * 0.15
-                end
-            end
+        local cr, cg, cb = 1, 1, 1
+        if volume then
+            n.emissionRegion = n.emissionRegion or Material.atWorld(item.worldX, item.worldY)
+            Volume.setCloud(shader, n.emissionRegion, item.worldX, item.worldY, n)
+        else
+            cr, cg, cb = classicTints(item)
         end
-        local harmonyFactor = math.max(0.7, math.min(1.3, 1.0 + neighborInfluence))
-
-        -- Variación armónica según parallax y vecindad
-        local h, s, v = rgb2hsv(br, bg, bb)
-        local hueShift = (par - 0.5) * 0.12 * harmonyFactor
-        local satAdj   = (0.90 + 0.20 * par) * harmonyFactor
-        local valAdj   = (0.95 + 0.10 * (1.0 - par)) * harmonyFactor
-        h = (h + hueShift) % 1.0
-        s = math.max(0.0, math.min(1.0, s * satAdj))
-        v = math.max(0.0, math.min(1.0, v * valAdj))
-        local cr, cg, cb = hsv2rgb(h, s, v)
-
-        local brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
-
-        -- Extraer color armónico del núcleo (Dual-Tone) o fallback armónico
-        local core = n.coreColor or (n.color and n.color.core) or {br, bg, bb}
-        local coreR, coreG, coreB = core[1] or br, core[2] or bg, core[3] or bb
-
-        -- Sincronizar modulación de profundidad (parallax y armonía vecinal) con el núcleo
-        local ch, cs, cv = rgb2hsv(coreR, coreG, coreB)
-        ch = (ch + hueShift) % 1.0
-        cs = math.max(0.0, math.min(1.0, cs * satAdj))
-        cv = math.max(0.0, math.min(1.0, cv * valAdj))
-        local fCoreR, fCoreG, fCoreB = hsv2rgb(ch, cs, cv)
-
-        -- Reutilizar tabla de configuración para cero asignaciones por fotograma
-        NebulaRenderer._nebulaConfig = NebulaRenderer._nebulaConfig or {}
-        local cfg = NebulaRenderer._nebulaConfig
         cfg.seed = n.seed or 0
         cfg.noiseScale = n.noiseScale or 2.5
         cfg.warpAmp = n.warpAmp or 0.65
         cfg.warpFreq = n.warpFreq or 1.25
         cfg.softness = n.softness or 0.28
         cfg.intensity = n.intensity or 0.6
-        cfg.brightness = brightness
+        cfg.brightness = OptimizedRenderer.calculateNebulaBrightness(n, timeNow)
         cfg.parallax = par
         cfg.sparkleStrength = n.sparkleStrength or 0.0
-        cfg.coreColor = cfg.coreColor or {1.0, 1.0, 1.0}
-        cfg.coreColor[1] = fCoreR
-        cfg.coreColor[2] = fCoreG
-        cfg.coreColor[3] = fCoreB
         cfg.morphology = n.morphology or 0.0
         cfg.irregularity = n.irregularity or 0.35
         cfg.speed = n.speed or 1.0
@@ -282,74 +253,20 @@ function NebulaRenderer.drawNebulae(chunkInfo, camera, getChunkFunc)
         local scaleX = scale * aspect
         local scaleY = scale / aspect
 
-        item.scale = scale
-        item.scaleX = scaleX
-        item.scaleY = scaleY
-        item.rot = rot
-
         love.graphics.setColor(cr, cg, cb, ba)
         love.graphics.draw(img, screenX, screenY, rot, scaleX, scaleY, halfIw, halfIh)
     end
 
+    if volume then Volume.finish(shader) end
     NebulasShaders.unsetShader()
 
-    -- =========================================================================
-    -- PASO 2: CAPAS DE NIEBLA SUAVE (FOG-OF-WAR) (Sin shader + SpriteBatch consolidado en 1 draw call)
-    -- =========================================================================
-    love.graphics.setBlendMode("alpha", "alphamultiply")
-
-    local fogBatch = NebulaRenderer.fogBatch
-    if not fogBatch or NebulaRenderer._fogBatchImg ~= img then
-        local initialCap = math.max(128, visibleCount * 2)
-        fogBatch = love.graphics.newSpriteBatch(img, initialCap, "stream")
-        NebulaRenderer.fogBatch = fogBatch
-        NebulaRenderer._fogBatchImg = img
-    elseif fogBatch:getBufferSize() < visibleCount then
-        fogBatch:setBufferSize(math.max(visibleCount * 2, 128))
-    end
-
-    fogBatch:clear()
-    local fogAddedCount = 0
-
-    for idx = 1, visibleCount do
-        local item = visibleList[idx]
-        local n = item.n
-        local par = item.par
-        local screenX = item.screenX
-        local screenY = item.screenY
-        local fadeAlpha = item.fadeAlpha
-        local scale = item.scale or (item.radiusPx * scaleFactor)
-        local rot = item.rot or 0.0
-        local scaleX = item.scaleX or scale
-        local scaleY = item.scaleY or scale
-
-        local baseIntensity = n.intensity or 0.6
-        local fogAlpha = math.max(0.0, math.min(1.0, 0.12 + 0.25 * baseIntensity * (0.8 + 0.2 * par))) * fadeAlpha
-
-        if fogAlpha > 0.01 then
-            local fogTint = 0.08 + 0.04 * par
-            local harmonyFactor = 0.92 + 0.08 * math.sin(timeNow * 0.15 + (n.seed or 0) * 0.1)
-            local fr = fogTint * harmonyFactor
-            local fg = fogTint * 0.75 * harmonyFactor
-            local fb = fogTint * 0.55 * harmonyFactor
-            local fogScaleX = scaleX * 1.18
-            local fogScaleY = scaleY * 1.18
-
-            fogBatch:setColor(fr, fg, fb, fogAlpha)
-            fogBatch:add(screenX, screenY, rot, fogScaleX, fogScaleY, halfIw, halfIh)
-            fogAddedCount = fogAddedCount + 1
-        end
-    end
-
-    if fogAddedCount > 0 then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(fogBatch)
-    end
+    love.graphics.setColor(1,1,1,1)
 
     -- Limpiar referencias pesadas del pool para permitir GC de chunks descargados
     for idx = 1, visibleCount do
         visibleList[idx].n = nil
         visibleList[idx].chunk = nil
+        visibleList[idx] = nil
     end
 
     love.graphics.setBlendMode(oldBlend or "alpha", oldAlphaMode)

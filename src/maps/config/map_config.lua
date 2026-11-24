@@ -148,6 +148,8 @@ MapConfig.colors = {
 
 -- NUEVO: configuración de nebulosas (categorías de tamaño)
 MapConfig.nebulae = {
+    spaced = false, -- Distribución original por bioma; el espaciado es opcional.
+    volumetric = true,
     -- Rangos en píxeles base (antes de aplicar worldScale)
     sizeTiers = {
         small     = { min = 80,   max = 220,  weight = 0.58 },
