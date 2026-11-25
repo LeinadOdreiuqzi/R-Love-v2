@@ -1,3 +1,4 @@
+local MenuTheme = require 'src.ui.menu_theme'
 -- src/ui/inventory/inventory_modal.lua
 -- Submódulo para gestión y renderizado del menú contextual / modal de opciones en inventario
 -- Desacoplado de src/ui/inventory_ui.lua para modularidad limpia
@@ -39,14 +40,8 @@ function InventoryModal.draw(uiState)
     love.graphics.setColor(0, 0, 0, 0.4)
     love.graphics.rectangle("fill", modal.x + 4, modal.y + 4, modal.width, modal.height, br, br)
     
-    love.graphics.setColor(colors.panelBackground)
-    love.graphics.rectangle("fill", modal.x, modal.y, modal.width, modal.height, br, br)
-    
-    -- Borde de acento
-    love.graphics.setColor(colors.accent[1], colors.accent[2], colors.accent[3], 0.5)
-    love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", modal.x, modal.y, modal.width, modal.height, br, br)
-    
+    MenuTheme.panel(modal.x, modal.y, modal.width, modal.height)
+
     -- Texto de opciones
     love.graphics.setColor(colors.text)
     local font = love.graphics.getFont()

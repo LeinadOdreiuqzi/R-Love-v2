@@ -1,6 +1,8 @@
 local Theme = require 'src.ui.combat_theme'
 local View = require 'src.ui.combat_presentation'
 local utf8 = require("utf8")
+local Glitch = require 'src.ui.text_glitch'
+local weaponLabelSignal = {}
 local ABILITY_GAP = 8
 
 local WeaponHUD = {
@@ -370,7 +372,15 @@ function WeaponHUD:draw(player, suppressTooltip)
         local nameWidth = cardW + layout.stripW + 40
         local _, wrapped = Theme.font:getWrap(cleanName, nameWidth)
         local nameY = gunY - deckHeight - #wrapped * Theme.font:getHeight() - 3
-        g.printf(cleanName, gunX - 36, nameY, nameWidth, 'right')
+        for line, text in ipairs(wrapped) do
+            local x = gunX-36+nameWidth-Theme.font:getWidth(text)
+            local y = nameY+(line-1)*Theme.font:getHeight()*Theme.font:getLineHeight()
+            if line == #wrapped then
+                Glitch.print(weaponLabelSignal,text,x,y)
+            else
+                g.print(text,x,y)
+            end
+        end
 
         if mx >= gunX and mx <= gunX + cardW + layout.stripW + 4 and my >= gunY and my <= gunY + cardH then
             hovered = current.data

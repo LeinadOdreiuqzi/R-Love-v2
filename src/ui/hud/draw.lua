@@ -114,6 +114,23 @@ function HUD.drawHorizonSignals()
     end
 end
 
+local function drawInstruments(inventoryOpen)
+    if HUD.player and HUD.player.stats then
+        if inventoryOpen then
+            love.graphics.setColor(1, 1, 1, 0.7)
+        end
+        HUD.drawPlayerHUD()
+        if inventoryOpen then
+            love.graphics.setColor(1, 1, 1, 1)
+        end
+    end
+
+    if not inventoryOpen and HUD.player and HUD.player.weaponSystem then
+        local WeaponHUD = require 'src.ui.weapon_hud'
+        WeaponHUD:draw(HUD.player, inventoryOpen)
+    end
+end
+
 -- Dibujar todo el HUD (idéntico al original)
 function HUD.draw(inventoryOpen)
     local r, g, b, a = love.graphics.getColor()
@@ -139,20 +156,7 @@ function HUD.draw(inventoryOpen)
     
     HUD.drawCurrentSeedInfo()
     
-    if HUD.player and HUD.player.stats then
-        if inventoryOpen then
-            love.graphics.setColor(1, 1, 1, 0.7)
-        end
-        HUD.drawPlayerHUD()
-        if inventoryOpen then
-            love.graphics.setColor(1, 1, 1, 1)
-        end
-    end
-    
-    if not inventoryOpen and HUD.player and HUD.player.weaponSystem then
-        local WeaponHUD = require 'src.ui.weapon_hud'
-        WeaponHUD:draw(HUD.player, inventoryOpen)
-    end
+    drawInstruments(inventoryOpen)
 
     if HUD.hudState.stationHint and HUD.hudState.stationHint.enabled then
         HUD.drawStationHint()

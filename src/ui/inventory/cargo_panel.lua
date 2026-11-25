@@ -1,3 +1,4 @@
+local MenuTheme = require 'src.ui.menu_theme'
 local Grid = require 'src.item_systems.cargo_grid'
 local Theme = require 'src.ui.combat_theme'
 
@@ -32,10 +33,7 @@ function Panel.draw(view, ui, style, player)
     local width = columns*pitch - Panel.padding + 2*Panel.inset
     local height = math.ceil(view.capacity/columns)*pitch - Panel.padding + Panel.header + 32
     local left, top = x-Panel.inset, y-Panel.header
-    g.setColor(colors.panelBackground)
-    g.rectangle('fill', left, top, width, height, 6, 6)
-    g.setColor(colors.border[1], colors.border[2], colors.border[3], .4)
-    g.rectangle('line', left, top, width, height, 6, 6)
+    MenuTheme.panel(left, top, width, height)
     g.setColor(view.tint or colors.accent)
     g.setFont(style.titleFont)
     local scale = math.min(1, (width-2*Panel.inset)/math.max(1, style.titleFont:getWidth(view.title)))
@@ -45,24 +43,23 @@ function Panel.draw(view, ui, style, player)
     local cell = Panel.hit(x,y,pitch,columns,view.capacity,mx,my)
     for i=1,view.capacity do
         local sx,sy,w,h = Panel.rect(x,y,pitch,columns,i)
-        g.setColor(i == cell and colors.slotHover or colors.slotEmpty)
-        g.rectangle('fill',sx,sy,w,h,6,6)
-        g.setColor(colors.border[1],colors.border[2],colors.border[3],.3)
-        g.rectangle('line',sx,sy,w,h,6,6)
+        MenuTheme.ink(i == cell and colors.accent or colors.textSecondary, i == cell and .95 or .48)
+        g.rectangle('fill',sx+1,sy+h-3,4,1)
+        g.rectangle('fill',sx+2,sy+h-4,1,3)
     end
     for anchor, entry in pairs(view.items) do
         local w,h = Grid.dimensions(entry)
         used = used + w*h
         local sx,sy,sw,sh = Panel.rect(x,y,pitch,columns,anchor,w,h)
         if entry.hidden then
-            Theme.panel(sx,sy,sw,sh,Theme.colors.muted)
+            MenuTheme.mark(sx,sy,sw,sh,Theme.colors.muted)
             g.setFont(style.font)
             g.setColor(colors.textSecondary)
             g.printf('?',sx,sy+(sh-style.font:getHeight())/2,sw,'center')
             if entry.progress then g.rectangle('fill',sx+3,sy+sh-4,(sw-6)*entry.progress,2) end
         else
             local hovered = mx >= sx and my >= sy and mx < sx+sw and my < sy+sh
-            Theme.panel(sx,sy,sw,sh,ui:getItemRarityColor(entry),hovered)
+            MenuTheme.mark(sx,sy,sw,sh,ui:getItemRarityColor(entry),hovered)
             local size = math.max(1,pitch-Panel.padding-8)
             ui:drawItem(sx+(sw-size)/2,sy+(sh-size)/2,size,entry,player)
         end

@@ -1,3 +1,5 @@
+local MenuCamera = require 'src.ui.menu_camera'
+local MenuTheme = require 'src.ui.menu_theme'
 local Items = require 'src.item_systems.item_system'
 local utf8 = require 'utf8'
 local Menu = {opened = false, tab = 'weapons', query = '', offset = 0, slot = 2, message = ''}
@@ -5,6 +7,7 @@ local tabs = {{'weapons', 'Armas'}, {'passives', 'Pasivas'}, {'abilities', 'Habi
 
 function Menu.open(player, initialTab)
     if not player or not player.inventory then return end
+    MenuCamera.open('debug')
     Menu.tab = initialTab or Menu.tab
     Menu.player, Menu.opened = player, true
     Menu.query, Menu.offset, Menu.message = '', 0, ''
@@ -161,8 +164,7 @@ function Menu.changeShip(id)
     return false
 end
 
-function Menu.draw()
-    if not Menu.opened then return end
+local function drawContents()
     local g = love.graphics
     Menu.font = Menu.font or g.newFont(16)
     Menu.small = Menu.small or g.newFont(12)
@@ -176,8 +178,7 @@ function Menu.draw()
     g.translate(x, y)
     g.scale(scale)
     g.setFont(Menu.font)
-    g.setColor(.04, .065, .10, 1)
-    g.rectangle('fill', 0, 0, 980, 680, 12)
+    MenuTheme.panel(0, 0, 980, 680)
     g.setColor(.85, .95, 1)
     g.print('LABORATORIO DE COMBATE', 24, 20)
     g.setFont(Menu.small)
@@ -195,8 +196,8 @@ function Menu.draw()
             (selected and .45 or .22) + boost, disabled and .4 or 1)
         g.rectangle('fill', bx, by, bw, 32, 5)
         if highlight then
-            g.setColor(.3, .8, 1)
-            g.rectangle('line', bx, by, bw, 32, 5)
+            MenuTheme.ink(MenuTheme.focus)
+            g.rectangle('fill', bx+2, by+30, bw-4, 2)
         end
         g.setColor(.9, .96, 1, disabled and .35 or 1)
         g.printf(label, bx, by + 8, bw, 'center')
@@ -218,7 +219,7 @@ function Menu.draw()
     g.setColor(.02, .04, .07)
     g.rectangle('fill', 24, 125, 636, 32, 5)
     g.setColor(Menu.searchFocused and .3 or .2, .55, .7)
-    g.rectangle('line', 24, 125, 636, 32, 5)
+    g.rectangle('fill', 24, 156, 636, 1)
     g.setScissor(x + 30 * scale, y + 125 * scale, 620 * scale, 32 * scale)
     g.setColor(.8, .9, 1)
     g.print('Buscar · ' .. Menu.query .. (Menu.searchFocused and '_' or ''), 32, 132)
@@ -311,12 +312,14 @@ function Menu.draw()
         local tx, ty = math.min(590, mouseX + 16), math.max(10, math.min(670 - height, mouseY + 20))
         g.setColor(.025, .045, .07, .98)
         g.rectangle('fill', tx, ty, 380, height, 6)
-        g.setColor(.35, .65, .8)
-        g.rectangle('line', tx, ty, 380, height, 6)
         g.setColor(.9, .95, 1)
         g.printf(tooltip, tx + 10, ty + 10, 360)
     end
     g.pop()
+end
+
+function Menu.draw()
+    if Menu.opened then MenuCamera.draw('debug',drawContents) end
 end
 
 return Menu

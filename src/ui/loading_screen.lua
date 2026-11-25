@@ -1,3 +1,4 @@
+local MenuTheme = require 'src.ui.menu_theme'
 -- src/ui/loading_screen.lua
 -- Sistema de pantalla de carga inicial: Salto Hiperespacial / Túnel Cuántico (Warp-Drive & Stargate)
 -- Proyección 3D de estrellas en trazas (star streaks), astrolabio holográfico giroscópico 3D y telemetría de sector.
@@ -1028,14 +1029,7 @@ function LoadingScreen.drawTipCard(cx, cy, width, alpha)
     local cardX = cx - math.floor(cardW * 0.5)
     local cardY = cy - math.floor(cardH * 0.5)
 
-    -- Fondo translúcido glassmorphic con gradiente sutil
-    love.graphics.setColor(0.015, 0.035, 0.080, 0.72 * alpha)
-    love.graphics.rectangle("fill", cardX, cardY, cardW, cardH, 6, 6)
-
-    -- Borde holográfico biselado
-    love.graphics.setColor(colors.warpCyan[1], colors.warpCyan[2], colors.warpCyan[3], 0.28 * alpha)
-    love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", cardX, cardY, cardW, cardH, 6, 6)
+    MenuTheme.panel(cardX, cardY, cardW, cardH, alpha)
 
     -- Texto del Tip centrado
     love.graphics.setFont(font)

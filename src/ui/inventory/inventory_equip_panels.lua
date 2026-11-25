@@ -1,3 +1,4 @@
+local MenuTheme = require 'src.ui.menu_theme'
 -- src/ui/inventory/inventory_equip_panels.lua
 -- Submódulo para gestión y renderizado de paneles de equipamiento (Armas y Pasivos)
 -- Desacoplado de src/ui/inventory_ui.lua para modularidad limpia
@@ -20,14 +21,8 @@ function InventoryEquipPanels.drawWeaponPanel(parentUI, uiState, weaponCompartme
     local panelPadding = uiState.panelPadding
     
     -- Fondo (Glassmorphism)
-    love.graphics.setColor(colors.panelBackground)
-    love.graphics.rectangle("fill", layout.weaponX, layout.weaponY, 
-                           layout.weaponWidth, layout.weaponHeight, uiState.borderRadius, uiState.borderRadius)
-    
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
-    love.graphics.rectangle("line", layout.weaponX, layout.weaponY, 
-                           layout.weaponWidth, layout.weaponHeight, uiState.borderRadius, uiState.borderRadius)
-    
+    MenuTheme.panel(layout.weaponX, layout.weaponY, layout.weaponWidth, layout.weaponHeight)
+
     -- Título
     love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
@@ -82,11 +77,13 @@ function InventoryEquipPanels.drawWeaponSlot(parentUI, uiState, x, y, slotIndex,
     end
     
     -- Dibujar slot
-    love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
-    
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
+    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
+    if idle then
+        MenuTheme.ink(colors.textSecondary, .65)
+        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
+    else
+        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
+    end
     
     -- Indicador de slot número
     love.graphics.setColor(1, 1, 1, 0.3)
@@ -241,14 +238,8 @@ function InventoryEquipPanels.drawPassivePanel(parentUI, uiState, passiveCompart
     local panelPadding = uiState.panelPadding
     
     -- Fondo
-    love.graphics.setColor(colors.panelBackground)
-    love.graphics.rectangle("fill", layout.passiveX, layout.passiveY, 
-                           layout.passiveWidth, layout.passiveHeight, uiState.borderRadius, uiState.borderRadius)
-    
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
-    love.graphics.rectangle("line", layout.passiveX, layout.passiveY, 
-                           layout.passiveWidth, layout.passiveHeight, uiState.borderRadius, uiState.borderRadius)
-    
+    MenuTheme.panel(layout.passiveX, layout.passiveY, layout.passiveWidth, layout.passiveHeight)
+
     -- Título
     love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
@@ -299,11 +290,13 @@ function InventoryEquipPanels.drawPassiveSlot(parentUI, uiState, x, y, slotIndex
         slotColor = colors.slotHover
     end
     
-    love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
-    
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
+    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
+    if idle then
+        MenuTheme.ink(colors.textSecondary, .65)
+        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
+    else
+        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
+    end
     
     if item then
         parentUI:drawItem(x + 4, y + 4, slotSize - 8, item)

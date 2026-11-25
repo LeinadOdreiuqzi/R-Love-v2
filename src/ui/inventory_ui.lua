@@ -1,3 +1,6 @@
+local MenuCamera = require 'src.ui.menu_camera'
+local drawItemGlyph = require 'src.ui.inventory.item_glyph'
+local MenuTheme = require 'src.ui.menu_theme'
 -- src/ui/inventory_ui.lua
 -- UI del inventario con drag and drop y modificación de naves
 
@@ -50,17 +53,17 @@ local uiState = {
     
     -- Colores Premium
     colors = {
-        background = {0.05, 0.05, 0.08, 0.96}, -- Deep Space Blue-Black
-        panelBackground = {0.1, 0.1, 0.14, 0.92},
+        background = MenuTheme.plate,
+        panelBackground = MenuTheme.plate,
         slotEmpty = {0.15, 0.15, 0.2, 0.6},
         slotFilled = {0.2, 0.2, 0.28, 0.8},
-        slotHover = {0.3, 0.35, 0.5, 0.9},
-        slotSelected = {0.4, 0.6, 0.9, 1},
+        slotHover = {.18, .33, .29, .92},
+        slotSelected = MenuTheme.focus,
         slotDragTarget = {0.1, 0.5, 0.2, 0.8},
-        border = {0.3, 0.35, 0.45, 1},
-        text = {0.95, 0.95, 1, 1},
-        textSecondary = {0.6, 0.65, 0.75, 1},
-        accent = {0.4, 0.7, 1, 1},
+        border = MenuTheme.steel,
+        text = MenuTheme.paper,
+        textSecondary = MenuTheme.muted,
+        accent = MenuTheme.focus,
         
         -- Colores por rareza (HSL balanceados)
         rarity = {
@@ -194,6 +197,7 @@ function InventoryUI:toggle(player)
         self:close()
     else
         uiState.isOpen = true
+        MenuCamera.open('cargo')
         -- Forzar recálculo de layout al abrir con los datos del jugador actual
         self:calculateLayout(player)
     end
@@ -352,10 +356,7 @@ function InventoryUI:updateHoverDetection(player)
 end
 
 -- Renderizar UI
-function InventoryUI:draw(player)
-    if not uiState.isOpen or not player or not player.inventory then 
-        return 
-    end
+local function drawContents(self,player)
     uiState.currentPlayer = player
     if uiState.showPilotStats then
         PilotPanel.draw(player)
@@ -389,6 +390,8 @@ function InventoryUI:draw(player)
     -- Dibujar item arrastrado
     if uiState.draggedItem then
         self:drawDraggedItem()
+    else
+        MenuCamera.itemEcho("cargo")
     end
     
     -- Dibujar modal si está abierto
@@ -402,6 +405,14 @@ function InventoryUI:draw(player)
     end
     
     love.graphics.pop()
+end
+
+
+function InventoryUI:draw(player)
+    if not uiState.isOpen or not player or not player.inventory then
+        return
+    end
+    MenuCamera.draw('cargo',drawContents,self,player)
 end
 
 -- Función para dibujar el Tooltip Detallado
@@ -428,7 +439,7 @@ function InventoryUI:drawInventoryPanel(compartment, player)
         love.graphics.setFont(uiState.smallFont)
         local x, y, w, h = statsButton()
         local mx, my = uiState.mouseX, uiState.mouseY
-        Theme.panel(x, y, w, h, Theme.colors.active, mx >= x and mx < x + w and my >= y and my < y + h)
+        MenuTheme.mark(x, y, w, h, colors.accent, mx >= x and mx < x + w and my >= y and my < y + h)
         love.graphics.setColor(colors.accent)
         love.graphics.printf("Estadísticas", x, y + 2, w, "center")
     end
@@ -473,15 +484,8 @@ function InventoryUI:drawEVAPanel(evaCompartment)
     local panelPadding = uiState.panelPadding
     
     -- Fondo (Glassmorphism)
-    love.graphics.setColor(colors.panelBackground)
-    love.graphics.rectangle("fill", layout.evaX, layout.evaY, 
-                           layout.evaWidth, layout.evaHeight, uiState.borderRadius, uiState.borderRadius)
-    
-    -- Borde sutil
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.4)
-    love.graphics.rectangle("line", layout.evaX, layout.evaY, 
-                           layout.evaWidth, layout.evaHeight, uiState.borderRadius, uiState.borderRadius)
-    
+    MenuTheme.panel(layout.evaX, layout.evaY, layout.evaWidth, layout.evaHeight)
+
     -- Título
     love.graphics.setColor(colors.accent)
     love.graphics.setFont(uiState.font)
@@ -549,11 +553,13 @@ function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     end
     
     -- Dibujar slot
-    love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize, borderRadius, borderRadius)
-    
-    love.graphics.setColor(colors.border[1], colors.border[2], colors.border[3], 0.2)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize, borderRadius, borderRadius)
+    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
+    if idle then
+        MenuTheme.ink(colors.textSecondary, .65)
+        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
+    else
+        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
+    end
     
     -- Dibujar item si existe
     if item then
@@ -577,26 +583,9 @@ function InventoryUI:drawItem(x, y, size, item, player)
     love.graphics.setColor(rColor[1], rColor[2], rColor[3], 0.2)
     love.graphics.rectangle("fill", x, y, size, size, 4, 4)
     
-    -- Icono (Placeholder mejorado)
-    love.graphics.setColor(rColor)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", x + 4, y + 4, size - 8, size - 8, 2, 2)
-    
-    -- Letra distintiva (segura para UTF-8 multibyte como ñ, á, ★)
     love.graphics.setColor(colors.text)
-    love.graphics.setFont(uiState.font)
-    local itemName = tostring(item.data.name or "?"):gsub("^★%s*", "")
-    local utf8 = require("utf8")
-    local ok, nextByte = pcall(utf8.offset, itemName, 2)
-    local firstChar = (ok and nextByte) and string.sub(itemName, 1, nextByte - 1) or string.sub(itemName, 1, 1)
-    if #firstChar == 1 then
-        firstChar = firstChar:upper()
-    end
-    local badgeText = firstChar
-    local tw = uiState.font:getWidth(badgeText)
-    local th = uiState.font:getHeight()
-    love.graphics.print(badgeText, x + (size - tw)/2, y + (size - th)/2)
-    
+    drawItemGlyph(item.data, x, y, size)
+
     if item.data.isEvolved then
         love.graphics.setColor(.78,.53,1)
         require('src.ui.combat_theme').star(x+size-7,y+7,5)
@@ -631,6 +620,7 @@ function InventoryUI:drawDraggedItem()
     local x = uiState.mouseX - size / 2
     local y = uiState.mouseY - size / 2
     
+    MenuCamera.itemEcho("cargo",uiState.draggedItem.data,x,y,size)
     -- Fondo semi-transparente
     love.graphics.setColor(0, 0, 0, 0.5)
     love.graphics.rectangle("fill", x - 2, y - 2, size + 4, size + 4)

@@ -1,3 +1,4 @@
+local MenuCamera = require 'src.ui.menu_camera'
 local Loot = require 'src.gameplay.loot'
 local Items = require 'src.item_systems.item_system'
 local Theme = require 'src.ui.combat_theme'
@@ -125,6 +126,7 @@ function Inspection:keypressed(key)
         return false
     elseif target.room then
         Loot.getBox(self.run, target.room, target.index)
+        MenuCamera.open('loot')
         self.inspecting, self.message, self.drag = target, '', nil
         if not target.drawWorld then self.run.lootRooms[target.room][target.index].opened = true end
     elseif not target.id then

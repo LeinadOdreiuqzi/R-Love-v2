@@ -1,3 +1,5 @@
+local MenuCamera = require 'src.ui.menu_camera'
+local MenuTheme = require 'src.ui.menu_theme'
 -- src/ui/eva_inventory_ui.lua
 -- UI específica para el inventario EVA (3 slots)
 
@@ -90,7 +92,7 @@ function EVAInventoryUI:drawEVAItem(x, y, size, item)
     love.graphics.setColor(color)
     love.graphics.rectangle("fill", x, y, size, size)
     love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, size, size)
+    love.graphics.rectangle("fill", x+2, y+size-3, 6, 1)
 end
 
 -- Calcular layout de la UI EVA
@@ -117,6 +119,7 @@ function EVAInventoryUI:toggle()
         self:close()
     else
         evaUIState.isOpen = true
+        MenuCamera.open('eva')
     end
 end
 
@@ -149,11 +152,7 @@ function EVAInventoryUI:update(dt, evaPlayer)
 end
 
 -- Renderizar UI EVA
-function EVAInventoryUI:draw(evaPlayer)
-    if not evaUIState.isOpen or not evaPlayer or not evaPlayer.inventory then 
-        return 
-    end
-    
+local function drawContents(self,evaPlayer)
     love.graphics.push()
     
     -- Obtener el compartimento EVA real del ship si existe
@@ -182,6 +181,14 @@ function EVAInventoryUI:draw(evaPlayer)
     end
 end
 
+
+function EVAInventoryUI:draw(evaPlayer)
+    if not evaUIState.isOpen or not evaPlayer or not evaPlayer.inventory then
+        return
+    end
+    MenuCamera.draw('eva',drawContents,self,evaPlayer)
+end
+
 -- Dibujar panel de inventario EVA
 function EVAInventoryUI:drawEVAInventoryPanel(inventory)
     local layout = evaUIState.layout
@@ -190,16 +197,8 @@ function EVAInventoryUI:drawEVAInventoryPanel(inventory)
     local padding = evaUIState.slotPadding
     local panelPadding = evaUIState.panelPadding
     
-    -- Fondo del panel
-    love.graphics.setColor(colors.background)
-    love.graphics.rectangle("fill", layout.panelX, layout.panelY, 
-                           layout.panelWidth, layout.panelHeight)
-    
-    -- Borde del panel
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", layout.panelX, layout.panelY, 
-                           layout.panelWidth, layout.panelHeight)
-    
+    MenuTheme.panel(layout.panelX, layout.panelY, layout.panelWidth, layout.panelHeight)
+
     -- Título
     love.graphics.setColor(colors.text)
     love.graphics.print("Inventario EVA (Tab para abrir/cerrar)", layout.panelX + panelPadding, layout.panelY + 5)
@@ -230,15 +229,8 @@ function EVAInventoryUI:drawModal()
     local modal = evaUIState.modal
     local colors = evaUIState.colors
     
-    -- Fondo del modal
-    love.graphics.setColor(colors.background)
-    love.graphics.rectangle("fill", modal.x, modal.y, modal.width, modal.height)
-    
-    -- Borde del modal
-    love.graphics.setColor(colors.border)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", modal.x, modal.y, modal.width, modal.height)
-    
+    MenuTheme.panel(modal.x, modal.y, modal.width, modal.height)
+
     -- Líneas divisorias
     local optionHeight = modal.height / 3
     local firstDividerY = modal.y + optionHeight
@@ -289,11 +281,13 @@ function EVAInventoryUI:drawEVASlot(x, y, slotIndex, item)
     end
     
     -- Dibujar slot
-    love.graphics.setColor(slotColor)
-    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
-    
-    love.graphics.setColor(colors.border)
-    love.graphics.rectangle("line", x, y, slotSize, slotSize)
+    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
+    if idle then
+        MenuTheme.ink(colors.textSecondary, .65)
+        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
+    else
+        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
+    end
     
     -- Número del slot
     love.graphics.setColor(colors.text)

@@ -1,3 +1,5 @@
+local MenuCamera = require 'src.ui.menu_camera'
+local MenuTheme = require 'src.ui.menu_theme'
 local Grid = require 'src.item_systems.cargo_grid'
 local Loot = require 'src.gameplay.loot'
 local Theme = require 'src.ui.combat_theme'
@@ -168,7 +170,7 @@ function Exchange.release(ui, x, y, button)
     feedback(ui, ok)
 end
 
-function Exchange.draw(ui)
+local function drawContents(ui)
     local g, l = love.graphics, layout(ui)
     local mx, my = love.mouse.getPosition()
     local side, cell = hit(l, mx, my)
@@ -188,7 +190,7 @@ function Exchange.draw(ui)
         items=l.inv.items,title=CargoPanel.shipTitle(ui.player)},ui.player)
     InventoryUI:drawLootEquipment(ui.player)
     local closeX = l.right+columns*l.pitch-58
-    Theme.panel(closeX,l.top-34,58,24)
+    MenuTheme.mark(closeX,l.top-34,58,24,MenuTheme.focus)
     g.setFont(Theme.small)
     g.setColor(Theme.colors.text)
     g.printf('Cerrar',closeX,l.top-29,58,'center')
@@ -205,9 +207,13 @@ function Exchange.draw(ui)
             g.rectangle('line',rect(l,side,anchor or cell,anchor and w or 1,anchor and h or 1))
         end
         local icon = d.entry.data and d.entry or {data=d.entry}
-        InventoryUI:drawItem(mx+8,my+8,math.max(10,(l.pitch-CargoPanel.padding)*.8),icon,ui.player)
+        local size = math.max(10,(l.pitch-CargoPanel.padding)*.8)
+        MenuCamera.itemEcho('loot',icon.data,mx+8,my+8,size)
+        InventoryUI:drawItem(mx+8,my+8,size,icon,ui.player)
         hint = not side and 'Suelta fuera para cancelar' or (anchor or not onGrid) and 'Suelta para colocar' or 'No cabe aquí'
         if Grid.canRotate(d.entry) then hint = hint .. '   ·   R para girar' end
+    else
+        MenuCamera.itemEcho('loot')
     end
     g.setFont(Theme.small)
     g.setColor(Theme.colors.text)
@@ -219,6 +225,10 @@ function Exchange.draw(ui)
             Theme.tooltip(ui.player,entry.data or entry,mx,my,('Carga · %d×%d'):format(w,h))
         end
     end
+end
+
+function Exchange.draw(ui)
+    MenuCamera.draw('loot',drawContents,ui)
 end
 
 return Exchange
