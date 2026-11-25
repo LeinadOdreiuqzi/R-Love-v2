@@ -4,6 +4,7 @@ local Menu = {
     steel = {52/255, 70/255, 80/255, 1},
     paper = {228/255, 234/255, 229/255, 1},
     focus = {114/255, 214/255, 173/255, 1},
+    sage = {164/255, 190/255, 178/255, 1},
     muted = {.62, .69, .69, 1}
 }
 
@@ -16,6 +17,8 @@ local projection = [[
 extern vec2 extent;
 extern number phase;
 extern number globe;
+extern number neutral;
+extern vec3 inventoryAccent;
 float trace(float distanceToLine, float width) {
     return 1.0 - smoothstep(width, width + 0.012, abs(distanceToLine));
 }
@@ -24,12 +27,15 @@ vec4 effect(vec4 tint, Image texture, vec2 uv, vec2 screen) {
     vec2 p = uv * extent;
     vec3 mint = vec3(.447,.839,.678);
     if (globe < .5) {
-        vec2 margin = min(p, extent-p);
-        vec2 feather = smoothstep(vec2(0.0), min(extent*.30,vec2(42.0,24.0)), margin);
-        float field = feather.x*feather.y;
+        float cut = min(10.0,min(extent.x,extent.y)*.15);
+        if (extent.x-p.x+p.y < cut) discard;
+        // Two short registration strokes keep the rest of the perimeter open.
+        bool top = p.y < 1.5 && p.x < min(30.0,extent.x*.25);
+        bool foot = extent.x-p.x < 1.5 && extent.y-p.y < min(12.0,extent.y*.2);
         float plume = exp(-3.0*q.x)*(.82+.18*cos(phase*6.283+q.x*2.2));
         vec3 ink = vec3(.019,.045,.048)+mint*(.032+.11*plume);
-        return vec4(ink,tint.a*field*.89);
+        ink = mix(ink,vec3(.085,.095,.105),neutral);
+        return vec4(top || foot ? mix(mint,inventoryAccent,neutral)*.59 : ink,tint.a*.90);
     }
     vec2 v = (q-.5)*2.8;
     v.x *= extent.x/extent.y;
@@ -54,7 +60,7 @@ vec4 effect(vec4 tint, Image texture, vec2 uv, vec2 screen) {
 ]]
 
 local shader, surface
-function Menu.project(x,y,w,h,phase,globe,alpha)
+function Menu.project(x,y,w,h,phase,globe,alpha,neutral)
     if w <= 0 or h <= 0 then return end
     local g = love.graphics
     shader = shader or g.newShader(projection)
@@ -67,9 +73,15 @@ function Menu.project(x,y,w,h,phase,globe,alpha)
     shader:send('extent',{w,h})
     shader:send('phase',phase)
     shader:send('globe',globe and 1 or 0)
+    shader:send('neutral',neutral and 1 or 0)
+    shader:send('inventoryAccent',{Menu.sage[1],Menu.sage[2],Menu.sage[3]})
     g.setColor(1,1,1,alpha or 1)
     g.draw(surface,x,y,0,w,h)
     g.setShader(previous)
+end
+
+function Menu.inventoryPanel(x,y,w,h)
+    Menu.project(x,y,w,h,0,false,1,true)
 end
 
 function Menu.panel(x,y,w,h,alpha)

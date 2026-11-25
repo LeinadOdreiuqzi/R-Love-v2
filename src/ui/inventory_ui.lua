@@ -58,12 +58,12 @@ local uiState = {
         slotEmpty = {0.15, 0.15, 0.2, 0.6},
         slotFilled = {0.2, 0.2, 0.28, 0.8},
         slotHover = {.18, .33, .29, .92},
-        slotSelected = MenuTheme.focus,
+        slotSelected = MenuTheme.sage,
         slotDragTarget = {0.1, 0.5, 0.2, 0.8},
         border = MenuTheme.steel,
         text = MenuTheme.paper,
         textSecondary = MenuTheme.muted,
-        accent = MenuTheme.focus,
+        accent = MenuTheme.sage,
         
         -- Colores por rareza (HSL balanceados)
         rarity = {
@@ -111,7 +111,7 @@ local function statsButton()
 end
 
 local function cargoCell(cell)
-    local layout, pitch = uiState.layout, uiState.slotSize + uiState.slotPadding
+    local layout, pitch = uiState.layout, uiState.layout.cargoPitch
     local columns = layout.cargoColumns
     return CargoPanel.rect(layout.inventoryX + uiState.panelPadding, layout.inventoryY + cargoHeader,
         pitch, columns, cell)
@@ -144,13 +144,27 @@ function InventoryUI:calculateLayout(player, equipmentX, pitch)
     end
 
     local inventoryRows = math.ceil(maxSlots / inventoryColumns)
-    local slotSize = (pitch or CargoPanel.pitch(screenWidth, screenHeight, inventoryRows)) - padding
+    local wide = not equipmentX and screenWidth >= 820
+    local margin = math.max(8, math.min(56, math.floor(screenWidth*.04)))
+    local top = screenHeight >= 600 and 82 or 48
+    local availableHeight = screenHeight-top-12
+    local previousPitch = CargoPanel.pitch(screenWidth, screenHeight, inventoryRows)
+    local equipmentPitch = pitch or math.max(8, math.min(wide and 84 or 52,
+        math.floor((availableHeight-(wide and 134 or 203))/(wide and 5 or 6)),
+        math.floor((screenWidth-2*margin-(wide and 116 or 70))/(wide and 10 or 7))))
+    local slotSize = equipmentPitch-padding
+    local cargoArea = screenWidth-2*margin-(wide and 2 or 1)*(3*equipmentPitch+2*panelPadding+12)
+    local cargoPitch = pitch or math.max(8,math.floor(math.min(84,
+        (availableHeight-cargoHeader-32+padding)/inventoryRows,
+        (cargoArea-2*panelPadding+padding)/inventoryColumns)))
+    uiState.layout.cargoPitch = cargoPitch
+    uiState.layout.iconSize = math.max(1,previousPitch-padding-8)
     uiState.slotSize = slotSize
     uiState.layout.cargoCapacity = maxSlots
     uiState.layout.cargoColumns = inventoryColumns
     
-    uiState.layout.inventoryWidth = inventoryColumns * (slotSize + padding) - padding + panelPadding * 2
-    uiState.layout.inventoryHeight = inventoryRows * (slotSize + padding) - padding + cargoHeader + 32
+    uiState.layout.inventoryWidth = inventoryColumns * cargoPitch - padding + panelPadding * 2
+    uiState.layout.inventoryHeight = inventoryRows * cargoPitch - padding + cargoHeader + 32
     
     -- Configuración del panel EVA (3 slots horizontales)
     local evaColumns = 3
@@ -171,24 +185,21 @@ function InventoryUI:calculateLayout(player, equipmentX, pitch)
     uiState.layout.passiveHeight = passiveRows * (slotSize + padding) - padding + panelPadding * 2 + 35
     
     -- Posicionamiento: Inventario a la izquierda, equipo a la derecha
-    local totalUIWidth = uiState.layout.inventoryWidth + math.max(uiState.layout.evaWidth, uiState.layout.weaponWidth) + panelPadding
-    local startX = (screenWidth - totalUIWidth) / 2
-    local rightHeight = uiState.layout.evaHeight + uiState.layout.weaponHeight + uiState.layout.passiveHeight + 20
-    local startY = math.max(8, (screenHeight - math.max(uiState.layout.inventoryHeight, rightHeight)) / 2)
-    
-    uiState.layout.inventoryX = startX
-    uiState.layout.inventoryY = startY
-    
-    local rightColumnX = equipmentX or startX + uiState.layout.inventoryWidth + panelPadding
-    
-    uiState.layout.evaX = rightColumnX
-    uiState.layout.evaY = startY
-    
-    uiState.layout.weaponX = rightColumnX
-    uiState.layout.weaponY = uiState.layout.evaY + uiState.layout.evaHeight + 10
-    
-    uiState.layout.passiveX = rightColumnX
-    uiState.layout.passiveY = uiState.layout.weaponY + uiState.layout.weaponHeight + 10
+    local l = uiState.layout
+    local gap = CargoPanel.gap
+    local groupWidth = l.inventoryWidth + gap + l.evaWidth
+    if wide then groupWidth = groupWidth + gap + l.weaponWidth end
+    l.inventoryX, l.inventoryY = math.floor((screenWidth-groupWidth)/2), top
+    local nextX = l.inventoryX+l.inventoryWidth+gap
+    l.weaponX = equipmentX or nextX
+    l.evaX = wide and nextX+l.weaponWidth+gap or l.weaponX
+    l.evaY = top
+    if equipmentX then
+        local gearHeight = l.evaHeight+l.weaponHeight+l.passiveHeight+2*gap
+        l.evaY = math.max(8,math.floor((screenHeight-gearHeight)/2))
+    end
+    l.weaponY = wide and top or l.evaY+l.evaHeight+gap
+    l.passiveX, l.passiveY = l.weaponX, l.weaponY+l.weaponHeight+gap
 end
 
 -- Abrir/cerrar inventario
@@ -358,6 +369,10 @@ end
 -- Renderizar UI
 local function drawContents(self,player)
     uiState.currentPlayer = player
+    local g, layout = love.graphics, uiState.layout
+    g.setFont(uiState.titleFont)
+    g.setColor(MenuTheme.paper)
+    g.print('INVENTARIO',layout.inventoryX+uiState.panelPadding,math.floor(layout.inventoryY*.30))
     if uiState.showPilotStats then
         PilotPanel.draw(player)
         return
@@ -428,12 +443,12 @@ end
 function InventoryUI:drawInventoryPanel(compartment, player)
     local layout = uiState.layout
     local colors = uiState.colors
-    local slotSize = uiState.slotSize
+    local pitch = layout.cargoPitch
     local padding = uiState.slotPadding
     local recovery = #player.inventory.recoveryCargo
     local hint = recovery > 0 and ('O · Recuperar carga (%d)'):format(recovery) or 'R · Girar objeto 2×3'
     local x,y = cargoCell(1)
-    self:drawCargoPanel({x=x, y=y, pitch=slotSize+padding, columns=layout.cargoColumns,
+    self:drawCargoPanel({x=x, y=y, pitch=pitch, iconSize=layout.iconSize, columns=layout.cargoColumns,
         capacity=compartment.maxSlots, items=compartment.items, title=CargoPanel.shipTitle(player), hint=hint}, player)
     if player.stats and player.shipConfig then
         love.graphics.setFont(uiState.smallFont)
@@ -460,7 +475,6 @@ function InventoryUI:drawInventoryPanel(compartment, player)
         local x, y = cargoCell(move and move.target or hovered)
         local w, h = 1, 1
         if move then w, h = Grid.dimensions(dragged, move.rotated) end
-        local pitch = slotSize + padding
         love.graphics.setColor(move and {.37,.88,.70,.9} or {1,.28,.30,.72})
         love.graphics.rectangle('line', x, y, w * pitch - padding, h * pitch - padding, 4, 4)
         if move and move.swap then
@@ -484,7 +498,7 @@ function InventoryUI:drawEVAPanel(evaCompartment)
     local panelPadding = uiState.panelPadding
     
     -- Fondo (Glassmorphism)
-    MenuTheme.panel(layout.evaX, layout.evaY, layout.evaWidth, layout.evaHeight)
+    MenuTheme.inventoryPanel(layout.evaX, layout.evaY, layout.evaWidth, layout.evaHeight)
 
     -- Título
     love.graphics.setColor(colors.accent)
@@ -529,7 +543,6 @@ end
 function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
-    local borderRadius = uiState.borderRadius
     
     -- Determinar color del slot
     local slotColor = colors.slotEmpty
@@ -553,17 +566,14 @@ function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     end
     
     -- Dibujar slot
-    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
-    if idle then
-        MenuTheme.ink(colors.textSecondary, .65)
-        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
-    else
-        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
-    end
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
     
     -- Dibujar item si existe
     if item then
-        self:drawItem(x + 4, y + 4, slotSize - 8, item)
+        local size = math.min(slotSize-8,uiState.layout.iconSize)
+        local inset = (slotSize-size)/2
+        self:drawItem(x+inset,y+inset,size,item)
     end
 end
 
@@ -616,7 +626,7 @@ end
 function InventoryUI:drawDraggedItem()
     if not uiState.draggedItem then return end
     
-    local size = uiState.slotSize * 0.8
+    local size = math.min(uiState.layout.iconSize,uiState.slotSize * 0.8)
     local x = uiState.mouseX - size / 2
     local y = uiState.mouseY - size / 2
     
@@ -989,7 +999,7 @@ end
 
 -- Obtener slot de inventario en posición
 function InventoryUI:getInventorySlotAt(x, y, inventory)
-    local pitch = uiState.slotSize + uiState.slotPadding
+    local pitch = uiState.layout.cargoPitch
     local startX, startY = cargoCell(1)
     local columns = inventory.columns or uiState.layout.cargoColumns
     return CargoPanel.hit(startX,startY,pitch,columns,inventory.maxSlots,x,y)

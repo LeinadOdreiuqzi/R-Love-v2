@@ -293,9 +293,23 @@ function SubLevelScene:update(dt)
     UIManager.updateAll(dt, player)
 end
 
+local Backdrop = require 'src.ui.inventory.backdrop'
 function SubLevelScene:draw()
     local camera = World.get('camera')
     local player = World.get('player')
+
+    -- Dibujar HUD y UIs respetando estrictamente el flag global showHUD (alternable con 'L')
+    local GameState = require 'src.core.game_state'
+    local showHUD = (GameState and GameState.state and GameState.state.showHUD ~= false)
+
+    local InventoryUI = require 'src.ui.inventory_ui'
+    local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
+    local inventoryOpen = (InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen()) or
+                         (EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen())
+
+    local lootOpen = showHUD and self.lootLab and self.lootLab.inspecting
+    local blurInventory = inventoryOpen or lootOpen
+    if blurInventory then Backdrop.begin() end
 
     -- Fondo espacial base
     love.graphics.clear(0.012, 0.016, 0.025, 1)
@@ -407,18 +421,9 @@ function SubLevelScene:draw()
         end
     end
 
-    -- Dibujar HUD y UIs respetando estrictamente el flag global showHUD (alternable con 'L')
-    local GameState = require 'src.core.game_state'
-    local showHUD = (GameState and GameState.state and GameState.state.showHUD ~= false)
-
-    local InventoryUI = require 'src.ui.inventory_ui'
-    local EVAInventoryUI = require 'src.ui.eva_inventory_ui'
-    local inventoryOpen = (InventoryUI and InventoryUI.isOpen and InventoryUI:isOpen()) or 
-                         (EVAInventoryUI and EVAInventoryUI.isOpen and EVAInventoryUI:isOpen())
-
     if showHUD then
         if HUD and HUD.draw then HUD.draw(inventoryOpen) end
-        if self.lootLab and not inventoryOpen then self.lootLab:drawHUD() end
+        if self.lootLab and not inventoryOpen and not lootOpen then self.lootLab:drawHUD() end
 
         -- Indicador simple de subnivel (ocultable con el HUD)
         local status = SubLevelManager.getStatus()
@@ -441,6 +446,9 @@ function SubLevelScene:draw()
             NebulaeDebugWorld.drawHUD()
         end
     end
+
+    if blurInventory then Backdrop.finish() end
+    if lootOpen and not inventoryOpen then self.lootLab:drawHUD() end
 
     if InventoryUI and InventoryUI.draw and InventoryUI.isOpen and InventoryUI:isOpen() then
         InventoryUI:draw(player)

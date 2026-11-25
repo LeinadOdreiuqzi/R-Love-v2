@@ -3,6 +3,7 @@
 -- Encapsula update y draw logrando un main.lua limpio
 
 local GameLoop = {}
+local Backdrop = require 'src.ui.inventory.backdrop'
 
 local World = require 'src.core.world'
 local GameState = require 'src.core.game_state'
@@ -205,6 +206,14 @@ function GameLoop.draw()
 
     local camera = World.get('camera')
     
+    local inventoryOpen = InventoryManager.isAnyInventoryOpen()
+    local inspection = SalvageSites.getInspection()
+    local activePlayer = World.get('player')
+    local encounter = World.get('frontierEncounter')
+    local lootOpen = inspection and inspection.inspecting and activePlayer and inspection.player == activePlayer
+        and not activePlayer.isInEVA and (not encounter or encounter.victory)
+    local blurInventory = inventoryOpen or lootOpen
+    if blurInventory then Backdrop.begin() end
     if camera then camera:apply() end
     
     Map.draw(camera)
@@ -249,9 +258,8 @@ function GameLoop.draw()
     
     if camera then camera:unapply() end
     
-    local inventoryOpen = InventoryManager.isAnyInventoryOpen()
-    
     if state.showHUD then HUD.draw(inventoryOpen) end
+    if blurInventory then Backdrop.finish() end
     if not inventoryOpen then SalvageSites.drawHUD(player, camera) end
     local director = World.get('director')
     if state.showHUD and not inventoryOpen and director and director.convoy and player and camera then

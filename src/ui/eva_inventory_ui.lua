@@ -25,7 +25,7 @@ local evaUIState = {
     
     -- Configuración visual
     slotSize = 60,
-    slotPadding = 10,
+    slotPadding = require('src.ui.inventory.cargo_panel').padding,
     panelPadding = 15,
     
     -- Colores (se inicializarán desde InventoryUI en init)
@@ -105,12 +105,12 @@ function EVAInventoryUI:calculateLayout()
     local panelPadding = evaUIState.panelPadding
     
     -- Panel horizontal con 3 slots
-    evaUIState.layout.panelWidth = 3 * slotSize + 2 * padding + panelPadding * 2
+    evaUIState.layout.panelWidth = math.max(3 * slotSize + 2 * padding,
+        love.graphics.getFont():getWidth("1–3 · Usar   /   Clic derecho · Opciones")) + panelPadding * 2
     evaUIState.layout.panelHeight = slotSize + panelPadding * 2 + 40 -- +40 para título y controles
     
-    -- Posicionar en la parte inferior de la pantalla
-    evaUIState.layout.panelX = (screenWidth - evaUIState.layout.panelWidth) / 2
-    evaUIState.layout.panelY = screenHeight - evaUIState.layout.panelHeight - 50
+    evaUIState.layout.panelX = math.max(8,math.min(56,math.floor(screenWidth*.04)))
+    evaUIState.layout.panelY = screenHeight >= 600 and 82 or 48
 end
 
 -- Abrir/cerrar inventario EVA
@@ -197,11 +197,11 @@ function EVAInventoryUI:drawEVAInventoryPanel(inventory)
     local padding = evaUIState.slotPadding
     local panelPadding = evaUIState.panelPadding
     
-    MenuTheme.panel(layout.panelX, layout.panelY, layout.panelWidth, layout.panelHeight)
+    MenuTheme.inventoryPanel(layout.panelX, layout.panelY, layout.panelWidth, layout.panelHeight)
 
     -- Título
     love.graphics.setColor(colors.text)
-    love.graphics.print("Inventario EVA (Tab para abrir/cerrar)", layout.panelX + panelPadding, layout.panelY + 5)
+    love.graphics.print("Inventario EVA", layout.panelX + panelPadding, layout.panelY + 5)
     
     -- Slots de inventario EVA (3 slots horizontales)
     local startX = layout.panelX + panelPadding
@@ -216,7 +216,7 @@ function EVAInventoryUI:drawEVAInventoryPanel(inventory)
     
     -- Instrucciones
     love.graphics.setColor(colors.textSecondary)
-    love.graphics.print("1-3: Usar item | Clic derecho: Opciones", layout.panelX + panelPadding, layout.panelY + layout.panelHeight - 15)
+    love.graphics.print("1–3 · Usar   /   Clic derecho · Opciones", layout.panelX + panelPadding, layout.panelY + layout.panelHeight - 15)
     
     -- Dibujar modal si está abierto
     if evaUIState.modal.isOpen then
@@ -229,7 +229,7 @@ function EVAInventoryUI:drawModal()
     local modal = evaUIState.modal
     local colors = evaUIState.colors
     
-    MenuTheme.panel(modal.x, modal.y, modal.width, modal.height)
+    MenuTheme.inventoryPanel(modal.x, modal.y, modal.width, modal.height)
 
     -- Líneas divisorias
     local optionHeight = modal.height / 3
@@ -281,13 +281,8 @@ function EVAInventoryUI:drawEVASlot(x, y, slotIndex, item)
     end
     
     -- Dibujar slot
-    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
-    if idle then
-        MenuTheme.ink(colors.textSecondary, .65)
-        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
-    else
-        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
-    end
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
     
     -- Número del slot
     love.graphics.setColor(colors.text)

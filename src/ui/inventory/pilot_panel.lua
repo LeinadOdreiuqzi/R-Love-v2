@@ -45,13 +45,13 @@ function Panel.draw(player)
     local baseX, effectiveX, sourceX = x + w * .33, x + w * .53, x + w * .72
 
     g.push('all')
-    MenuTheme.panel(x, y, w, panelHeight)
+    MenuTheme.inventoryPanel(x, y, w, panelHeight)
     g.setFont(Theme.title)
     g.setColor(colors.text)
     g.print('Estadísticas · ' .. config.name, x + 12, y + 10)
     g.setFont(Theme.small)
     local bx, by, bw, bh = backButton(x, y, w)
-    MenuTheme.mark(bx, by, bw, bh, MenuTheme.focus, inside(mx, my, bx, by, bw, bh))
+    MenuTheme.mark(bx, by, bw, bh, MenuTheme.sage, inside(mx, my, bx, by, bw, bh))
     g.setColor(colors.active)
     g.printf('Volver a carga', bx, by + 4, bw, 'center')
 

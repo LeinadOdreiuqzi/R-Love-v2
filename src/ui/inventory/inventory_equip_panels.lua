@@ -21,7 +21,7 @@ function InventoryEquipPanels.drawWeaponPanel(parentUI, uiState, weaponCompartme
     local panelPadding = uiState.panelPadding
     
     -- Fondo (Glassmorphism)
-    MenuTheme.panel(layout.weaponX, layout.weaponY, layout.weaponWidth, layout.weaponHeight)
+    MenuTheme.inventoryPanel(layout.weaponX, layout.weaponY, layout.weaponWidth, layout.weaponHeight)
 
     -- Título
     love.graphics.setColor(colors.accent)
@@ -48,7 +48,6 @@ end
 function InventoryEquipPanels.drawWeaponSlot(parentUI, uiState, x, y, slotIndex, item)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
-    local borderRadius = uiState.borderRadius
     
     -- Determinar color del slot
     local slotColor = colors.slotEmpty
@@ -77,13 +76,8 @@ function InventoryEquipPanels.drawWeaponSlot(parentUI, uiState, x, y, slotIndex,
     end
     
     -- Dibujar slot
-    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
-    if idle then
-        MenuTheme.ink(colors.textSecondary, .65)
-        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
-    else
-        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
-    end
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
     
     -- Indicador de slot número
     love.graphics.setColor(1, 1, 1, 0.3)
@@ -92,7 +86,9 @@ function InventoryEquipPanels.drawWeaponSlot(parentUI, uiState, x, y, slotIndex,
     
     -- Dibujar item si existe
     if item then
-        parentUI:drawItem(x + 4, y + 4, slotSize - 8, item)
+        local size = math.min(slotSize-8,uiState.layout.iconSize)
+        local inset = (slotSize-size)/2
+        parentUI:drawItem(x+inset,y+inset,size,item)
     end
 end
 
@@ -238,7 +234,7 @@ function InventoryEquipPanels.drawPassivePanel(parentUI, uiState, passiveCompart
     local panelPadding = uiState.panelPadding
     
     -- Fondo
-    MenuTheme.panel(layout.passiveX, layout.passiveY, layout.passiveWidth, layout.passiveHeight)
+    MenuTheme.inventoryPanel(layout.passiveX, layout.passiveY, layout.passiveWidth, layout.passiveHeight)
 
     -- Título
     love.graphics.setColor(colors.accent)
@@ -265,7 +261,6 @@ end
 function InventoryEquipPanels.drawPassiveSlot(parentUI, uiState, x, y, slotIndex, item, player)
     local colors = uiState.colors
     local slotSize = uiState.slotSize
-    local borderRadius = uiState.borderRadius
     
     local slotColor = colors.slotEmpty
     if item then
@@ -290,16 +285,13 @@ function InventoryEquipPanels.drawPassiveSlot(parentUI, uiState, x, y, slotIndex
         slotColor = colors.slotHover
     end
     
-    local idle = slotColor == colors.slotEmpty or slotColor == colors.slotFilled
-    if idle then
-        MenuTheme.ink(colors.textSecondary, .65)
-        love.graphics.rectangle("fill", x+2, y+slotSize-3, 6, 1)
-    else
-        MenuTheme.mark(x,y,slotSize,slotSize,slotColor,true)
-    end
+    love.graphics.setColor(slotColor)
+    love.graphics.rectangle("fill", x, y, slotSize, slotSize)
     
     if item then
-        parentUI:drawItem(x + 4, y + 4, slotSize - 8, item)
+        local size = math.min(slotSize-8,uiState.layout.iconSize)
+        local inset = (slotSize-size)/2
+        parentUI:drawItem(x+inset,y+inset,size,item)
     end
 end
 

@@ -9,6 +9,7 @@ local lifetime = .095
 local source = [[
 extern vec2 texel;
 extern float exposure;
+extern float inventory;
 extern float grainFrame;
 vec4 effect(vec4 color, Image image, vec2 uv, vec2 screen) {
     vec4 core = Texel(image,uv);
@@ -25,8 +26,9 @@ vec4 effect(vec4 color, Image image, vec2 uv, vec2 screen) {
     // Lift the translucent glass and compress the highlights separately.
     float glass = core.a*(1.0-smoothstep(.08,.65,light));
     vec3 emission = core.rgb*vec3(.91,1.08,1.06) + glass*vec3(.004,.072,.076);
-    emission += halo*vec3(.56,1.0,.88) + grain;
-    float vignette = smoothstep(.14,1.75,radius)*.28;
+    emission = mix(emission,core.rgb,inventory);
+    emission += halo*mix(vec3(.56,1.0,.88),vec3(.72),inventory) + grain;
+    float vignette = smoothstep(.14,1.75,radius)*.28*(1.0-inventory);
     float alpha = max(core.a,max(halo.r,max(halo.g,halo.b)));
     return vec4(max(emission,vec3(0.0))*exposure*(1.0-vignette),
         alpha+(1.0-alpha)*vignette)*color;
@@ -73,6 +75,7 @@ function Camera.draw(key, drawContent, ...)
     g.setBlendMode('alpha','premultiplied')
     g.setShader(optics)
     optics:send('texel',{1/w,1/h})
+    optics:send('inventory',(key=='cargo' or key=='eva' or key=='loot') and 1 or 0)
     local settle = math.max(0,1-(now-(openings[key] or -1))/.22)
     optics:send('exposure',still and 1 or 1-.29*settle*settle)
     optics:send('grainFrame',still and 0 or math.floor(now*12)%251)

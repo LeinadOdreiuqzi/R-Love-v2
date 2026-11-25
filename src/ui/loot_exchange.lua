@@ -16,12 +16,21 @@ local function layout(ui)
     local inv = ui.player.inventory
     local width, height = love.graphics.getDimensions()
     local rows = math.ceil(math.max(box.capacity, inv.maxSlots) / columns)
-    local pitch = math.min(CargoPanel.pitch(width,height,rows), math.floor((width-112)/11))
-    local center = math.floor((width-3*pitch-40)/2)
-    InventoryUI:layoutLootEquipment(ui.player, center+4*pitch+42, pitch)
-    local top = math.floor((height - rows * pitch) / 2) + 2
-    return {box = box, inv = inv, pitch = pitch, top = top,
-        left = center - 18 - columns * pitch, right = center + 18}
+    local margin = math.max(8,math.min(48,math.floor(width*.035)))
+    local available = width-2*margin-6*CargoPanel.inset-2*CargoPanel.gap
+    local gearPitch = math.max(8,math.floor(math.min(84,available/11,(height-224)/6)))
+    local pitch = math.max(8,math.floor(math.min(84,(available-3*gearPitch)/8,(height-150)/rows)))
+    local cargoWidth = CargoPanel.width(columns,pitch)
+    local gearWidth = CargoPanel.width(3,gearPitch)
+    local groupWidth = cargoWidth*2+gearWidth+2*CargoPanel.gap
+    local groupX = math.floor((width-groupWidth)/2)
+    local left = groupX+CargoPanel.inset
+    local right = left+cargoWidth+CargoPanel.gap
+    local gearX = groupX+2*(cargoWidth+CargoPanel.gap)
+    InventoryUI:layoutLootEquipment(ui.player,gearX,gearPitch)
+    local top = math.max(CargoPanel.header+8,math.floor((height-rows*pitch)/2))
+    local iconSize = math.max(1,CargoPanel.pitch(width,height,rows)-CargoPanel.padding-8)
+    return {box=box,inv=inv,pitch=pitch,top=top,left=left,right=right,iconSize=iconSize}
 end
 
 local function rect(l, side, anchor, w, h)
@@ -175,22 +184,20 @@ local function drawContents(ui)
     local mx, my = love.mouse.getPosition()
     local side, cell = hit(l, mx, my)
     local target = ui.inspecting
-    g.setColor(.01,.02,.035,.62)
-    g.rectangle('fill', 0, 0, g.getDimensions())
     local boxItems = {}
     for i, place in ipairs(l.box.placements) do
         local entry = Loot.boxEntry(l.box,i) or {id=l.box[i]}
         boxItems[place.anchor] = {data=entry.data or entry, quantity=entry.quantity, rotated=place.rotated,
             hidden=i>l.box.revealed, progress=i==l.box.revealed+1 and math.min(1,target.search/.48)}
     end
-    InventoryUI:drawCargoPanel({x=l.left,y=l.top,pitch=l.pitch,columns=columns,capacity=l.box.capacity,
+    InventoryUI:drawCargoPanel({x=l.left,y=l.top,pitch=l.pitch,iconSize=l.iconSize,columns=columns,capacity=l.box.capacity,
         items=boxItems,title=target.name,tint=target.color,
         hint=l.box.revealed<#l.box and 'Buscando objetos...' or #l.box==0 and 'Vacío' or nil},ui.player)
-    InventoryUI:drawCargoPanel({x=l.right,y=l.top,pitch=l.pitch,columns=columns,capacity=l.inv.maxSlots,
+    InventoryUI:drawCargoPanel({x=l.right,y=l.top,pitch=l.pitch,iconSize=l.iconSize,columns=columns,capacity=l.inv.maxSlots,
         items=l.inv.items,title=CargoPanel.shipTitle(ui.player)},ui.player)
     InventoryUI:drawLootEquipment(ui.player)
     local closeX = l.right+columns*l.pitch-58
-    MenuTheme.mark(closeX,l.top-34,58,24,MenuTheme.focus)
+    MenuTheme.mark(closeX,l.top-34,58,24,MenuTheme.sage)
     g.setFont(Theme.small)
     g.setColor(Theme.colors.text)
     g.printf('Cerrar',closeX,l.top-29,58,'center')
@@ -207,7 +214,7 @@ local function drawContents(ui)
             g.rectangle('line',rect(l,side,anchor or cell,anchor and w or 1,anchor and h or 1))
         end
         local icon = d.entry.data and d.entry or {data=d.entry}
-        local size = math.max(10,(l.pitch-CargoPanel.padding)*.8)
+        local size = math.min(l.iconSize,math.max(10,(l.pitch-CargoPanel.padding)*.8))
         MenuCamera.itemEcho('loot',icon.data,mx+8,my+8,size)
         InventoryUI:drawItem(mx+8,my+8,size,icon,ui.player)
         hint = not side and 'Suelta fuera para cancelar' or (anchor or not onGrid) and 'Suelta para colocar' or 'No cabe aquí'
@@ -217,7 +224,9 @@ local function drawContents(ui)
     end
     g.setFont(Theme.small)
     g.setColor(Theme.colors.text)
-    g.printf(ui.message ~= '' and ui.message or hint,8,l.top+math.max(l.box.capacity,l.inv.maxSlots)/columns*l.pitch+38,g.getWidth()-16,'center')
+    local hintWidth = l.right+columns*l.pitch-l.left
+    local hintY = l.top+math.ceil(math.max(l.box.capacity,l.inv.maxSlots)/columns)*l.pitch+34
+    g.printf(ui.message ~= '' and ui.message or hint,l.left,hintY,hintWidth,'center')
     if side and not ui.drag then
         local _, _, entry, rotated = itemAt(l,side,cell)
         if entry then

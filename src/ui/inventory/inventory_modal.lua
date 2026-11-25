@@ -40,7 +40,7 @@ function InventoryModal.draw(uiState)
     love.graphics.setColor(0, 0, 0, 0.4)
     love.graphics.rectangle("fill", modal.x + 4, modal.y + 4, modal.width, modal.height, br, br)
     
-    MenuTheme.panel(modal.x, modal.y, modal.width, modal.height)
+    MenuTheme.inventoryPanel(modal.x, modal.y, modal.width, modal.height)
 
     -- Texto de opciones
     love.graphics.setColor(colors.text)
