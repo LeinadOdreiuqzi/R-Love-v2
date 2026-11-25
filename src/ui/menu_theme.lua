@@ -8,6 +8,16 @@ local Menu = {
     muted = {.62, .69, .69, 1}
 }
 
+-- Place overlays on the roomier side of the pointer and keep them in view.
+function Menu.popupPosition(x,y,w,h,gap)
+    local sw,sh = love.graphics.getDimensions()
+    local function axis(cursor,size,extent)
+        local start = cursor < extent/2 and cursor+gap or cursor-gap-size
+        return math.max(0,math.min(math.max(8,start),extent-size-8))
+    end
+    return axis(x,w,sw),axis(y,h,sh)
+end
+
 function Menu.ink(color, alpha)
     love.graphics.setColor(color[1], color[2], color[3], (alpha or 1) * (color[4] or 1))
 end

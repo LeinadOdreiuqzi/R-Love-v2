@@ -110,11 +110,11 @@ local function statsButton()
         layout.inventoryY + 33, 87, 20
 end
 
-local function cargoCell(cell)
+local function cargoCell(cell,w,h)
     local layout, pitch = uiState.layout, uiState.layout.cargoPitch
     local columns = layout.cargoColumns
     return CargoPanel.rect(layout.inventoryX + uiState.panelPadding, layout.inventoryY + cargoHeader,
-        pitch, columns, cell)
+        pitch, columns, cell,w,h)
 end
 
 -- Inicializar UI
@@ -571,7 +571,7 @@ function InventoryUI:drawEVASlot(x, y, slotIndex, item)
     
     -- Dibujar item si existe
     if item then
-        local size = math.min(slotSize-8,uiState.layout.iconSize)
+        local size = self:equipmentIconSize()
         local inset = (slotSize-size)/2
         self:drawItem(x+inset,y+inset,size,item)
     end
@@ -622,13 +622,24 @@ function InventoryUI:drawItem(x, y, size, item, player)
     end
 end
 
+function InventoryUI:equipmentIconSize()
+    return CargoPanel.iconSize(uiState.slotSize+uiState.slotPadding,uiState.layout.iconSize)
+end
+
+local function beginDrag(side,index,item,mx,my)
+    uiState.draggedItem,uiState.draggedFromSlot,uiState.draggedFromType = item,index,side
+    uiState.dragSize = side == 'inventory' and CargoPanel.iconSize(uiState.layout.cargoPitch,uiState.layout.iconSize)
+        or InventoryUI:equipmentIconSize()
+    uiState.mouseX,uiState.mouseY = mx,my
+end
+
 -- Dibujar item siendo arrastrado
 function InventoryUI:drawDraggedItem()
     if not uiState.draggedItem then return end
     
-    local size = math.min(uiState.layout.iconSize,uiState.slotSize * 0.8)
-    local x = uiState.mouseX - size / 2
-    local y = uiState.mouseY - size / 2
+    local size = uiState.dragSize
+    local x = uiState.mouseX - size/2
+    local y = uiState.mouseY - size/2
     
     MenuCamera.itemEcho("cargo",uiState.draggedItem.data,x,y,size)
     -- Fondo semi-transparente
@@ -733,9 +744,7 @@ function InventoryUI:mousepressed(x, y, button, player)
                 end
                 
                 -- Iniciar drag
-                uiState.draggedItem = item
-                uiState.draggedFromSlot = inventorySlot
-                uiState.draggedFromType = "inventory"
+                beginDrag('inventory',inventorySlot,item,x,y)
                 local columns = shipComp.columns
                 uiState.draggedOffsetX = (clickedCell - 1) % columns - (inventorySlot - 1) % columns
                 uiState.draggedOffsetY = math.floor((clickedCell - 1) / columns) - math.floor((inventorySlot - 1) / columns)
@@ -754,9 +763,7 @@ function InventoryUI:mousepressed(x, y, button, player)
                         self:transferItemToShip(player, evaSlot)
                         return
                     end
-                    uiState.draggedItem = item
-                    uiState.draggedFromSlot = evaSlot
-                    uiState.draggedFromType = "eva"
+                    beginDrag('eva',evaSlot,item,x,y)
                 end
                 return
             end
@@ -776,9 +783,7 @@ function InventoryUI:mousepressed(x, y, button, player)
                     -- No permitir arrastrar arma por defecto
                     if weaponSlot == 1 then return end
                     
-                    uiState.draggedItem = item
-                    uiState.draggedFromSlot = weaponSlot
-                    uiState.draggedFromType = "weapons"
+                    beginDrag('weapons',weaponSlot,item,x,y)
                 end
                 return
             end
@@ -802,9 +807,7 @@ function InventoryUI:mousepressed(x, y, button, player)
                         return
                     end
                     
-                    uiState.draggedItem = item
-                    uiState.draggedFromSlot = passiveSlot
-                    uiState.draggedFromType = "passives"
+                    beginDrag('passives',passiveSlot,item,x,y)
                     -- No manipular directamente el array, el sistema centralizado lo manejará al hacer drop
                 end
                 return

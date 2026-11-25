@@ -17,8 +17,8 @@ function InventoryModal.open(uiState, x, y, slotIndex, slotType)
     uiState.modal.isOpen = true
     uiState.modal.slotIndex = slotIndex
     uiState.modal.slotType = slotType
-    uiState.modal.x = x
-    uiState.modal.y = y
+    local modal = uiState.modal
+    modal.x,modal.y = MenuTheme.popupPosition(x,y,modal.width,modal.height,4)
     
     local audio = getAudio()
     if audio and audio.play then

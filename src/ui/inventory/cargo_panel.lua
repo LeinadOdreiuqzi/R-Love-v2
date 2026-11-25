@@ -19,6 +19,15 @@ function Panel.rect(x, y, pitch, columns, anchor, w, h)
         (w or 1)*pitch - Panel.padding, (h or 1)*pitch - Panel.padding
 end
 
+function Panel.iconSize(pitch,limit)
+    return math.max(1,math.min(limit or pitch,pitch-Panel.padding-8))
+end
+
+function Panel.iconRect(x,y,w,h,pitch,limit)
+    local size = Panel.iconSize(pitch,limit)
+    return x+(w-size)/2,y+(h-size)/2,size
+end
+
 function Panel.hit(x, y, pitch, columns, capacity, mx, my)
     local dx, dy = mx-x, my-y
     if dx < 0 or dy < 0 or dx >= columns*pitch-Panel.padding
@@ -66,8 +75,8 @@ function Panel.draw(view, ui, style, player)
         else
             local hovered = mx >= sx and my >= sy and mx < sx+sw and my < sy+sh
             MenuTheme.mark(sx,sy,sw,sh,ui:getItemRarityColor(entry),hovered)
-            local size = math.max(1,math.min(view.iconSize or pitch,pitch-Panel.padding-8))
-            ui:drawItem(sx+(sw-size)/2,sy+(sh-size)/2,size,entry,player)
+            local ix,iy,size = Panel.iconRect(sx,sy,sw,sh,pitch,view.iconSize)
+            ui:drawItem(ix,iy,size,entry,player)
         end
     end
     g.setFont(style.smallFont)

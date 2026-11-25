@@ -86,7 +86,7 @@ function InventoryEquipPanels.drawWeaponSlot(parentUI, uiState, x, y, slotIndex,
     
     -- Dibujar item si existe
     if item then
-        local size = math.min(slotSize-8,uiState.layout.iconSize)
+        local size = parentUI:equipmentIconSize()
         local inset = (slotSize-size)/2
         parentUI:drawItem(x+inset,y+inset,size,item)
     end
@@ -289,7 +289,7 @@ function InventoryEquipPanels.drawPassiveSlot(parentUI, uiState, x, y, slotIndex
     love.graphics.rectangle("fill", x, y, slotSize, slotSize)
     
     if item then
-        local size = math.min(slotSize-8,uiState.layout.iconSize)
+        local size = parentUI:equipmentIconSize()
         local inset = (slotSize-size)/2
         parentUI:drawItem(x+inset,y+inset,size,item)
     end

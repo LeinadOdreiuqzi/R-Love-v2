@@ -96,7 +96,9 @@ function Exchange.press(ui, x, y, button)
         return
     end
     if side == 'weapons' and index == 1 then return end
-    ui.drag = {side = side, index = index, entry = entry, rotated = rotated, box = l.box,
+    local fromGrid = side == 'box' or side == 'ship'
+    local size = fromGrid and CargoPanel.iconSize(l.pitch,l.iconSize) or InventoryUI:equipmentIconSize()
+    ui.drag = {size=size,side = side, index = index, entry = entry, rotated = rotated, box = l.box,
         dx = (cell - anchor) % columns, dy = math.floor((cell - anchor) / columns),
         startX = x, startY = y}
 end
@@ -214,9 +216,9 @@ local function drawContents(ui)
             g.rectangle('line',rect(l,side,anchor or cell,anchor and w or 1,anchor and h or 1))
         end
         local icon = d.entry.data and d.entry or {data=d.entry}
-        local size = math.min(l.iconSize,math.max(10,(l.pitch-CargoPanel.padding)*.8))
-        MenuCamera.itemEcho('loot',icon.data,mx+8,my+8,size)
-        InventoryUI:drawItem(mx+8,my+8,size,icon,ui.player)
+        local x,y = mx-d.size/2,my-d.size/2
+        MenuCamera.itemEcho('loot',icon.data,x,y,d.size)
+        InventoryUI:drawItem(x,y,d.size,icon,ui.player)
         hint = not side and 'Suelta fuera para cancelar' or (anchor or not onGrid) and 'Suelta para colocar' or 'No cabe aquí'
         if Grid.canRotate(d.entry) then hint = hint .. '   ·   R para girar' end
     else

@@ -372,8 +372,8 @@ end
 function EVAInventoryUI:openModal(x, y, slotIndex)
     evaUIState.modal.isOpen = true
     evaUIState.modal.slotIndex = slotIndex
-    evaUIState.modal.x = x
-    evaUIState.modal.y = y
+    local modal = evaUIState.modal
+    modal.x,modal.y = MenuTheme.popupPosition(x,y,modal.width,modal.height,4)
 end
 
 -- Manejar clics en el modal

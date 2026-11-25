@@ -1,3 +1,4 @@
+local MenuTheme = require 'src.ui.menu_theme'
 local Theme = {
     colors = {active = {.25, .87, 1}, evolved = {.78, .53, 1}, recipe = {1, .73, .26},
         muted = {.57, .68, .76}, text = {.9, .96, 1}, danger = {1, .35, .38}}
@@ -62,8 +63,7 @@ function Theme.tooltip(player, data, mouseX, mouseY, footprint)
         height = height + section.height
     end
     local scale = math.min(1, (g.getHeight() - 24) / height)
-    local x = math.max(12, math.min(mouseX + 16, g.getWidth() - width * scale - 12))
-    local y = math.max(12, math.min(mouseY + 16, g.getHeight() - height * scale - 12))
+    local x,y = MenuTheme.popupPosition(mouseX,mouseY,width*scale,height*scale,16)
     g.push('all'); g.translate(x, y); g.scale(scale)
     Theme.panel(0, 0, width, height, Theme.colors.active, true)
     local top = 10
