@@ -194,7 +194,7 @@ function WorldItems.draw(camera, playerX, playerY)
                 -- Efecto de aura para items raros
                 local hasAura = false
                 if rarity then
-                    if type(rarity) == "table" and rarity.name and rarity.name ~= "Común" then
+                    if type(rarity) == "table" and rarity.name and rarity.name ~= "Standard" and rarity.name ~= "Común" then
                         hasAura = true
                     elseif type(rarity) == "string" and rarity:upper() ~= "COMMON" then
                         hasAura = true

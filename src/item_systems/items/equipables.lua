@@ -33,7 +33,7 @@ local function registerWeapon(def)
     def.category = ItemSystem.CATEGORIES.EQUIPABLE
     def.equipType = ItemSystem.EQUIPABLE_TYPES.WEAPON
     def.slot = def.slot or Equipables.SLOTS.WEAPON_PRIMARY
-    def.rarity = def.rarity or "weapon"
+    def.rarity = def.rarity or ItemSystem.RARITY.COMMON
     def.tags = def.tags or {"weapon", def.damageType or "energy", "ranged"}
 
     if not def.onEquip then

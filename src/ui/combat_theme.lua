@@ -45,6 +45,10 @@ function Theme.tooltip(player, data, mouseX, mouseY, footprint)
     local width = math.min(350, g.getWidth() - 24)
     local sections = {{text = (data.name or data.id):gsub('★%s*', ''), kind = data.isEvolved and 'evolved' or 'text', font = Theme.title},
         {text = data.description or '', kind = 'muted', font = Theme.font}}
+    local roles = {material = 'Salvage', valuable = 'Valuables', schematic = 'Esquema',
+        currency = 'Moneda de actividad'}
+    local role = data.id == 'salvage_room_key' and 'Llave' or roles[data.category]
+    if role then sections[#sections + 1] = {text = role, kind = 'muted'} end
     if type(data.rarity) == 'table' and data.rarity.name then
         table.insert(sections, 2, {text = data.rarity.name, color = data.rarity.color})
     end

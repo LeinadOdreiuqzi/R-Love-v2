@@ -348,6 +348,8 @@ local function copyStack(itemData, quantity)
         for k, v in pairs(itemData) do entry[k] = v end
     end
     for k, v in pairs(itemData.data or itemData) do data[k] = v end
+    local template = ItemSystem:getItem(data.id)
+    if template then data.rarity = template.rarity end
     data.quantity, entry.data, entry.quantity = quantity, data, quantity
     return entry
 end

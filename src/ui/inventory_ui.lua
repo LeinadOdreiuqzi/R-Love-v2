@@ -71,6 +71,7 @@ local uiState = {
             uncommon = {0.3, 0.85, 0.4, 1},
             rare = {0.3, 0.6, 1, 1},
             epic = {0.8, 0.3, 0.9, 1},
+            contraband = {1.0, 0.20, 0.24, 1},
             legendary = {1, 0.65, 0.15, 1}
         }
     },

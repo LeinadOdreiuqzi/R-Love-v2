@@ -39,7 +39,10 @@ local pools = {
         {'gauss_railgun'}, {'gravitic_wave_projector'}, {'void_needle_dart'}},
     {{'enhanced_thrusters'}, {'inertial_gyro', 'rapid_fire_system'},
         {'reactive_armor_plating', 'salvage_magnet_array'}, {'afterburner_injector'}, {'cataclysm_core'}},
-    {{'repair_kit', 'salvaged_fuel'}, {'energy_stim'}, {'medical_nanobots'}}
+    {{'repair_kit', 'salvaged_fuel', 'iron_ore', 'basic_circuit'},
+        {'energy_stim', 'hull_kit_enhanced', 'titanium_ingot', 'survey_record'},
+        {'medical_nanobots', 'hull_kit_deluxe', 'kit_schematic', 'energy_crystal'},
+        {'hull_kit_superior'}, {'element_zero'}}
 }
 
 function Loot.applyCatalogRarities()
@@ -49,7 +52,9 @@ function Loot.applyCatalogRarities()
         for tier, ids in ipairs(category) do
             for _, id in ipairs(ids) do
                 local item = assert(Items:getItem(id), 'Botín sin registrar: ' .. id)
-                item.rarity = tiers[tier]
+                if item.rarity ~= Items.RARITY.CONTRABAND then
+                    item.rarity = tiers[tier]
+                end
             end
         end
     end
@@ -113,6 +118,8 @@ local function packBox(items, capacity, preserve)
         end
     else
         table.sort(order, function(a, b)
+            local aSeal, bSeal = a.data.id == 'frontier_seal', b.data.id == 'frontier_seal'
+            if aSeal ~= bSeal then return aSeal end
             if a.area == b.area then return a.index < b.index end
             return a.area > b.area
         end)
@@ -157,6 +164,7 @@ function Loot.registerFrontierWreck(run, x, y, rotation)
     local cargo = Loot.roll('roomRare', rng, 4)
     local rareCargo = Loot.roll('roomExceptional', rng, 2)
     for _, item in ipairs(rareCargo) do cargo[#cargo+1] = item end
+    cargo[#cargo + 1] = 'frontier_seal'
     run.lootRooms[id] = {packBox(cargo,32),frontierWreck={x=x,y=y,rotation=rotation}}
     return id
 end

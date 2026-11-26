@@ -9,6 +9,8 @@ ItemSystem.CATEGORIES = {
     PASSIVE = "passive",           -- Items que otorgan efectos permanentes
     EQUIPABLE = "equipable",       -- Armas, armaduras, herramientas
     MATERIAL = "material",         -- Materiales para crafting
+    VALUABLE = "valuable",
+    SCHEMATIC = "schematic",
     QUEST = "quest",               -- Items de misión
     CURRENCY = "currency"          -- Monedas, créditos, etc.
 }
@@ -25,11 +27,12 @@ ItemSystem.EQUIPABLE_TYPES = {
 
 -- Rareza de items
 ItemSystem.RARITY = {
-    COMMON = { name = "Común", color = {0.8, 0.8, 0.8}, value_multiplier = 1.0 },
-    UNCOMMON = { name = "Poco Común", color = {0.3, 0.8, 0.3}, value_multiplier = 1.5 },
-    RARE = { name = "Raro", color = {0.3, 0.3, 0.8}, value_multiplier = 2.5 },
-    EPIC = { name = "Épico", color = {0.8, 0.3, 0.8}, value_multiplier = 4.0 },
-    LEGENDARY = { name = "Legendario", color = {1.0, 0.6, 0.0}, value_multiplier = 6.0 }
+    COMMON = { name = "Standard", color = {0.8, 0.8, 0.8}, value_multiplier = 1.0 },
+    UNCOMMON = { name = "Enhanced", color = {0.3, 0.8, 0.3}, value_multiplier = 1.5 },
+    RARE = { name = "Deluxe", color = {0.32, 0.60, 1.0}, value_multiplier = 2.5 },
+    EPIC = { name = "Superior", color = {0.8, 0.3, 0.8}, value_multiplier = 4.0 },
+    LEGENDARY = { name = "Prestige", color = {1.0, 0.79, 0.22}, value_multiplier = 6.0 },
+    CONTRABAND = { name = "Contrabando", color = {1.0, 0.20, 0.24}, value_multiplier = 1.0 }
 }
 
 -- Estructura base de un item

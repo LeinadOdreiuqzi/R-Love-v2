@@ -73,7 +73,7 @@ function Materials.canCraft(recipeId, inventory)
         end
         
         if totalQuantity < ingredient.quantity then
-            return false, "Materiales insuficientes: " .. ingredient.id
+            return false, "Falta: " .. ((ItemSystem:getItem(ingredient.id) or {}).name or ingredient.id)
         end
     end
     
@@ -336,6 +336,14 @@ end
 
 -- Función para registrar recetas básicas
 function Materials.registerBasicRecipes()
+    Materials.registerRecipe('salvaged_fuel', {
+        {id = 'iron_ore', quantity = 2}, {id = 'basic_circuit', quantity = 1}
+    })
+    Materials.registerRecipe('hull_kit_enhanced', {
+        {id = 'repair_kit', quantity = 1}, {id = 'titanium_ingot', quantity = 1}
+    })
+    Materials.registerRecipe('hull_kit_prestige', {{id = 'frontier_seal', quantity = 1}})
+
     -- Receta: Kit de Reparación EVA
     Materials.registerRecipe("eva_repair_kit", {
         { id = "advanced_polymer", quantity = 2 },
@@ -368,7 +376,7 @@ function Materials.registerBasicRecipes()
         { id = "basic_circuit", quantity = 2 }
     }, 30, "tool_repair")
     
-    print("Recetas básicas registradas: 5 recetas")
+    print("Recetas básicas registradas: 8 recetas")
 end
 
 -- Función para obtener todas las recetas disponibles

@@ -29,6 +29,7 @@ function RunState:new(opts)
         objectives = {},         -- objetivos activos (placeholder)
         lootRooms = {},
         salvageKeys = {},
+        schematics = {},
         convoyVisited = {},
         frontierVictories = {},
         meta = {                 -- NUEVO: métricas de telemetría (placeholders)
@@ -155,6 +156,7 @@ function RunState:reset(seed)
     self.objectives = {}
     self.lootRooms = {}
     self.salvageKeys = {}
+    self.schematics = {}
     self.convoyVisited = {}
     self.frontierVictories = {}
     self.meta = { distanceTravelled = 0, eventsTriggered = 0, fuelConsumed = 0, damageTaken = 0, boostsUsed = 0, timeByBiome = {} }
@@ -244,6 +246,7 @@ function RunState:serialize()
         defeat = self.defeat,
         lootRooms = self.lootRooms,
         salvageKeys = self.salvageKeys,
+        schematics = self.schematics,
         convoyVisited = self.convoyVisited,
         frontierVictories = self.frontierVictories,
         resources = {
@@ -268,6 +271,7 @@ function RunState:deserialize(data)
     self.defeat = data.defeat
     self.lootRooms = data.lootRooms or {}
     self.salvageKeys = data.salvageKeys or {}
+    self.schematics = data.schematics or {}
     self.convoyVisited = data.convoyVisited or {}
     self.frontierVictories = data.frontierVictories or {}
     if type(data.resources) == 'table' then

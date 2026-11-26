@@ -39,6 +39,22 @@ function ItemInit.initialize()
         stackable = true,
         maxStack = 10
     })
+    local categories, tiers = ItemSystem.CATEGORIES, ItemSystem.RARITY
+    ItemSystem:registerItem({
+        id = 'survey_record', name = 'Registro cartográfico', category = categories.VALUABLE,
+        description = 'Objeto valioso con datos cartográficos de un sector explorado.',
+        rarity = tiers.UNCOMMON, value = 60, stackable = true, maxStack = 12
+    })
+    ItemSystem:registerItem({
+        id = 'kit_schematic', name = 'Esquema de reparación Deluxe', category = categories.SCHEMATIC,
+        description = 'Contiene las especificaciones del kit de reparación Deluxe.',
+        rarity = tiers.RARE, stackable = true, maxStack = 4
+    })
+    ItemSystem:registerItem({
+        id = 'frontier_seal', name = 'Sello de Frontera', category = categories.CURRENCY,
+        description = 'Distintivo recuperado del pecio de El Portero en Frontera.',
+        rarity = tiers.LEGENDARY, stackable = true, maxStack = 4
+    })
     Loot.applyCatalogRarities()
     
     -- Registrar recetas de crafting

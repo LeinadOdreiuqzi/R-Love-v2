@@ -326,41 +326,48 @@ function Consumables.registerAll()
         end
     })
     
-    -- Kit de Reparación
-    ItemSystem:registerItem({
-        id = "repair_kit",
-        name = "Kit de Reparación",
-        description = "Restaura hasta 50 puntos de casco. Requiere 3 segundos sin recibir daño.",
-        category = ItemSystem.CATEGORIES.CONSUMABLE,
-        rarity = ItemSystem.RARITY.COMMON,
-        stackable = true,
-        maxStack = 10,
-        value = 50,
-        weight = 0.5,
-        icon = "repair_kit",
-        tags = {"repair", "healing", "ship"},
-        
-        canUse = function(self, player)
-            local stats = player and player.stats
-            local health = stats and stats.health
-            if not health or not stats.getRecoveryDelay or player.isInEVA or health.currentHealth <= 0 then
-                return false, "Necesitas una nave operativa."
+    local function registerHullKit(id, rarity, repairAmount)
+        ItemSystem:registerItem({
+            id = id,
+            name = "Kit de reparación " .. rarity.name,
+            description = ("Repara hasta %d puntos de casco tras 3 segundos sin recibir daño."):format(repairAmount),
+            category = ItemSystem.CATEGORIES.CONSUMABLE,
+            rarity = rarity,
+            hullRepair = repairAmount,
+            stackable = true,
+            maxStack = 10,
+            value = 50,
+            weight = 0.5,
+            icon = "repair_kit",
+            tags = {"repair", "healing", "ship"},
+
+            canUse = function(self, player)
+                local stats = player and player.stats
+                local health = stats and stats.health
+                if not health or not stats.getRecoveryDelay or player.isInEVA or health.currentHealth <= 0 then
+                    return false, "Necesitas una nave operativa."
+                end
+                if health.currentHealth >= health.maxHealth then
+                    return false, "El casco está intacto."
+                end
+                if stats:getRecoveryDelay() > 0 then
+                    return false, "Reparación bloqueada por daño reciente."
+                end
+                return true
+            end,
+            use = function(self, player)
+                local heal_result = Effects.heal(player, repairAmount)
+                return "Nave reparada. " .. heal_result
             end
-            if health.currentHealth >= health.maxHealth then
-                return false, "El casco está intacto."
-            end
-            if stats:getRecoveryDelay() > 0 then
-                return false, "Reparación bloqueada por daño reciente."
-            end
-            return true
-        end,
-        use = function(self, player)
-            local heal_result = Effects.heal(player, 50)
-            return "Nave reparada. " .. heal_result
-        end
-    })
-    
-    print("Items consumibles registrados: 9 items")
+        })
+    end
+    local tiers = ItemSystem.RARITY
+    registerHullKit("repair_kit", tiers.COMMON, 50)
+    registerHullKit("hull_kit_enhanced", tiers.UNCOMMON, 65)
+    registerHullKit("hull_kit_deluxe", tiers.RARE, 85)
+    registerHullKit("hull_kit_superior", tiers.EPIC, 110)
+    registerHullKit("hull_kit_prestige", tiers.LEGENDARY, 150)
+    print("Consumibles registrados")
 end
 
 return Consumables

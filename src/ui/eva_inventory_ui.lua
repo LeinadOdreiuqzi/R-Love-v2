@@ -56,6 +56,7 @@ function EVAInventoryUI:init()
             uncommon = {0.2, 0.8, 0.2, 1},
             rare = {0.2, 0.4, 1, 1},
             epic = {0.6, 0.2, 1, 1},
+            contraband = {1.0, 0.20, 0.24, 1},
             legendary = {1, 0.6, 0.2, 1}
         },
         itemType = {
