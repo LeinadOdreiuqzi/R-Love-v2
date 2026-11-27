@@ -46,8 +46,8 @@ function ItemInit.initialize()
         rarity = tiers.UNCOMMON, value = 60, stackable = true, maxStack = 12
     })
     ItemSystem:registerItem({
-        id = 'kit_schematic', name = 'Esquema de reparación Deluxe', category = categories.SCHEMATIC,
-        description = 'Contiene las especificaciones del kit de reparación Deluxe.',
+        id = 'kit_schematic', name = 'Esquema de reparación reforzada', category = categories.SCHEMATIC,
+        description = 'Contiene las especificaciones del kit de reparación reforzado.',
         rarity = tiers.RARE, stackable = true, maxStack = 4
     })
     ItemSystem:registerItem({
@@ -148,7 +148,7 @@ end
 function ItemInit.createTestInventory()
     local inventory = {
         ItemInit.createItem("eva_repair_kit", 3),
-        ItemInit.createItem("energy_stim", 5),
+        ItemInit.createItem("enhanced_fuel", 5),
         ItemInit.createItem("iron_ore", 20),
         ItemInit.createItem("titanium_ingot", 5),
         ItemInit.createItem("energy_crystal", 3),

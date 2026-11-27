@@ -342,7 +342,7 @@ function Materials.registerBasicRecipes()
     Materials.registerRecipe('hull_kit_enhanced', {
         {id = 'repair_kit', quantity = 1}, {id = 'titanium_ingot', quantity = 1}
     })
-    Materials.registerRecipe('hull_kit_prestige', {{id = 'frontier_seal', quantity = 1}})
+    Materials.registerRecipe('hull_kit_superior', {{id = 'frontier_seal', quantity = 1}})
 
     -- Receta: Kit de Reparación EVA
     Materials.registerRecipe("eva_repair_kit", {
@@ -350,12 +350,6 @@ function Materials.registerBasicRecipes()
         { id = "basic_circuit", quantity = 1 },
         { id = "energy_cell", quantity = 1 }
     }, 10)
-    
-    -- Receta: Estimulante de Energía
-    Materials.registerRecipe("energy_stim", {
-        { id = "alien_biomass", quantity = 1 },
-        { id = "energy_crystal", quantity = 1 }
-    }, 5)
     
     -- Receta: Circuito Básico
     Materials.registerRecipe("basic_circuit", {
@@ -376,7 +370,7 @@ function Materials.registerBasicRecipes()
         { id = "basic_circuit", quantity = 2 }
     }, 30, "tool_repair")
     
-    print("Recetas básicas registradas: 8 recetas")
+    print("Recetas básicas registradas: 7 recetas")
 end
 
 -- Función para obtener todas las recetas disponibles

@@ -6,6 +6,7 @@ InventorySystem.__index = InventorySystem
 
 -- Importar el sistema de items principal para usar tipos estándar
 local ItemSystem = require 'src.item_systems.item_system'
+local Consumables = require 'src.item_systems.items.consumables'
 local Passives = require 'src.item_systems.items.passives'
 local PassiveManager = require 'src.item_systems.passive_manager'
 local SynergyEngine = require 'src.item_systems.synergy_engine'
@@ -157,11 +158,11 @@ local SAMPLE_ITEMS = {
         id = "repair_kit",
         name = "Kit de Reparación",
         category = ItemSystem.CATEGORIES.CONSUMABLE,
-        description = "Restaura 50 puntos de vida",
+        description = "Repara hasta 50 puntos de casco tras 3 segundos sin recibir daño.",
         healAmount = 50,
         rarity = ItemSystem.RARITY.COMMON,
-        value = 75,
-        weight = 0.3,
+        value = 50,
+        weight = 0.5,
         stackable = true,
         maxStack = 10
     }
@@ -243,8 +244,7 @@ function InventorySystem:addSampleItems()
     self:addItem(SAMPLE_ITEMS[3]) -- Escudo básico
     self:addItem(SAMPLE_ITEMS[5]) -- Motor básico
     self:addItem(SAMPLE_ITEMS[7]) -- Escáner básico
-    self:addItem(SAMPLE_ITEMS[8]) -- Kit de reparación
-    self:addItem(SAMPLE_ITEMS[8]) -- Otro kit de reparación
+    self:addItem(ItemSystem:getItem("repair_kit"), 2)
 end
 
 -- Agregar item al inventario
@@ -348,6 +348,7 @@ local function copyStack(itemData, quantity)
         for k, v in pairs(itemData) do entry[k] = v end
     end
     for k, v in pairs(itemData.data or itemData) do data[k] = v end
+    Consumables.refreshEntry(data)
     local template = ItemSystem:getItem(data.id)
     if template then data.rarity = template.rarity end
     data.quantity, entry.data, entry.quantity = quantity, data, quantity

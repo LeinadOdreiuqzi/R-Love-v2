@@ -407,11 +407,11 @@ end
 function EVAInventoryUI:useEVAItem(slotIndex, evaPlayer)
     if not evaPlayer or not evaPlayer.inventory then return end
     -- Usar directamente desde el inventario EVA
-    local item = evaPlayer.inventory:useItem(slotIndex)
+    local item, reason = evaPlayer.inventory:useItem(slotIndex, evaPlayer)
     if item then
         print("Usando: " .. (item.name or item.data and item.data.name or ""))
         if item.stats then
-            if item.stats.heal and evaPlayer.stats then
+            if item.id ~= "eva_repair_kit" and item.stats.heal and evaPlayer.stats then
                 evaPlayer.stats:heal(item.stats.heal)
                 print("Curado " .. item.stats.heal .. " puntos de vida")
             end
@@ -420,7 +420,7 @@ function EVAInventoryUI:useEVAItem(slotIndex, evaPlayer)
             end
         end
     else
-        print("No hay item en el slot " .. slotIndex)
+        print(reason or ("No hay item utilizable en el slot " .. slotIndex))
     end
 end
 

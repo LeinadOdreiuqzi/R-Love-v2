@@ -40,8 +40,8 @@ local pools = {
     {{'enhanced_thrusters'}, {'inertial_gyro', 'rapid_fire_system'},
         {'reactive_armor_plating', 'salvage_magnet_array'}, {'afterburner_injector'}, {'cataclysm_core'}},
     {{'repair_kit', 'salvaged_fuel', 'iron_ore', 'basic_circuit'},
-        {'energy_stim', 'hull_kit_enhanced', 'titanium_ingot', 'survey_record'},
-        {'medical_nanobots', 'hull_kit_deluxe', 'kit_schematic', 'energy_crystal'},
+        {'enhanced_fuel', 'hull_kit_enhanced', 'titanium_ingot', 'survey_record'},
+        {'kit_schematic', 'energy_crystal'},
         {'hull_kit_superior'}, {'element_zero'}}
 }
 

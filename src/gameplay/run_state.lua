@@ -270,6 +270,16 @@ function RunState:deserialize(data)
     self.phase = data.phase or "in_space"
     self.defeat = data.defeat
     self.lootRooms = data.lootRooms or {}
+    local consumables = require 'src.item_systems.items.consumables'
+    for _, room in pairs(self.lootRooms) do
+        for _, box in ipairs(room) do
+            for index, id in ipairs(box) do
+                box[index] = consumables.currentId(id)
+                local place = box.placements and box.placements[index]
+                if place and place.entry then consumables.refreshEntry(place.entry) end
+            end
+        end
+    end
     self.salvageKeys = data.salvageKeys or {}
     self.schematics = data.schematics or {}
     self.convoyVisited = data.convoyVisited or {}

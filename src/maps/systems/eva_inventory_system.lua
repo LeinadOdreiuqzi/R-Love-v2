@@ -2,6 +2,7 @@
 -- Sistema de inventario específico para EVA (Extra-Vehicular Activity)
 -- Inventario reducido con solo 3 slots para items esenciales
 
+local Items = require 'src.item_systems.item_system'
 local EVAInventorySystem = {}
 
 -- Tipos de items permitidos en EVA (solo esenciales)
@@ -98,7 +99,7 @@ function EVAInventorySystem:addInitialItems()
     
     if isInventoryEmpty then
         -- Agregar kit de reparación EVA por defecto
-        self:addItem(EVA_ITEMS[1]) -- Kit de reparación EVA
+        self:addItem(Items:getItem("eva_repair_kit") or EVA_ITEMS[1]) -- Kit de reparación EVA
     end
 end
 
@@ -219,10 +220,15 @@ function EVAInventorySystem:moveItem(fromSlot, toSlot)
 end
 
 -- Usar item consumible (reduce cantidad y elimina si llega a 0)
-function EVAInventorySystem:useItem(slotIndex)
+function EVAInventorySystem:useItem(slotIndex, pilot)
     if slotIndex >= 1 and slotIndex <= self.maxSlots then
         local item = self.items[slotIndex]
-        if item and item.data and item.data.category == "consumable" then
+        if item and item.data and (item.data.category or item.data.type) == "consumable" then
+            local template = Items:getItem(item.data.id)
+            if template then
+                local used, reason = Items:useItem(template, pilot)
+                if not used then return nil, reason end
+            end
             local currentQty = item.quantity or item.data.quantity or 1
             local newQty = currentQty - 1
             item.quantity = newQty
