@@ -1261,7 +1261,7 @@ function AIController:updateWorldGoal(dt)
                             self.ship.stats:addFuel(15)
                         end
                     end
-                    local dropId = (self:random() < 0.45) and "energy_crystal" or "iron_ore"
+                    local dropId = (self:random() < 0.45) and "basic_circuit" or "cable_harness"
                     local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
                     local itemData = ItemSystem and ItemSystem.getItem and ItemSystem:getItem(dropId)
                     if itemData then
@@ -1343,7 +1343,7 @@ function AIController:updateWorldGoal(dt)
                             self.ship.stats:addFuel(15)
                         end
                     end
-                    local dropId = (self:random() < 0.40) and "energy_crystal" or "iron_ore"
+                    local dropId = (self:random() < 0.40) and "basic_circuit" or "cable_harness"
                     local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
                     local itemData = ItemSystem and ItemSystem.getItem and ItemSystem:getItem(dropId)
                     if itemData then
@@ -1362,7 +1362,12 @@ function AIController:updateWorldGoal(dt)
                 if self.ship.inventory and self.ship.inventory.addItem then
                     local ItemSystem = package.loaded['src.item_systems.item_system'] or require('src.item_systems.item_system')
                     if ItemSystem and ItemSystem.createItemInstance then
-                        local dropId = (self:random() < 0.40) and "energy_crystal" or "iron_ore"
+                        local dropId
+                        if wg.type == "mine_asteroid" then
+                            dropId = (self:random() < 0.40) and "energy_crystal" or "iron_ore"
+                        else
+                            dropId = (self:random() < 0.40) and "basic_circuit" or "cable_harness"
+                        end
                         local inst = ItemSystem:createItemInstance(dropId, 2)
                         if inst then
                             pcall(function() self.ship.inventory:addItem(inst) end)

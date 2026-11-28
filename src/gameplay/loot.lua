@@ -39,10 +39,24 @@ local pools = {
         {'gauss_railgun'}, {'gravitic_wave_projector'}, {'void_needle_dart'}},
     {{'enhanced_thrusters'}, {'inertial_gyro', 'rapid_fire_system'},
         {'reactive_armor_plating', 'salvage_magnet_array'}, {'afterburner_injector'}, {'cataclysm_core'}},
-    {{'repair_kit', 'salvaged_fuel', 'iron_ore', 'basic_circuit'},
-        {'enhanced_fuel', 'hull_kit_enhanced', 'titanium_ingot', 'survey_record'},
-        {'kit_schematic', 'energy_crystal'},
-        {'hull_kit_superior'}, {'element_zero'}}
+    {{'repair_kit', 'salvaged_fuel', 'salvage', 'salvage'},
+        {'enhanced_fuel', 'hull_kit_enhanced', 'salvage', 'survey_record'},
+        {'kit_schematic', 'salvage'},
+        {'hull_kit_superior', 'salvage'}, {'salvage'}}
+}
+
+-- Una plaza de material se resuelve después de elegir la categoría y la rareza.
+local components = {
+    {'basic_circuit', 'energy_cell', 'cable_harness'},
+    {'titanium_ingot', 'advanced_polymer', 'servo_actuator'},
+    {'nanofiber', 'sensor_optics'},
+    {'confinement_coil'},
+    {'element_zero'}
+}
+local salvagePools = {
+    general = components,
+    asteroid = {{'iron_ore'}, {'space_quartz'}, {'energy_crystal'}, components[4], {'element_zero'}},
+    wreck = {components[1], components[2], components[3], components[4], {'jump_matrix'}}
 }
 
 function Loot.applyCatalogRarities()
@@ -51,9 +65,17 @@ function Loot.applyCatalogRarities()
     for _, category in ipairs(pools) do
         for tier, ids in ipairs(category) do
             for _, id in ipairs(ids) do
-                local item = assert(Items:getItem(id), 'Botín sin registrar: ' .. id)
-                if item.rarity ~= Items.RARITY.CONTRABAND then
-                    item.rarity = tiers[tier]
+                if id == 'salvage' then
+                    for _, source in pairs(salvagePools) do
+                        for _, material in ipairs(source[tier]) do
+                            local item = assert(Items:getItem(material), 'Salvage sin registrar: ' .. material)
+                            assert(item.rarity == tiers[tier] or item.rarity == Items.RARITY.CONTRABAND,
+                                'Rareza de salvage incorrecta: ' .. material)
+                        end
+                    end
+                else
+                    local item = assert(Items:getItem(id), 'Botín sin registrar: ' .. id)
+                    if item.rarity ~= Items.RARITY.CONTRABAND then item.rarity = tiers[tier] end
                 end
             end
         end
@@ -70,20 +92,25 @@ local function choose(rng, weights)
     end
 end
 
-local function pickItem(profile, rng, category, maxTier)
+local function pickItem(profile, rng, category, maxTier, source)
     local pool = pools[category]
     if not pool then return nil end
     local tier = choose(rng, {unpack(profile[3], 1, math.min(maxTier or #pool, #pool))})
     local ids = pool[tier]
-    return ids[1 + math.floor(rng:random() * #ids)], tier
+    local id = ids[1 + math.floor(rng:random() * #ids)]
+    if id == 'salvage' then
+        local materials = salvagePools[source or 'general'][tier]
+        id = materials[1 + math.floor(rng:random() * #materials)]
+    end
+    return id, tier
 end
 
-function Loot.roll(profileId, rng, count)
+function Loot.roll(profileId, rng, count, source)
     local profile = assert(profiles[profileId], 'Perfil de botín desconocido')
     local result = {}
     local categories = {profile[1], profile[2], 100 - profile[1] - profile[2]}
     for i = 1, count or profile[4] or 1 do
-        result[i] = pickItem(profile, rng, choose(rng, categories))
+        result[i] = pickItem(profile, rng, choose(rng, categories), nil, source)
     end
     return result
 end
@@ -149,7 +176,7 @@ function Loot.registerConvoyWreck(run, convoyId, x, y, rotation, size)
     local count = 3 + choose(rng, {40, 45, 15})
     for index = 1, count do
         local category = choose(rng, {profile[1], profile[2], 100 - profile[1] - profile[2]})
-        local item, tier = pickItem(profile, rng, category, maxTier)
+        local item, tier = pickItem(profile, rng, category, maxTier, 'wreck')
         cargo[index] = item
         if tier >= 4 then maxTier = 3 end
     end
@@ -161,15 +188,15 @@ function Loot.registerFrontierWreck(run, x, y, rotation)
     local id = 'frontier:1:wreck'
     if run.lootRooms[id] then return id end
     local rng = love.math.newRandomGenerator(Seed.toNumeric(tostring(run.seed)..':'..id))
-    local cargo = Loot.roll('roomRare', rng, 4)
-    local rareCargo = Loot.roll('roomExceptional', rng, 2)
+    local cargo = Loot.roll('roomRare', rng, 4, 'wreck')
+    local rareCargo = Loot.roll('roomExceptional', rng, 2, 'wreck')
     for _, item in ipairs(rareCargo) do cargo[#cargo+1] = item end
     cargo[#cargo + 1] = 'frontier_seal'
     run.lootRooms[id] = {packBox(cargo,32),frontierWreck={x=x,y=y,rotation=rotation}}
     return id
 end
 
-function Loot.unlockRoom(run, roomId, inventory, rarity)
+function Loot.unlockRoom(run, roomId, inventory, rarity, source)
     local config = roomProfiles[rarity or 'common']
     if not config then return false end
     local rooms = run.lootRooms
@@ -185,7 +212,7 @@ function Loot.unlockRoom(run, roomId, inventory, rarity)
             if rng:random() < config.extraBoxChance then count = count + 1 end
             for index = 1, count do
                 local size = choose(rng, config.itemWeights) + 1
-                boxes[index] = packBox(Loot.roll(config.profile, rng, size), config.capacity)
+                boxes[index] = packBox(Loot.roll(config.profile, rng, size, source), config.capacity)
             end
             boxes.rarity = rarity or 'common'
             local quantity = (entry.quantity or 1) - 1

@@ -133,7 +133,7 @@ function Inspection:keypressed(key)
         self.keyCollected = self:collectKey(target)
     elseif Loot.getRoomRarity(self.run, target.id) then
         self.message = 'Cápsula abierta. Acércate a una de sus cajas.'
-    elseif Loot.unlockRoom(self.run, target.id, self.player.inventory, target.rarity or target.id) then
+    elseif Loot.unlockRoom(self.run, target.id, self.player.inventory, target.rarity or target.id, target.salvageSource) then
         local room = self.run.lootRooms[target.id]
         room.releaseX,room.releaseY = target.x,target.y
         target.unsealing = 0

@@ -331,7 +331,24 @@ function Materials.registerAll()
         materialType = Materials.TYPES.ENERGY
     })
     
-    print("Materiales registrados: 10 items")
+    local function registerPart(id, name, description, rarity, materialType, maxStack, weight)
+        ItemSystem:registerItem({
+            id = id, name = name, description = description, category = ItemSystem.CATEGORIES.MATERIAL,
+            rarity = rarity, materialType = materialType, stackable = true, maxStack = maxStack,
+            weight = weight, pricePending = true
+        })
+    end
+    local tiers, types = ItemSystem.RARITY, Materials.TYPES
+    registerPart('cable_harness', 'Mazo de cables', 'Tramo de cableado recuperado de una red eléctrica de nave.',
+        tiers.COMMON, types.SYNTHETIC, 40, 0.2)
+    registerPart('servo_actuator', 'Servomotor de carga', 'Actuador de precisión empleado en grúas y compuertas.',
+        tiers.UNCOMMON, types.METAL, 20, 0.8)
+    registerPart('sensor_optics', 'Óptica de telemetría', 'Conjunto de lentes calibradas de un sensor de navegación.',
+        tiers.RARE, types.SYNTHETIC, 10, 0.3)
+    registerPart('confinement_coil', 'Bobina de confinamiento', 'Bobina superconductora del sistema de confinamiento de un reactor.',
+        tiers.EPIC, types.ENERGY, 5, 0.7)
+    registerPart('jump_matrix', 'Matriz de salto intacta', 'Matriz de sincronización recuperada de un impulsor de salto pesado.',
+        tiers.LEGENDARY, types.ENERGY, 3, 0.6)
 end
 
 -- Función para registrar recetas básicas

@@ -54,7 +54,9 @@ function Theme.tooltip(player, data, mouseX, mouseY, footprint)
     end
     if footprint then table.insert(sections, #sections, {text = footprint, kind = 'muted'}) end
     for _, line in ipairs(lines) do sections[#sections + 1] = line end
-    if data.value then
+    if data.pricePending then
+        sections[#sections + 1] = {text = 'Valor por tasar', kind = 'muted'}
+    elseif data.value then
         sections[#sections + 1] = {text = 'Valor: ' .. data.value .. ' créditos'
             .. (data.weight and (' · Peso: ' .. data.weight) or ''), kind = 'muted'}
     end

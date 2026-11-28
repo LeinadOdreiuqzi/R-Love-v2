@@ -72,7 +72,8 @@ function Sites.candidate(seed, cx, cy, biome, phase, legacy)
     local x = cx * stride + stride * (.27 + .46 * rng:random())
     local y = cy * stride + stride * (.25 + .50 * rng:random())
     local side = rng:random() < .5 and -1 or 1
-    return {id = id, rarity = rarity, name = names[rarity], color = colors[rarity], x = x, y = y,
+    return {id = id, rarity = rarity, salvageSource = biome == BT.ASTEROID_BELT and 'asteroid' or 'general',
+        name = names[rarity], color = colors[rarity], x = x, y = y,
         keyX = x + side * 340, keyY = y + 140, cx = cx, cy = cy}
 end
 
