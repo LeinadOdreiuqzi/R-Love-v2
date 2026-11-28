@@ -9,6 +9,7 @@ local InputManager = {}
 local World = nil
 local GameState = require 'src.core.game_state'
 local SalvageSites = require 'src.gameplay.salvage_sites'
+local MerchantUI = require 'src.ui.merchant'
 
 -- Estados internos
 local _isInitialized = false
@@ -84,6 +85,10 @@ function InputManager.keypressed(key)
     local topState = stateManager and stateManager.top and stateManager:top()
     local isSubLevel = topState and topState.name == "SubLevelScene"
     local fullscreenShortcut = key == "return" and (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))
+    if key == 'e' and not topState and not frontier and not require('src.core.inventory_manager').isAnyInventoryOpen() then
+        local inspection = SalvageSites.getInspection()
+        if not (inspection and inspection.inspecting) and MerchantUI.open(stateManager, World.get('runState'), player) then return end
+    end
     if not topState and not fullscreenShortcut and SalvageSites.keypressed(player, key) then return end
     if stateManager and stateManager.blocksUnderlying and stateManager:blocksUnderlying() and not isSubLevel then
         -- Permitir solo atajos globales esenciales de ventana/pausa cuando una estación (StationScene) bloquea el Overworld

@@ -499,6 +499,38 @@ local function addToStorage(self, comp, itemData, quantity, autoPack)
     return true
 end
 
+-- Debita la bodega antes de buscar espacio: los ingredientes pueden liberar
+-- la celda del resultado. Ante un rechazo se restauran las pilas originales.
+function InventorySystem:exchangeCargo(costs, output)
+    local cargo = self:getCompartment('ship')
+    local debits = {}
+    for id, needed in pairs(costs) do
+        for slot = 1, cargo.maxSlots do
+            local entry = cargo.items[slot]
+            if entry and entry.data.id == id then
+                local quantity = entry.quantity or entry.data.quantity or 1
+                local take = math.min(needed, quantity)
+                debits[slot] = {original = entry, remaining = quantity - take}
+                needed = needed - take
+                if needed == 0 then break end
+            end
+        end
+        if needed > 0 then return false, 'Faltan objetos en la bodega.' end
+    end
+    for slot, debit in pairs(debits) do
+        cargo.items[slot] = debit.remaining > 0 and copyStack(debit.original, debit.remaining) or nil
+    end
+    if output then
+        if not addToStorage(self, cargo, output, 1, true) then
+            for slot, debit in pairs(debits) do cargo.items[slot] = debit.original end
+            return false, 'Sin espacio en la bodega.'
+        end
+    else
+        self:evaluateSynergies()
+    end
+    return true
+end
+
 -- Obtener información del item por ID
 function InventorySystem:getItemById(itemId)
     for _, item in pairs(SAMPLE_ITEMS) do

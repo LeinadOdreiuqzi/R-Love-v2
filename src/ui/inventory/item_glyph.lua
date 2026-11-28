@@ -15,10 +15,17 @@ local masks = {
     generic = {"   #####   ", "  ##   ##  ", "  # ### #  ", "  # ### #  ", "  ##   ##  ", "   #####   "}
 }
 
+local hullKit = {"   #####   ", "  ##   ##  ", " ######### ", " ##  #  ## ", " ## ### ## ", " ##  #  ## ", " ######### "}
+local fuelTank = {"   ####    ", "   #  #    ", "  #######  ", "  ##   ##  ", "  ##  ###  ", "  ## ## #  ", "  #######  "}
+local supplies = {
+    repair_kit=hullKit, hull_kit_enhanced=hullKit, hull_kit_superior=hullKit,
+    salvaged_fuel=fuelTank, enhanced_fuel=fuelTank
+}
+
 local function draw(data, x, y, size)
     local kind = data.damageType or data.category
     if data.id == 'salvage_room_key' then kind = 'key' end
-    local mask = masks[kind] or masks.generic
+    local mask = supplies[data.id] or masks[kind] or masks.generic
     local pixel = math.max(0.1, size/16)
     if pixel >= 1 then pixel = math.floor(pixel) end
     local left = math.floor(x+(size-11*pixel)/2)

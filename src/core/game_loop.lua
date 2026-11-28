@@ -3,6 +3,7 @@
 -- Encapsula update y draw logrando un main.lua limpio
 
 local GameLoop = {}
+local MerchantUI = require 'src.ui.merchant'
 local Backdrop = require 'src.ui.inventory.backdrop'
 
 local World = require 'src.core.world'
@@ -191,7 +192,9 @@ function GameLoop.draw()
     end
 
     local stateManager = World.get('stateManager')
-    if stateManager and stateManager:blocksUnderlying() then
+    local top = stateManager and stateManager:top()
+    local merchantOpen = top and top.name == "Merchant"
+    if stateManager and stateManager:blocksUnderlying() and not merchantOpen then
         love.graphics.clear(0, 0, 0, 1)
         stateManager:draw()
         local PauseMenu = require 'src.ui.pause_menu'
@@ -212,7 +215,7 @@ function GameLoop.draw()
     local encounter = World.get('frontierEncounter')
     local lootOpen = inspection and inspection.inspecting and activePlayer and inspection.player == activePlayer
         and not activePlayer.isInEVA and (not encounter or encounter.victory)
-    local blurInventory = inventoryOpen or lootOpen
+    local blurInventory = inventoryOpen or lootOpen or merchantOpen
     if blurInventory then Backdrop.begin() end
     if camera then camera:apply() end
     
@@ -235,6 +238,8 @@ function GameLoop.draw()
         end
     end
 
+    local run = World.get('runState')
+    MerchantUI.world(run, player)
     -- 2. Dibujar entidad del jugador principal
     if player then player:draw(SalvageSites.getInspection()) end
     
@@ -258,8 +263,18 @@ function GameLoop.draw()
     
     if camera then camera:unapply() end
     
+    if merchantOpen then
+        Backdrop.finish()
+        stateManager:draw()
+        local pause = require 'src.ui.pause_menu'
+        if pause.isOpen() then pause.draw() end
+        return
+    end
     if state.showHUD then HUD.draw(inventoryOpen) end
     if blurInventory then Backdrop.finish() end
+    if state.showHUD and not inventoryOpen and not lootOpen and not encounter then
+        MerchantUI.hud(run, player, camera)
+    end
     if not inventoryOpen then SalvageSites.drawHUD(player, camera) end
     local director = World.get('director')
     if state.showHUD and not inventoryOpen and director and director.convoy and player and camera then

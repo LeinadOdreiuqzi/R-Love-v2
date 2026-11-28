@@ -2,10 +2,21 @@
 -- Actualización del sistema, expansión de fases y HUD/estado
 
 local PhaseSystem = require 'src.gameplay.phase.core'
+local Merchant = require 'src.gameplay.merchant'
+local World = require 'src.core.world'
 
 -- Actualizar el sistema de fases
 function PhaseSystem.update(dt, playerX, playerY)
     if not PhaseSystem.state.initialized then return end
+    local run, ship = World.getRunState(), World.getPlayer()
+    if run and ship then
+        local phase = PhaseSystem.state.currentPhase
+        if phase > 1 and (not run.merchant or run.merchant.phase < phase) then
+            Merchant.advance(run, phase, ship.x, ship.y, PhaseSystem.getPhaseBounds(phase - 1),
+                PhaseSystem.getPhaseBounds(phase))
+        end
+        Merchant.update(run, ship)
+    end
     
     PhaseSystem.state.lastPlayerPosition.x = playerX
     PhaseSystem.state.lastPlayerPosition.y = playerY
@@ -105,6 +116,10 @@ end
 -- Callback cuando se expande una fase (para que otros sistemas reaccionen)
 function PhaseSystem.onPhaseExpanded(oldPhase, newPhase, newBounds)
     newBounds = newBounds or PhaseSystem.getCurrentPhaseBounds()
+    local run, ship = World.getRunState(), World.getPlayer()
+    if run and ship then
+        Merchant.advance(run, newPhase, ship.x, ship.y, PhaseSystem.getPhaseBounds(newPhase - 1), newBounds)
+    end
     
     -- Notificar al sistema de chunks si existe
     local ChunkManager = require 'src.maps.chunk_manager'

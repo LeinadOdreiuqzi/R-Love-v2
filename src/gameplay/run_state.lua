@@ -7,6 +7,7 @@ RunState.__index = RunState
 
 -- NUEVO: utilidades y versionado
 local SeedSystem = require 'src.utils.seed_system'
+local Merchant = require 'src.gameplay.merchant'
 RunState.__version = 1
 
 -- Getter perezoso del World (evita require circular)
@@ -155,6 +156,7 @@ function RunState:reset(seed)
     self.resources.data = 0
     self.objectives = {}
     self.lootRooms = {}
+    self.merchant = nil
     self.salvageKeys = {}
     self.schematics = {}
     self.convoyVisited = {}
@@ -245,8 +247,9 @@ function RunState:serialize()
         phase = self.phase,
         defeat = self.defeat,
         lootRooms = self.lootRooms,
+        merchant = Merchant.copyState(self.merchant),
         salvageKeys = self.salvageKeys,
-        schematics = self.schematics,
+        schematics = Merchant.copyState(self.schematics),
         convoyVisited = self.convoyVisited,
         frontierVictories = self.frontierVictories,
         resources = {
@@ -270,6 +273,7 @@ function RunState:deserialize(data)
     self.phase = data.phase or "in_space"
     self.defeat = data.defeat
     self.lootRooms = data.lootRooms or {}
+    self.merchant = Merchant.copyState(data.merchant)
     local consumables = require 'src.item_systems.items.consumables'
     for _, room in pairs(self.lootRooms) do
         for _, box in ipairs(room) do
@@ -281,7 +285,7 @@ function RunState:deserialize(data)
         end
     end
     self.salvageKeys = data.salvageKeys or {}
-    self.schematics = data.schematics or {}
+    self.schematics = Merchant.copyState(data.schematics) or {}
     self.convoyVisited = data.convoyVisited or {}
     self.frontierVictories = data.frontierVictories or {}
     if type(data.resources) == 'table' then
